@@ -2,6 +2,9 @@ import * as path from 'path';
 import * as fs from 'node:fs/promises';
 import * as vscode from 'vscode';
 import type { AtlasMindContext } from '../extension.js';
+import { describeHostDryRunNotice } from '../core/dryRun.js';
+import { interceptDryRun } from '../core/dryRunHost.js';
+import { hostExecutionRefusal } from '../core/sandboxRunner.js';
 import type {
   SessionComposerPrefill,
   SessionConversationSummary,
@@ -18,6 +21,7 @@ import type {
   ProjectRunReviewDecision,
   TaskImageAttachment,
   ToolApprovalDecision,
+  TurnProvenance,
 } from '../types.js';
 import {
   applyOperatorFrustrationAdaptation,
@@ -25,7 +29,9 @@ import {
   buildAssistantResponseMetadata,
   buildProjectResponseMetadata,
   buildWorkstationContext,
+  conversationTaintNote,
   ensureAssistantVisibleResponse,
+  openConversationProvenance,
   reconcileAssistantResponse,
   resolveAtlasChatIntent,
   resolveProjectRunProposal,
@@ -33,6 +39,7 @@ import {
   runProjectCommand,
   runLoopCommand,
   toApprovedLoopPrompt,
+  toApprovedProjectSlashPrompt,
 } from '../chat/participant.js';
 import { classifyToolInvocation, getToolApprovalMode, requiresToolApproval } from '../core/toolPolicy.js';
 import type { GitApiLike } from './gitExtensionApi.js';
@@ -50,6 +57,7 @@ import { extractSessionCarryForwardImages, resolvePickedImageAttachments } from 
 import { buildChatWebviewHtml } from './chatWebviewMarkup.js';
 import { hasAiInstructionSyncFile, scanAiInstructionFiles, syncAiInstructionFiles } from '../utils/aiInstructionSync.js';
 import { stripAnsiSequences } from '../utils/terminalOutput.js';
+import { ssotHomeRoot } from '../utils/workspaceRoots.js';
 import { answerConversationRecall, parseConversationRecallRequest } from '../core/conversationRecall.js';
 import { collectPickableModels, resolveModelOverride, type ModelOverride, type PickableModel } from './modelPickerShared.js';
 import { estimateTokens } from '../core/orchestrator.js';
@@ -185,6 +193,12 @@ interface PreparedPromptRequest {
   imageAttachments: TaskImageAttachment[];
   policySnapshots?: Array<{ source: 'runtime' | 'personality' | 'safety' | 'project-soul'; label: string; summary: string }>;
   recoveryNotice?: ChatPanelRecoveryNotice;
+  /**
+   * What this turn's conversation has read, shared by every model call the turn
+   * makes (the answer, a managed-terminal plan, a project run) and recorded back
+   * into the session when the turn ends, however it ends.
+   */
+  provenanceCell?: { current: TurnProvenance };
 }
 
 interface ChatPanelRecoveryNotice {
@@ -1024,6 +1038,14 @@ export class ChatPanel {
         await this.importSessionContext(message.payload);
         return;
       case 'sendToTerminal': {
+        if (interceptDryRun({
+          surface: 'chat-terminal',
+          kind: 'terminal',
+          summary: 'type the code block into the terminal',
+          details: { characters: message.payload.code.length },
+        })) {
+          return;
+        }
         const terminal = vscode.window.activeTerminal ?? vscode.window.createTerminal('AtlasMind');
         // Focus moves with the command. The withheld newline is what keeps the
         // human's keystroke the last gate on anything AtlasMind types, and that
@@ -1116,7 +1138,14 @@ export class ChatPanel {
   }
 
   private async handleSyncAiInstructionNudge(): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The merged set is written into project memory, so the SSOT home's
+    // instruction files are the ones read and merged.
+    const home = ssotHomeRoot();
+    if (home.refusal) {
+      await this.host.webview.postMessage({ type: 'status', payload: home.refusal });
+      return;
+    }
+    const workspaceRoot = home.fsPath;
     if (!workspaceRoot) {
       return;
     }
@@ -1142,7 +1171,8 @@ export class ChatPanel {
   }
 
   private checkAiInstructionNudge(): void {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // No nudge while the home is ambiguous: the sync it offers would be refused.
+    const workspaceRoot = ssotHomeRoot().fsPath;
     if (!workspaceRoot || this.atlas.extensionContext?.workspaceState?.get<boolean>(ChatPanel.NUDGE_DISMISSED_KEY) === true) {
       return;
     }
@@ -1644,16 +1674,21 @@ export class ChatPanel {
       promptAttachments.length > 0 ? { promptAttachments } : undefined,
     );
     this.composerAttachments = [];
-    const preparedRequest = await this.preparePromptRequest(
-      effectivePrompt,
-      submittedAttachments,
-      effectiveMode,
-      sessionContext,
-      activeSessionId,
-      sessionContextBundle ?? undefined,
-      forcedProjectGoal,
-      workflowExecutionPolicy,
-    );
+    const preparedRequest: PreparedPromptRequest = {
+      ...await this.preparePromptRequest(
+        effectivePrompt,
+        submittedAttachments,
+        effectiveMode,
+        sessionContext,
+        activeSessionId,
+        sessionContextBundle ?? undefined,
+        forcedProjectGoal,
+        workflowExecutionPolicy,
+      ),
+      // Seeded from what earlier turns of this conversation read: their text,
+      // and the model's account of it, is in the history this turn sends.
+      provenanceCell: openConversationProvenance(this.atlas.sessionConversation, activeSessionId),
+    };
     const assistantMessageId = this.atlas.sessionConversation.appendMessage(
       'assistant',
       '',
@@ -1723,6 +1758,7 @@ export class ChatPanel {
           cancellationSource.token,
           sessionContextBundle ?? undefined,
           sessionContext || undefined,
+          preparedRequest.provenanceCell,
         );
         await this.host.webview.postMessage({ type: 'status', payload: 'Autonomous project run completed.' });
         return;
@@ -1807,6 +1843,7 @@ export class ChatPanel {
           ...preparedRequest.context,
           chatSessionId: activeSessionId,
           chatMessageId: assistantMessageId,
+          __provenanceCell: preparedRequest.provenanceCell,
         },
         constraints: {
           budget: toBudgetMode(configuration.get<string>('budgetMode')),
@@ -1873,6 +1910,7 @@ export class ChatPanel {
           ],
         }),
         ...(completedModels && completedModels.length > 1 ? { modelsUsed: completedModels } : {}),
+        ...conversationTaintMeta(preparedRequest.provenanceCell, configuration.get<unknown>('security.untrustedEscalationScope')),
       };
       const visibleTranscriptText = ensureAssistantVisibleResponse(reconciled.transcriptText, assistantMeta);
       this.atlas.sessionConversation.updateMessage(
@@ -1950,6 +1988,7 @@ export class ChatPanel {
           cancellationSource.token,
           sessionContextBundle ?? undefined,
           sessionContext || undefined,
+          preparedRequest.provenanceCell,
         );
         await this.host.webview.postMessage({ type: 'status', payload: 'Autonomous project run completed.' });
       }
@@ -1973,6 +2012,12 @@ export class ChatPanel {
         await this.host.webview.postMessage({ type: 'status', payload: `Chat request failed: ${message}` });
       }
     } finally {
+      // Whatever the turn read is the conversation's now — on every path out,
+      // a stop or a failure included, since what streamed before it stays in
+      // the transcript.
+      if (preparedRequest.provenanceCell) {
+        this.atlas.sessionConversation.recordProvenance(activeSessionId, preparedRequest.provenanceCell.current);
+      }
       // Unconditional, and before the ownership check below: this run may have
       // outlived its surface, in which case the registry is the only thing still
       // claiming it and a status bar would go on announcing finished work.
@@ -2012,7 +2057,14 @@ export class ChatPanel {
       return;
     }
 
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // The gap analysis is project memory. Persisting it is automatic (the reply
+    // arriving, not a button), so an ambiguous home is logged and skipped.
+    const home = ssotHomeRoot();
+    if (home.refusal) {
+      console.warn(`[AtlasMind] Gap analysis not saved: ${home.refusal}`);
+      return;
+    }
+    const workspaceRoot = home.fsPath;
     if (!workspaceRoot) {
       return;
     }
@@ -2032,6 +2084,20 @@ export class ChatPanel {
       return;
     }
 
+    // Saved as a side effect once the turn finishes, not as the thing a button
+    // was pressed to save. In a dry run the answer in the chat is the preview,
+    // and the file the dashboard reads is left as it was. The status line below
+    // says so, so no separate notice is raised.
+    if (interceptDryRun({
+      surface: 'gap-analysis',
+      kind: 'auto-write',
+      summary: `write the ${checklistLines.length}-item gap analysis to ${path.join(ssotPath, 'analysis', 'gap-analysis.md')}`,
+      details: { items: checklistLines.length },
+      userInitiated: false,
+    })) {
+      await this.host.webview.postMessage({ type: 'status', payload: 'Gap analysis complete. Dry run is on, so the checklist was not saved to the Project Dashboard.' });
+      return;
+    }
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
     await fs.writeFile(outputPath, `${checklistLines.join('\n')}\n`, 'utf8');
     this.atlas.memoryRefresh.fire();
@@ -2221,7 +2287,21 @@ export class ChatPanel {
       renderManagedTerminal,
     );
 
-    if (followUpDecision.shouldRunFollowUp && followUpDecision.followUpCommand) {
+    // The follow-up is the one command here a model chose, and it would run in
+    // your own terminal on this machine. Under `atlasmind.sandbox.mode =
+    // require` it is not run; the record says so, so the analysis is not told
+    // it ran. Your own command above is yours and ran as typed.
+    const sandboxRefusal = followUpDecision.shouldRunFollowUp && followUpDecision.followUpCommand
+      ? hostExecutionRefusal('a managed-terminal follow-up command')
+      : undefined;
+    if (sandboxRefusal && followUpDecision.followUpCommand) {
+      executions.push({
+        commandLine: followUpDecision.followUpCommand,
+        statusLine: 'Not run: the execution sandbox is required.',
+        output: `[NOT RUN] ${sandboxRefusal}`,
+      });
+      await renderManagedTerminal('The Atlas-requested follow-up command was not run: the execution sandbox is required.');
+    } else if (followUpDecision.shouldRunFollowUp && followUpDecision.followUpCommand) {
       await this.ensureManagedTerminalAllowed({
         ...directive,
         commandLine: followUpDecision.followUpCommand,
@@ -2248,6 +2328,7 @@ export class ChatPanel {
       assistantMessageId,
       directive,
       executions,
+      preparedRequest.provenanceCell,
     );
     const finalPrompt = buildManagedTerminalFinalPrompt(preparedRequest.userMessage, directive, executions);
 
@@ -2331,6 +2412,24 @@ export class ChatPanel {
       output: '',
     };
     executions.push(executionRecord);
+
+    // The follow-up command is one a model chose, which is exactly what a dry
+    // run exists to hold back; the operator's own command is held with it, so
+    // the analysis that follows never mixes a real result with a described one.
+    // The record stands in for the output, and says so, so the model is not
+    // told a command succeeded that never ran.
+    const dryRun = interceptDryRun({
+      surface: 'managed-terminal',
+      kind: 'terminal',
+      summary: `run \`${commandLine.slice(0, 120)}\` in the managed terminal`,
+      details: { commandLine },
+    });
+    if (dryRun) {
+      executionRecord.output = `[DRY RUN — nothing was executed] ${describeHostDryRunNotice(dryRun)}`;
+      executionRecord.statusLine = 'Not run: dry run is on.';
+      await renderManagedTerminal(`Command ${executions.length} was not run: dry run is on.`);
+      return;
+    }
     await renderManagedTerminal(`Running command ${executions.length}...`);
 
     const execution = shellIntegration.executeCommand(commandLine);
@@ -2375,12 +2474,14 @@ export class ChatPanel {
     assistantMessageId: string,
     directive: ManagedTerminalDirective,
     executions: readonly ManagedTerminalExecutionResult[],
+    provenanceCell?: { current: TurnProvenance },
   ): Record<string, unknown> {
     const latestExecution = executions.at(-1);
     return {
       ...baseContext,
       chatSessionId: activeSessionId,
       chatMessageId: assistantMessageId,
+      ...(provenanceCell ? { __provenanceCell: provenanceCell } : {}),
       managedTerminal: {
         alias: directive.alias,
         displayName: directive.spec.displayName,
@@ -2414,6 +2515,7 @@ export class ChatPanel {
       assistantMessageId,
       directive,
       executions,
+      preparedRequest.provenanceCell,
     );
     const planningResult = await this.atlas.orchestrator.processTask({
       id: `${taskId}-terminal-plan`,
@@ -2437,6 +2539,7 @@ export class ChatPanel {
     token: vscode.CancellationToken,
     sessionContextBundle?: import('../types.js').SessionContextBundle,
     sessionContext?: string,
+    provenanceCell?: { current: TurnProvenance },
   ): Promise<void> {
     await this.appendAssistantMessage(
       assistantMessageId,
@@ -2494,6 +2597,7 @@ export class ChatPanel {
       sessionContextBundle,
       sessionContext,
       false,
+      provenanceCell,
     );
 
     // Stopped at the file-count gate: offer the approving prompt as one click.
@@ -2502,6 +2606,10 @@ export class ChatPanel {
     // `--approve` token, which is not something an operator can be expected to
     // know — and the natural retry re-entered unapproved and stopped in the same
     // place. Rendering it as a quick reply reuses the pill the panel already has.
+    //
+    // The pill carries the `/project` prefix because it submits exactly as typed
+    // text does, and without the prefix the panel reads `<goal> --approve` as
+    // prose: the run was never started, and an ordinary chat turn answered instead.
     if (outcome.approvalRequiredPrompt) {
       const entry = this.atlas.sessionConversation
         .getTranscript(activeSessionId)
@@ -2517,7 +2625,7 @@ export class ChatPanel {
             quickReplies: [
               {
                 label: 'Approve and run',
-                prompt: outcome.approvalRequiredPrompt,
+                prompt: toApprovedProjectSlashPrompt(outcome.approvalRequiredPrompt),
                 description: 'Start the run despite the estimated file count.',
               },
             ],
@@ -3138,15 +3246,18 @@ export class ChatPanel {
       if (mode === 'off') {
         return { stop: false };
       }
+      // The declared workflow is project memory (the SSOT home); the branch is
+      // whatever the person is working on, in the first folder as before.
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      if (!workspaceRoot) {
+      const ssotRoot = ssotHomeRoot().fsPath;
+      if (!workspaceRoot || !ssotRoot) {
         return { stop: false };
       }
       const branch = await readCurrentBranch(workspaceRoot);
       notice = buildWorkflowChatNotice({
         prompt,
         mode,
-        config: readWorkflowConfig(workspaceRoot),
+        config: readWorkflowConfig(ssotRoot),
         ...(branch ? { currentBranch: branch } : {}),
       });
     } catch {
@@ -5543,6 +5654,20 @@ function toSpeedMode(value: string | undefined): 'fast' | 'balanced' | 'consider
     : 'balanced';
 }
 
+/**
+ * The note a turn carries once its conversation has read content that makes
+ * writes ask again — composed on the host, rendered by the webview as text.
+ * Nothing when the conversation is clean, so a clean turn's metadata is
+ * exactly what it was.
+ */
+function conversationTaintMeta(
+  cell: { current: TurnProvenance } | undefined,
+  scopeSetting: unknown,
+): { untrustedContentNote?: string } {
+  const note = cell ? conversationTaintNote(cell.current, scopeSetting) : undefined;
+  return note ? { untrustedContentNote: note } : {};
+}
+
 function describeApprovalDecision(decision: ToolApprovalDecision): string {
   switch (decision) {
     case 'allow-once':
@@ -5551,6 +5676,8 @@ function describeApprovalDecision(decision: ToolApprovalDecision): string {
       return 'Bypassing approvals for the rest of this task.';
     case 'autopilot':
       return 'AtlasMind Autopilot enabled for this session.';
+    case 'acknowledge-source':
+      return 'Allowed this kind of action for the rest of this task, having seen the untrusted source.';
     case 'deny':
       return 'Denied the pending request.';
   }

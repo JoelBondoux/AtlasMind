@@ -1,4 +1,4 @@
-import type { AgentDefinition, ArdDiscoveredResource, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, ArdDiscoveredResource, ProvenanceSource, TurnProvenance, UntrustedEscalationScope, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, ReasoningDirective, ReasoningLevel, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolApprovalAudit, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { describeCapabilityOutcome, prepareCapabilityQuery, type ExternalCapabilitySearch } from './capabilitySearch.js';
 import { buildDebtMarkerGuidance, parseCustomDebtMarkers } from './debtRegister.js';
@@ -17,7 +17,7 @@ import { resolveAgentSkillPolicy, type SkillsRegistry } from './skillsRegistry.j
 import type { ModelRouter } from './modelRouter.js';
 import { estimateCacheablePrefixRatio } from './modelRouter.js';
 import type { EgressSecretConfirmer, ModelContextOrigin } from './modelEgress.js';
-import { dispatchGuardedCompletion, originsFromMessages } from './modelEgress.js';
+import { dispatchGuardedCompletion, ModelEgressRefused, originsFromMessages } from './modelEgress.js';
 import { isLocalProviderId } from './backgroundMemoryPolicy.js';
 import { gradeExecutionQuality } from './executionQuality.js';
 import type { MemoryManager } from '../memory/memoryManager.js';
@@ -36,7 +36,60 @@ import { commandSignal } from './capabilityOffer.js';
 import type { TaskProfiler } from './taskProfiler.js';
 import { scanMemoryEntry, scanTransientContext } from '../memory/memoryScanner.js';
 import { discoverTools, shouldOfferToolDiscovery, TOOL_DISCOVERY_SKILL_ID } from './toolDiscovery.js';
-import { classifyToolInvocation } from './toolPolicy.js';
+import { classifyToolInvocation, getToolApprovalMode } from './toolPolicy.js';
+import {
+  buildDryRunRecord,
+  createDryRunSkillContext,
+  createDryRunTurn,
+  decideDryRun,
+  describeSimulatedResult,
+  isDryRunTurn,
+  latchDryRun,
+  readDryRunSetting,
+  recordDryRun,
+  summarizeDryRun,
+  type DryRunRecord,
+  type DryRunTurn,
+} from './dryRun.js';
+import {
+  absorbMessageOrigins,
+  absorbProvenance,
+  describeTaintRefusal,
+  emptyTurnProvenance,
+  evaluateAcpDelegation,
+  evaluateTaintEscalation,
+  LENS_SELECTION_SOURCE,
+  mergeProvenance,
+  prepareToolResultForModel,
+  provenanceFromDependencies,
+  QUARANTINE_RELEASE_TOOL,
+  raiseProvenance,
+  readRecordedProvenance,
+  readUntrustedEscalationScope,
+  scanForInjection,
+} from './contextProvenance.js';
+import {
+  buildQuarantineExtractionRequest,
+  buildRawReleaseEscalation,
+  decideQuarantine,
+  decideQuarantineBudget,
+  describeReleaseWithoutGate,
+  emptyQuarantineStore,
+  holdQuarantinedResult,
+  lookupQuarantineRelease,
+  QUARANTINE_COST_AGENT_ID,
+  QUARANTINE_LIMITS,
+  QUARANTINE_RELEASE_DEFINITION,
+  QUARANTINE_ROUTING_PROFILE,
+  readQuarantineReaderMode,
+  renderQuarantinedExtract,
+  renderQuarantineFallback,
+  renderQuarantineRelease,
+  validateQuarantinedExtract,
+  type QuarantineFallbackRule,
+  type QuarantineReaderMode,
+  type QuarantineStore,
+} from './quarantinedReader.js';
 import { buildAutoSynthesisPrompt, extractGeneratedSkillCode, loadSkillFromSource, toSuggestedSkillId } from './skillDrafting.js';
 import { buildAgentSynthesisPrompt, extractAgentJson, toSuggestedAgentId, validateSynthesizedAgent } from './agentDrafting.js';
 import { scanSkillSource } from './skillScanner.js';
@@ -53,6 +106,10 @@ import {
   LOCAL_TIMEOUT_MS_PER_1K_PROMPT_TOKENS,
   LOCAL_COLD_START_TIMEOUT_MS,
   LOCAL_PROVIDER_MAX_TIMEOUT_MS,
+  HOSTED_TIMEOUT_COVERED_OUTPUT_TOKENS,
+  HOSTED_TIMEOUT_MS_PER_1K_OUTPUT_TOKENS,
+  HOSTED_PROVIDER_MAX_TIMEOUT_MS,
+  HOSTED_STREAM_CEILING_MS,
   MAX_PROVIDER_RETRIES,
   MAX_TASK_MODEL_ATTEMPTS,
   MAX_TASK_FAILOVER_ATTEMPTS,
@@ -77,6 +134,16 @@ import {
 import type { DataPrivacyManager } from './dataPrivacyManager.js';
 import { readProjectTestingConfig, inferTestingMethodologyForSubTask, resolveTestingModelOverride, buildMethodologySystemPromptHint, buildTestingObligationGuidance } from './testingConfigLoader.js';
 import { scanTestingSubjects, uncoveredTestingSubjects } from './testingSubjectScan.js';
+import {
+  buildReasoningDecision,
+  describeReasoningDecision,
+  fitReasoningLevelToBudget,
+  planReasoningRequest,
+  projectedThinkingTokens,
+  reasoningMaxTokens,
+  resolveReasoningLevel,
+  sanitizeReasoningPreference,
+} from './reasoningBudget.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 
 const defaultConfig: OrchestratorConfig = {
@@ -500,6 +567,12 @@ interface TaskAttemptContext {
   signal?: AbortSignal;
   cacheStablePrefix?: boolean;
   allowDelegatedToolExecution?: boolean;
+  /**
+   * The reasoning level decided for this turn. Each model call plans its own
+   * directive from it, so a failover to a model with no declared control sends
+   * nothing rather than inheriting the previous model's parameter.
+   */
+  reasoningLevel?: ReasoningLevel;
   turnCapabilities?: TurnCapabilityEnvelope;
   /**
    * Every skill this agent *may* use, whether or not its schema was sent.
@@ -521,6 +594,29 @@ interface TaskAttemptContext {
    * exactly as long as the calls that use it.
    */
   worktreePath?: string;
+  /**
+   * What this task has read so far, shared by every attempt of one task (and
+   * seeded by the caller for a dependent subtask). A cell rather than a value
+   * because the loop updates it as tool results arrive and the caller reads it
+   * back afterwards. Monotone — see `contextProvenance`.
+   */
+  provenance?: { current: TurnProvenance };
+  /**
+   * What the quarantined reader has spent on this task, shared by every attempt
+   * of it. A cell for the same reason as `provenance`: the loop adds to it as the
+   * reader runs and the caller reads it back to report the task's whole cost.
+   * The reader's calls are recorded in `CostTracker` on their own, so this is
+   * only ever *added to what the task reports* and to the cap the loop checks —
+   * never to the task's own cost record, which would count them twice.
+   */
+  quarantineSpend?: { costUsd: number };
+  /**
+   * The turn's dry-run state, shared by every attempt and subtask of it. A cell
+   * because the loop latches it on (sticky for the turn) and appends what it
+   * simulated, and the caller summarises it afterwards. Absent ⇒ the loop reads
+   * the setting itself, so no path into the loop can skip the check.
+   */
+  dryRun?: DryRunTurn;
 }
 
 interface TaskExecutionAttempt {
@@ -574,6 +670,8 @@ type ProviderCompletionRequest = {
   signal?: AbortSignal;
   cacheStablePrefix?: boolean;
   allowDelegatedToolExecution?: boolean;
+  /** Built per model by `planReasoningRequest`; absent for a model with no declared control. */
+  reasoning?: ReasoningDirective;
 };
 
 const READONLY_EXPLORATION_NUDGE_AFTER = 3;
@@ -647,6 +745,8 @@ export class Orchestrator {
   private resolveWorkflowStageLevelsHook?: OrchestratorHooks['resolveWorkflowStageLevels'];
   private runGitHook?: OrchestratorHooks['runGit'];
   private onSerialisedWritersHook?: OrchestratorHooks['onSerialisedWriters'];
+  private onTaskSettledHook?: OrchestratorHooks['onTaskSettled'];
+  private onDryRunRecordHook?: OrchestratorHooks['onDryRunRecord'];
 
   constructor(
     private agents: AgentRegistry,
@@ -676,6 +776,8 @@ export class Orchestrator {
     this.resolveWorkflowStageLevelsHook = hooks?.resolveWorkflowStageLevels;
     this.runGitHook = hooks?.runGit;
     this.onSerialisedWritersHook = hooks?.onSerialisedWriters;
+    this.onTaskSettledHook = hooks?.onTaskSettled;
+    this.onDryRunRecordHook = hooks?.onDryRunRecord;
     this.classifier = new ClassifierService(router, providers, taskProfiler);
     this.cfg = { ...defaultConfig, ...config };
 
@@ -831,6 +933,76 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * The provenance cell every attempt of one request shares — the main attempt,
+   * its failovers and the self-recovery pass. A caller that seeds one (a
+   * dependent subtask) has it used as given; otherwise it is created here and
+   * kept on the request, the precedent `__turnCapabilityEnvelope` set. A value
+   * that is not a readable cell is replaced, never trusted.
+   */
+  private provenanceCellFor(request: TaskRequest): { current: TurnProvenance } {
+    const existing = request.context['__provenanceCell'];
+    if (existing && typeof existing === 'object' && readRecordedProvenance((existing as { current?: unknown }).current)) {
+      return existing as { current: TurnProvenance };
+    }
+    // Something was there and could not be read: whatever it recorded is now
+    // unknown, and unknown is not clear.
+    const cell = {
+      current: existing === undefined
+        ? emptyTurnProvenance()
+        : absorbProvenance(emptyTurnProvenance(), {
+          origin: 'generated-instruction',
+          provenance: 'third-party',
+          rule: 'provenance.cell-unreadable',
+          injectionSuspected: false,
+        }),
+    };
+    request.context['__provenanceCell'] = cell;
+    return cell;
+  }
+
+  /** Which provenance levels make an outward or mutating call need a fresh approval. */
+  private readUntrustedEscalationScope(): UntrustedEscalationScope {
+    return readUntrustedEscalationScope(this.readSetting<unknown>('security.untrustedEscalationScope', undefined));
+  }
+
+  private readQuarantineReaderMode(): QuarantineReaderMode {
+    return readQuarantineReaderMode(this.readSetting<unknown>('security.quarantineReader', undefined));
+  }
+
+  /** `atlasmind.dryRun.enabled`, read live. A malformed value reads as on — see `readDryRunSetting`. */
+  private dryRunLive(): boolean {
+    return readDryRunSetting(this.readSetting<unknown>('dryRun.enabled', false));
+  }
+
+  /**
+   * The dry-run cell every attempt and subtask of one request shares, created
+   * here and kept on the request the way the provenance cell is. Something on
+   * the request that is not a readable cell is replaced by one that is **on**:
+   * whatever it recorded is unknown, and the safe reading of an unknown dry-run
+   * state is the dry one.
+   */
+  private dryRunTurnFor(request: TaskRequest): DryRunTurn {
+    const existing = request.context['__dryRunTurn'];
+    if (isDryRunTurn(existing)) {
+      latchDryRun(existing, this.dryRunLive());
+      return existing;
+    }
+    const turn = createDryRunTurn(existing !== undefined || this.dryRunLive());
+    request.context['__dryRunTurn'] = turn;
+    return turn;
+  }
+
+  /** Tell the host about a dry-run record; a host that fails must not fail the turn. */
+  private noteDryRunRecord(turn: DryRunTurn, record: DryRunRecord): void {
+    recordDryRun(turn, record);
+    try {
+      this.onDryRunRecordHook?.(record);
+    } catch {
+      // The record is already on the turn; the summary still reports it.
+    }
+  }
+
   getExecutionLimits(): Pick<OrchestratorConfig, 'maxToolIterations' | 'maxToolCallsPerTurn'> {
     return {
       maxToolIterations: this.cfg.maxToolIterations,
@@ -910,6 +1082,178 @@ export class Orchestrator {
 [AtlasMind] ${redaction.redactedCount} credential-shaped value(s) in this ` +
       'result were replaced with [REDACTED] before you saw them. The real values are still on disk. ' +
       'Do not write [REDACTED] back into any file, and do not treat it as the literal content.';
+  }
+
+  /**
+   * Read one large third-party result in quarantine (the dual-LLM pattern).
+   *
+   * The raw text is held for this loop under a handle and never returned. A
+   * separate completion with no tools, no agent persona and only the extraction
+   * rules reads it and answers the task's stated question; what comes back is
+   * validated against the declared schema and rendered, fenced, as the tool
+   * message. The source the turn absorbs is still third-party under the
+   * original tool's rule, and suspected if the raw text or the extract held an
+   * instruction override — the extract narrows what the agent reads, it does
+   * not make it trustworthy.
+   *
+   * Every failure falls back to a short fenced excerpt and says which rule
+   * fired; none falls back to the full text. The reader's spend is recorded
+   * like any other call, under its own agent id.
+   */
+  private async readQuarantined(input: {
+    store: QuarantineStore;
+    toolCall: ToolCall;
+    rawResult: string;
+    /** The result as the agent's own model would have received it. */
+    redacted: string;
+    provenanceRule: string;
+    context: TaskAttemptContext;
+    /** What the task has spent before this read: the agent model's calls plus earlier reader calls. */
+    taskSpentUsd: number;
+    /** Where the reader's own spend is added, so the loop's cap check counts it. */
+    spend: { costUsd: number };
+    onProgress?: (message: string) => void;
+  }): Promise<{ content: string; source: ProvenanceSource }> {
+    const { toolCall, context, onProgress } = input;
+    const rawFindings = scanForInjection(`tool-result:${toolCall.name}`, input.redacted);
+    const entry = holdQuarantinedResult(input.store, {
+      toolName: toolCall.name,
+      text: input.redacted,
+      source: {
+        origin: 'tool-result',
+        toolName: toolCall.name,
+        provenance: 'third-party',
+        rule: input.provenanceRule,
+        injectionSuspected: rawFindings.length > 0,
+        ...(rawFindings.length > 0 ? { findings: rawFindings } : {}),
+      },
+    });
+    const fallback = (rule: QuarantineFallbackRule, detail?: string): { content: string; source: ProvenanceSource } => {
+      onProgress?.(`Quarantined reader: could not extract ${toolCall.name}'s result (${rule}); the agent sees a ${QUARANTINE_LIMITS.fallbackExcerptChars}-character excerpt, never the full text.`);
+      return { content: renderQuarantineFallback({ entry, rule, detail, findings: rawFindings }), source: entry.source };
+    };
+
+    onProgress?.(`Quarantined reader: ${toolCall.name} returned ${entry.text.length} characters of third-party text; a separate model with no tools is extracting what this task needs.`);
+
+    const taskProfile = this.taskProfiler.profileTask({
+      userMessage: context.userMessage ?? toolCall.name,
+      phase: QUARANTINE_ROUTING_PROFILE.phase,
+      requiresTools: false,
+    });
+    const readerModel = this.router.selectBestModel(QUARANTINE_ROUTING_PROFILE.constraints, undefined, taskProfile);
+    if (!readerModel) {
+      return fallback('quarantine.no-model');
+    }
+    const providerId = resolveProviderIdForModel(readerModel, this.router, 'local');
+    const provider = this.providers.get(providerId);
+    if (!provider) {
+      return fallback('quarantine.no-model');
+    }
+    // Redacted again for the reader's own model: the privacy policy may trust
+    // the agent's model and not this one.
+    const readerText = this.redactToolResultForModel(toolCall, input.rawResult, readerModel);
+    const extraction = buildQuarantineExtractionRequest({
+      toolName: toolCall.name,
+      question: context.userMessage,
+      text: readerText,
+    });
+    // The reader spends on the task's behalf, so it answers to the same caps the
+    // loop enforces — checked against its worst case before it is sent, since a
+    // sent call cannot be un-made. A refusal is one more stated fallback.
+    const readerWorstCase = this.estimateCostBreakdown(
+      readerModel,
+      estimateCompletionRequestInputTokens(extraction.messages, []),
+      QUARANTINE_ROUTING_PROFILE.maxTokens,
+    );
+    const budget = decideQuarantineBudget({
+      taskCapUsd: context.budgetCapUsd,
+      taskSpentUsd: input.taskSpentUsd,
+      readerEstimate: { costUsd: readerWorstCase.costUsd, ...(readerWorstCase.unpriced ? { unpriced: true } : {}) },
+      daily: this.costs.getDailyBudgetStatus(readerWorstCase.budgetCostUsd),
+    });
+    if (!budget.allowed) {
+      return fallback(budget.rule, budget.detail);
+    }
+    let response: CompletionResponse;
+    try {
+      response = await withTimeout(
+        dispatchGuardedCompletion({
+          provider,
+          origins: originsFromMessages(extraction.messages),
+          external: !isLocalProviderId(providerId),
+          request: {
+            model: readerModel,
+            messages: extraction.messages,
+            maxTokens: QUARANTINE_ROUTING_PROFILE.maxTokens,
+            temperature: QUARANTINE_ROUTING_PROFILE.temperature,
+            signal: context.signal,
+          },
+        }),
+        this.cfg.providerTimeoutMs,
+        `The quarantined reader timed out after ${this.cfg.providerTimeoutMs}ms.`,
+      );
+    } catch (error) {
+      return error instanceof ModelEgressRefused
+        ? fallback('quarantine.egress-refused', error.message)
+        : fallback('quarantine.call-failed');
+    }
+    input.spend.costUsd += this.recordQuarantineCost(context.taskId, readerModel, response);
+    if (response.content.trimStart().startsWith(LOCAL_ECHO_RESPONSE_PREFIX)) {
+      return fallback('quarantine.no-model');
+    }
+    const validation = validateQuarantinedExtract(response.content, readerText.slice(0, extraction.coveredChars));
+    if (validation.status === 'invalid') {
+      return fallback(validation.rule, validation.reason);
+    }
+    const findings = [...new Set([...rawFindings, ...validation.findings])].sort();
+    return {
+      content: renderQuarantinedExtract({
+        entry,
+        extract: validation.extract,
+        withheld: validation.withheld,
+        coveredChars: extraction.coveredChars,
+        findings,
+      }),
+      source: {
+        ...entry.source,
+        injectionSuspected: findings.length > 0,
+        ...(findings.length > 0 ? { findings } : {}),
+      },
+    };
+  }
+
+  /**
+   * The reader's call is spend like any other, recorded under its own agent id.
+   * Returns what it cost, in the same unit the task cap is checked in.
+   */
+  private recordQuarantineCost(taskId: string, model: string, response: CompletionResponse): number {
+    const estimate = this.estimateCostBreakdown(model, response.inputTokens, response.outputTokens);
+    this.costs.record({
+      taskId,
+      agentId: QUARANTINE_COST_AGENT_ID,
+      model,
+      ...(estimate.providerId ? { providerId: estimate.providerId } : {}),
+      ...(estimate.pricingModel ? { pricingModel: estimate.pricingModel } : {}),
+      billingCategory: estimate.billingCategory,
+      inputTokens: response.inputTokens,
+      outputTokens: response.outputTokens,
+      ...(estimate.unpriced ? { unpriced: true as const } : {}),
+      costUsd: estimate.costUsd,
+      budgetCostUsd: estimate.budgetCostUsd,
+      timestamp: new Date().toISOString(),
+    });
+    if (
+      estimate.pricingModel === 'subscription'
+      && estimate.providerId
+      && (estimate.billingCategory === 'subscription-included' || estimate.billingCategory === 'subscription-overflow')
+    ) {
+      const premiumUnits = this.router.getModelInfo(model)?.premiumRequestMultiplier ?? 1;
+      const spent = this.router.consumeSubscriptionUnits(model, premiumUnits);
+      if (spent) {
+        this.onQuotaUpdated?.(spent.scope, spent.remainingRequests, spent.totalRequests);
+      }
+    }
+    return estimate.costUsd;
   }
 
   private redactToolResultForModel(toolCall: ToolCall, result: string, modelId: string): string {
@@ -1314,6 +1658,7 @@ export class Orchestrator {
       allowDelegatedToolExecution: recoveryNeedsToolExecution
         && turnCapabilities.writesAllowed
         && turnCapabilities.commandsAllowed
+        && !this.dryRunTurnFor(request).active
         && this.readSetting<boolean>('acp.toolsEnabled', false),
     };
     const escalatedModel = this.selectEscalatedModel(
@@ -1370,6 +1715,8 @@ export class Orchestrator {
             signal: request.signal,
             turnCapabilities,
             allowDelegatedToolExecution: recoveryUsesDelegatedTools,
+            provenance: this.provenanceCellFor(request),
+            dryRun: this.dryRunTurnFor(request),
           },
           onTextChunk,
           onProgress,
@@ -1541,6 +1888,39 @@ export class Orchestrator {
     onProgress?: (message: string) => void,
     onModelSelected?: (model: string) => void,
   ): Promise<TaskResult> {
+    // The request that creates the dry-run cell owns its summary. A subtask or
+    // a retry arrives carrying its parent's cell and says nothing of its own,
+    // so the operator reads one summary per turn rather than one per attempt.
+    const ownsDryRun = !isDryRunTurn(request.context['__dryRunTurn']);
+    const dryRun = this.dryRunTurnFor(request);
+    try {
+      const result = await this.runTaskWithAgent(request, agent, onTextChunk, onProgress, onModelSelected);
+      return ownsDryRun ? withDryRunSummary(result, dryRun) : result;
+    } finally {
+      // Every task id the gate can have been asked about for this request: the
+      // attempt and its self-recovery pass. A synthesised-specialist retry and a
+      // handoff are their own requests and settle themselves. Told on every
+      // path, a throw included, so a per-task grant cannot outlive its task.
+      this.settleTask(request.id);
+      this.settleTask(`${request.id}-recovery`);
+    }
+  }
+
+  private settleTask(taskId: string): void {
+    try {
+      this.onTaskSettledHook?.(taskId);
+    } catch {
+      // A host that fails to tidy up must not turn a finished task into a failed one.
+    }
+  }
+
+  private async runTaskWithAgent(
+    request: TaskRequest,
+    agent: AgentDefinition,
+    onTextChunk?: (chunk: string) => void,
+    onProgress?: (message: string) => void,
+    onModelSelected?: (model: string) => void,
+  ): Promise<TaskResult> {
     const retrievalContext = (request.context['__preloadedRetrievalCtx'] as RetrievalContextBundle | undefined)
       ?? await this.buildRetrievalContext(request);
     // Derived from this request's text, then narrowed by anything the caller
@@ -1607,9 +1987,13 @@ export class Orchestrator {
       activeAgentSkills.length > 0
       || request.constraints.requiredCapabilities?.includes('function_calling') === true
     );
+    // A delegated ACP agent runs tools AtlasMind never sees, so none of them
+    // could be simulated: off for a dry turn, whatever the setting says.
+    const dryRunTurn = this.dryRunTurnFor(request);
     const acpDelegatedToolsEnabled = taskRequiresToolExecution
       && turnCapabilities.writesAllowed
       && turnCapabilities.commandsAllowed
+      && !dryRunTurn.active
       && this.readSetting<boolean>('acp.toolsEnabled', false);
 
     const skillPolicy = resolveAgentSkillPolicy(agent);
@@ -1732,6 +2116,13 @@ export class Orchestrator {
     if (cacheablePrefixRatio > 0) {
       routingConstraints = { ...routingConstraints, cacheablePrefixRatio };
     }
+
+    // The third routing axis. A caller that set it explicitly keeps its choice;
+    // otherwise the operator's `atlasmind.reasoningMode` applies, sanitized,
+    // because a setting is untrusted input and anything unrecognised is `auto`.
+    const reasoningPreference = request.constraints.reasoning
+      ?? sanitizeReasoningPreference(this.readSetting<unknown>('reasoningMode', 'auto'));
+    routingConstraints = { ...routingConstraints, reasoning: reasoningPreference };
 
     // For mechanical low-overhead tasks on auto budget, constrain to cheap/fast models.
     // This prevents routine git ops, script runs, and narrow test generation from consuming
@@ -1889,7 +2280,34 @@ export class Orchestrator {
     const previewTools = previewUsesDelegatedAcpTools ? [] : tools;
     const initialMessages = this.buildMessages(agent, retrievalContext, request.userMessage, request.context, previewModel, previewTools);
     const estimatedPromptTokens = estimateCompletionRequestInputTokens(initialMessages, previewTools);
-    const estimatedMinimumCostUsd = this.estimateCostBreakdown(previewModel, estimatedPromptTokens, 256).budgetCostUsd;
+    // Thinking is billed as output, so a request is priced with the thinking its
+    // level is projected to add — a deep turn must not pass the daily limit or a
+    // task cap on an estimate that assumed a one-paragraph answer. A level whose
+    // projected cost breaches the task cap steps down, and says so.
+    const previewModelInfo = this.router.getModelInfo(previewModel);
+    const reasoningCapUsd = [request.constraints.maxCostUsd, agent.costLimitUsd]
+      .filter((value): value is number => typeof value === 'number' && value > 0)
+      .reduce<number | undefined>((min, value) => min === undefined ? value : Math.min(min, value), undefined);
+    const fittedReasoning = fitReasoningLevelToBudget(
+      resolveReasoningLevel(reasoningPreference, baseTaskProfile),
+      level => this.estimateCostBreakdown(
+        previewModel,
+        estimatedPromptTokens,
+        256 + projectedThinkingTokens(planReasoningRequest(previewModelInfo, level)),
+      ).costUsd,
+      reasoningCapUsd,
+    );
+    const previewReasoningPlan = planReasoningRequest(previewModelInfo, fittedReasoning.level);
+    if (initialModel) {
+      onProgress?.(describeReasoningDecision(
+        buildReasoningDecision(reasoningPreference, fittedReasoning, previewModel, previewReasoningPlan),
+      ));
+    }
+    const estimatedMinimumCostUsd = this.estimateCostBreakdown(
+      previewModel,
+      estimatedPromptTokens,
+      256 + projectedThinkingTokens(previewReasoningPlan),
+    ).budgetCostUsd;
     const dailyBudget = this.costs.getDailyBudgetStatus(estimatedMinimumCostUsd);
 
     const startMs = Date.now();
@@ -1910,6 +2328,8 @@ export class Orchestrator {
     let finalAttempt: TaskExecutionAttempt;
     let modelUsed = previewModel;
     let aggregateCostUsd = 0;
+    // The quarantined reader's spend, across every attempt of this task.
+    const quarantineSpend = { costUsd: 0 };
     let aggregateInputTokens = 0;
     let aggregateOutputTokens = 0;
     let aggregateCachedInputTokens = 0;
@@ -2111,6 +2531,10 @@ export class Orchestrator {
               // model plans around one it can never call.
               discoverableSkills: eligibleAgentSkills,
               allowDelegatedToolExecution: usesDelegatedAcpTools,
+              reasoningLevel: fittedReasoning.level,
+              provenance: this.provenanceCellFor(request),
+              quarantineSpend,
+              dryRun: dryRunTurn,
               ...(typeof request.context['__worktreePath'] === 'string'
                 ? { worktreePath: request.context['__worktreePath'] }
                 : {}),
@@ -2291,6 +2715,7 @@ export class Orchestrator {
             inputTokens: 0,
             outputTokens: 0,
             reason: boundedAttemptReason(failureMessage),
+            ...(error instanceof ProviderTimeoutError ? { timeoutBudget: error.budget } : {}),
           });
           // A capacity deferral means the local GPU budget was committed and the
           // request was never sent. The model did not fail — it was not asked —
@@ -2505,7 +2930,13 @@ export class Orchestrator {
     }
 
     const durationMs = Date.now() - startMs;
-    const costUsd = aggregateCostUsd || finalAttempt.costUsd;
+    const modelCostUsd = aggregateCostUsd || finalAttempt.costUsd;
+    // The quarantined reader's calls are recorded on their own, under their own
+    // agent id, so they join what the task *reports* — the figure a mission cap
+    // and a project total sum — and not this task's cost record below, which
+    // would count them twice. Leaving them out of the report is how a cap a
+    // sub-call could walk past stayed invisible.
+    const costUsd = modelCostUsd + quarantineSpend.costUsd;
     const inputTokens = aggregateInputTokens || completion.inputTokens;
     const outputTokens = aggregateOutputTokens || completion.outputTokens;
     const cachedInputTokens = aggregateCachedInputTokens || (completion.cachedInputTokens ?? 0);
@@ -2556,6 +2987,16 @@ export class Orchestrator {
       ...(estimatedCompressionSavingsUsd > 0 ? { contextCompressionSavingsUsd: estimatedCompressionSavingsUsd } : {}),
       durationMs,
       ...(modelAttempts.length > 0 ? { modelAttempts } : {}),
+      ...(initialModel
+        ? {
+          reasoning: buildReasoningDecision(
+            reasoningPreference,
+            fittedReasoning,
+            modelUsed,
+            planReasoningRequest(this.router.getModelInfo(modelUsed), fittedReasoning.level),
+          ),
+        }
+        : {}),
       ...(turnDiscoveredResources.length > 0 ? { discoveredResources: turnDiscoveredResources } : {}),
       ...(artifactsWithDelegated ? { artifacts: artifactsWithDelegated } : {}),
       ...(autoDisabledProvider ? { autoDisabledProvider } : {}),
@@ -2587,7 +3028,7 @@ export class Orchestrator {
       ...(cachedInputTokens > 0 ? { cachedInputTokens } : {}),
       ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
       ...(finalCost.unpriced ? { unpriced: true as const } : {}),
-      costUsd: costUsd,
+      costUsd: modelCostUsd,
       budgetCostUsd: finalCost.budgetCostUsd,
       compressionSavingsUsd: estimatedCompressionSavingsUsd,
       ...(finalCost.cacheSavingsUsd ? { cacheSavingsUsd: finalCost.cacheSavingsUsd } : {}),
@@ -2679,6 +3120,13 @@ export class Orchestrator {
       signal?: AbortSignal;
       sessionContextBundle?: import('../types.js').SessionContextBundle;
       sessionContext?: string;
+      /**
+       * What the conversation starting this run has read. Every subtask is
+       * seeded from it — the session context above reaches each subtask's
+       * prompt — and it is raised as each subtask finishes, so a caller reading
+       * it afterwards (or after a throw) knows what the run read.
+       */
+      provenance?: { current: TurnProvenance };
     },
   ): Promise<ProjectResult> {
     const startMs = Date.now();
@@ -2745,7 +3193,20 @@ export class Orchestrator {
     // 2. Execute subtasks in waves — parallel where nothing can collide, one at
     //    a time where two subtasks would write the same tree.
     const scheduler = new TaskScheduler();
-    const isolation = this.startWorktreeIsolation(plan.id, onProgress);
+    // One dry-run cell for the whole run, read before the first subtask: every
+    // subtask carries it, so the run cannot be half-dry, and the summary is the
+    // run's rather than each subtask's.
+    const dryRunTurn = createDryRunTurn(this.dryRunLive());
+    const isolation = this.startWorktreeIsolation(plan.id, onProgress, dryRunTurn.active);
+    // What each finished subtask read, so its dependents start from it. A
+    // resumed result brings whatever it recorded; one that recorded nothing is
+    // seeded as third-party by `provenanceFromDependencies`.
+    const provenanceBySubTask = new Map<string, unknown>(
+      (options?.resumeFromResults ?? []).map(result => [result.subTaskId, result.provenance]),
+    );
+    // Taken once, before anything runs: a subtask is seeded from what the
+    // conversation had read when the run started, not from its siblings.
+    const conversationProvenance = options?.provenance?.current;
     let subTaskResults: SubTaskResult[];
     try {
       subTaskResults = await scheduler.execute(
@@ -2771,7 +3232,18 @@ export class Orchestrator {
             options?.sessionContext,
             goalCapabilities,
             isolation.worktreeFor(task.id),
+            conversationProvenance
+              ? mergeProvenance(conversationProvenance, provenanceFromDependencies(task.dependsOn, id => provenanceBySubTask.get(id)))
+              : provenanceFromDependencies(task.dependsOn, id => provenanceBySubTask.get(id)),
+            dryRunTurn,
           );
+          provenanceBySubTask.set(task.id, result.provenance);
+          if (options?.provenance) {
+            options.provenance.current = raiseProvenance(
+              options.provenance.current,
+              provenanceFromDependencies([task.id], id => provenanceBySubTask.get(id)),
+            );
+          }
           // Propagate billing abort as a thrown error so the scheduler's
           // Promise.all immediately rejects and no further batches execute.
           if (result.billingAbort) {
@@ -2803,11 +3275,12 @@ export class Orchestrator {
     const totalInputTokens = subTaskResults.reduce((sum, r) => sum + (r.inputTokens ?? 0), 0) + synthesis.inputTokens;
     const totalOutputTokens = subTaskResults.reduce((sum, r) => sum + (r.outputTokens ?? 0), 0) + synthesis.outputTokens;
 
+    const dryRunSummary = summarizeDryRun(dryRunTurn);
     return {
       id: plan.id,
       goal,
       subTaskResults,
-      synthesis: synthesis.content,
+      synthesis: dryRunSummary ? `${synthesis.content}\n\n${dryRunSummary}` : synthesis.content,
       totalCostUsd: subTaskResults.reduce((sum, r) => sum + r.costUsd, 0),
       totalDurationMs: Date.now() - startMs,
       totalInputTokens,
@@ -2826,20 +3299,54 @@ export class Orchestrator {
   private startWorktreeIsolation(
     runId: string,
     onProgress?: (update: ProjectProgressUpdate) => void,
+    /**
+     * A dry run makes no worktrees. Creating one is itself a write to `.git/`,
+     * and there is nothing for it to isolate when no subtask writes.
+     */
+    dryRun = false,
   ): WorktreeRun {
     return startWorktreeRun({
       runId,
       workspaceRoot: this.skillContext.workspaceRootPath,
       runGit: this.runGitHook,
       canRerootSkillContext: typeof this.skillContext.withResolutionRoot === 'function',
-      isolationEnabled: this.readSetting<boolean>('execution.worktreeIsolation', false) === true,
+      isolationEnabled: !dryRun && this.readSetting<boolean>('execution.worktreeIsolation', false) === true,
       onNotice: message => onProgress?.({ type: 'notice', message }),
       ...(this.onSerialisedWritersHook ? { onSerialisedWriters: this.onSerialisedWritersHook } : {}),
     });
   }
 
-  /** Execute a single subtask with an ephemeral role-based agent. */
+  /**
+   * Execute a single subtask, seeded with what its dependencies read and
+   * reporting what it read in turn. The seed matters because a dependency's
+   * output is spliced into this subtask's prompt as if the operator had typed
+   * it — without it, a fetch in step one would launder into "user prompt" by
+   * step two.
+   */
   private async executeSubTask(
+    task: SubTask,
+    depOutputs: Record<string, string>,
+    constraints: RoutingConstraints,
+    onProgress?: (update: ProjectProgressUpdate) => void,
+    projectGoal: string = '',
+    signal?: AbortSignal,
+    sessionContextBundle?: import('../types.js').SessionContextBundle,
+    sessionContext?: string,
+    inheritedCapabilities?: TurnCapabilityEnvelope,
+    worktreePath?: string,
+    seedProvenance?: TurnProvenance,
+    dryRunTurn?: DryRunTurn,
+  ): Promise<SubTaskResult> {
+    const provenanceCell = { current: seedProvenance ?? emptyTurnProvenance() };
+    const result = await this.executeSubTaskBody(
+      task, depOutputs, constraints, onProgress, projectGoal, signal, sessionContextBundle, sessionContext,
+      inheritedCapabilities, worktreePath, provenanceCell, dryRunTurn,
+    );
+    return { ...result, provenance: provenanceCell.current };
+  }
+
+  /** Execute a single subtask with an ephemeral role-based agent. */
+  private async executeSubTaskBody(
     task: SubTask,
     depOutputs: Record<string, string>,
     constraints: RoutingConstraints,
@@ -2864,6 +3371,9 @@ export class Orchestrator {
      * outlives the subtask and leak one run's resolution root into another.
      */
     worktreePath?: string,
+    provenanceCell?: { current: TurnProvenance },
+    /** The run's dry-run cell, carried so every subtask is as dry as the run. */
+    dryRunTurn?: DryRunTurn,
   ): Promise<SubTaskResult> {
     const startMs = Date.now();
     const userMessage = buildProjectSubTaskMessage(task, depOutputs, projectGoal);
@@ -2916,6 +3426,8 @@ export class Orchestrator {
           ...(subTaskMethodologyId ? { __testingMethodologyHint: buildMethodologySystemPromptHint(subTaskMethodologyId) } : {}),
           ...(inheritedCapabilities ? { __inheritedCapabilityEnvelope: inheritedCapabilities } : {}),
           ...(worktreePath ? { __worktreePath: worktreePath } : {}),
+          ...(provenanceCell ? { __provenanceCell: provenanceCell } : {}),
+          ...(dryRunTurn ? { __dryRunTurn: dryRunTurn } : {}),
         },
         constraints,
         timestamp: new Date().toISOString(),
@@ -3126,7 +3638,11 @@ export class Orchestrator {
     // the same working tree and loses writes the same way; scheduling this one
     // differently would mean the race were fixed depending on which surface
     // started the work.
-    const isolation = this.startWorktreeIsolation(plan.id, onProgress);
+    const dryRunTurn = this.dryRunTurnFor(request);
+    const isolation = this.startWorktreeIsolation(plan.id, onProgress, dryRunTurn.active);
+    // Seeded from what the planning turn itself had read, then per dependency.
+    const requestProvenance = this.provenanceCellFor(request).current;
+    const provenanceBySubTask = new Map<string, unknown>();
     const subTaskResults = await scheduler.execute(
       plan,
       async (task, depOutputs) => {
@@ -3135,7 +3651,10 @@ export class Orchestrator {
           task, depOutputs, request.constraints, onProgress,
           '', undefined, undefined, undefined, requestCapabilities,
           isolation.worktreeFor(task.id),
+          mergeProvenance(requestProvenance, provenanceFromDependencies(task.dependsOn, id => provenanceBySubTask.get(id))),
+          dryRunTurn,
         );
+        provenanceBySubTask.set(task.id, result.provenance);
         if (result.billingAbort) {
           throw new Error(result.error ?? 'Provider billing limit reached.');
         }
@@ -3177,7 +3696,12 @@ export class Orchestrator {
     }
 
     const failedCount = subTaskResults.filter(r => r.status === 'failed').length;
-    const response = synthesisResult.content.trim() || subTaskResults.map(r => `**${r.title}**: ${r.output || r.error || ''}`).join('\n\n');
+    const synthesised = synthesisResult.content.trim() || subTaskResults.map(r => `**${r.title}**: ${r.output || r.error || ''}`).join('\n\n');
+    const dryRunSummary = summarizeDryRun(dryRunTurn);
+    if (dryRunSummary) {
+      onTextChunk?.(`\n\n${dryRunSummary}`);
+    }
+    const response = dryRunSummary ? `${synthesised}\n\n${dryRunSummary}` : synthesised;
 
     return {
       id: request.id,
@@ -3310,6 +3834,25 @@ export class Orchestrator {
     const skillContext = context.worktreePath
       ? this.skillContext.withResolutionRoot?.(context.worktreePath) ?? this.skillContext
       : this.skillContext;
+    // Dry run: read per call, latched for the turn (on applies at once, off
+    // waits for the next turn). A loop entered without a cell reads the
+    // setting itself, so no route into the loop skips the check.
+    const dryRunTurn = context.dryRun ?? createDryRunTurn(this.dryRunLive());
+    const dryRunNow = (): boolean => latchDryRun(dryRunTurn, this.dryRunLive());
+    // What a skill allowed to run during a dry run is handed: every method that
+    // can change something replaced by a recorder that refuses. The backstop
+    // under the table, not the gate — see `dryRun.ts`.
+    const dryRunSkillContext = createDryRunSkillContext(skillContext, method => {
+      this.noteDryRunRecord(dryRunTurn, buildDryRunRecord({
+        at: new Date().toISOString(),
+        taskId: context.taskId,
+        toolName: `context.${String(method)}`,
+        args: {},
+        rule: 'dry-run.backstop',
+        policy: { category: 'workspace-write', risk: 'high', summary: `call ${String(method)} on the skill context` },
+        wouldHaveAsked: false,
+      }));
+    });
     const workspaceToolBias = getWorkspaceToolBias(messages, tools);
     const forceWorkspaceToolBackedInvestigation = workspaceToolBias !== 'none';
     let workspaceRepromptCount = 0;
@@ -3317,16 +3860,84 @@ export class Orchestrator {
     let verificationContradictionRepromptDone = false;
     let tddCompletionRepromptDone = false;
     let tddBlockedCaveatApplied = false;
+    let announcedActionRepromptDone = false;
+    let stoppedAtAnnouncement = false;
+    // Two different claims, kept apart: whether a file write *succeeded* (which
+    // excuses an announcement — the change was made) and whether anything that
+    // *could* change the workspace ran at all (which decides how strongly the
+    // not-done notice may say nothing changed).
+    let wroteWorkspaceFile = false;
+    let sideEffectingToolRan = false;
     let readonlyExplorationTurns = 0;
     let readonlyExplorationNudged = false;
     let lastToolResults: Array<{ toolCall: ToolCall; result: string; isFailure?: boolean }> = [];
     const projectTddState = initializeProjectTddState(context.projectTddPolicy);
+    // What the model has read this turn: seeded from the prompt it starts with,
+    // then grown as tool results arrive. Nothing below changes an untainted
+    // turn — the escalation is `free`, the gate is called exactly as before and
+    // local tool results reach the model byte-for-byte.
+    const escalationScope = this.readUntrustedEscalationScope();
+    const provenanceCell = context.provenance ?? { current: emptyTurnProvenance() };
+    provenanceCell.current = absorbMessageOrigins(provenanceCell.current, messages);
+    // Large third-party results are read by a separate, tool-less model and the
+    // loop receives its extract; the raw text is held here, for this loop only,
+    // and released by handle after a person approves. See quarantinedReader.ts.
+    const quarantineMode = this.readQuarantineReaderMode();
+    const quarantineStore = emptyQuarantineStore();
+    // The reader spends on this task's behalf, so the cap below counts it.
+    const quarantineSpend = context.quarantineSpend ?? { costUsd: 0 };
+    const loopCostUsd = (): number =>
+      this.estimateCostBreakdown(model, totalInputTokens, totalOutputTokens).costUsd + quarantineSpend.costUsd;
+    const budgetCapStop = (cumulativeCost: number, cap: number): CompletionResponse => ({
+      content:
+        `Execution stopped: estimated cost ${formatCost(cumulativeCost, 4)} exceeded the configured budget cap ` +
+        `of ${formatCost(cap, 4)}.`,
+      model,
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+      finishReason: 'error',
+    });
+    if (context.allowDelegatedToolExecution) {
+      // An ACP agent runs tools AtlasMind cannot see, so their results cannot
+      // be absorbed and what they do next cannot be gated. Refused rather than
+      // delegated once the turn is tainted.
+      const delegation = evaluateAcpDelegation(provenanceCell.current, escalationScope, model);
+      if (delegation.refused) {
+        onProgress?.(delegation.message);
+        return {
+          completion: { content: delegation.message, model, inputTokens: 0, outputTokens: 0, finishReason: 'stop' },
+        };
+      }
+    }
 
     for (let i = 0; i < this.cfg.maxToolIterations; i++) {
       if (context.signal?.aborted) {
         const abortError = new Error('The operation was aborted.');
         abortError.name = 'AbortError';
         throw abortError;
+      }
+      // Checked every round, not once: dry run switched on mid-turn must stop a
+      // delegated ACP agent before its next prompt, because nothing it does
+      // with its own tools can be simulated from here.
+      if (context.allowDelegatedToolExecution && dryRunNow()) {
+        const message = 'Dry run is on, and this turn would have handed its tools to an ACP agent that runs them '
+          + 'where AtlasMind cannot see or simulate them. Nothing was delegated. Ask again with dry run on to see '
+          + 'the plan with AtlasMind’s own tools, or turn dry run off to let the agent act.';
+        onProgress?.(message);
+        return {
+          completion: { content: message, model, inputTokens: totalInputTokens, outputTokens: totalOutputTokens, finishReason: 'stop' },
+        };
+      }
+      // A reader call can only have been admitted if its worst case fit, but its
+      // real token count is the provider's, not the estimate's. If it landed the
+      // task over the cap, stop before the next model call spends any more.
+      if (quarantineSpend.costUsd > 0 && typeof context.budgetCapUsd === 'number' && context.budgetCapUsd > 0) {
+        const spentSoFar = loopCostUsd();
+        if (spentSoFar > context.budgetCapUsd) {
+          completion = budgetCapStop(spentSoFar, context.budgetCapUsd);
+          loopCapped = false;
+          break;
+        }
       }
       onProgress?.(`Tool round ${i + 1}: asking the model to inspect the current workspace evidence.`);
       const loopModelInfo = this.router.getModelInfo(model);
@@ -3335,14 +3946,21 @@ export class Orchestrator {
         ? Math.max(256, loopModelInfo.contextWindow - inputTokenEstimate - CONTEXT_SAFE_OUTPUT_MARGIN)
         : DEFAULT_CHAT_MAX_TOKENS;
       const clampedMaxTokens = Math.min(DEFAULT_CHAT_MAX_TOKENS, safeMaxTokens);
+      // Planned against *this* model: a failover lands here with a different id,
+      // and a model with no declared control is sent nothing.
+      const reasoningPlan = context.reasoningLevel ? planReasoningRequest(loopModelInfo, context.reasoningLevel) : undefined;
+      const reasoningDirective = reasoningPlan?.kind === 'applied' ? reasoningPlan.directive : undefined;
       completion = await this.completeUntilStop(provider, {
         requestId: `${context.taskId}:tool-round:${i}`,
         model,
         messages,
         tools,
         temperature: 0.2,
-        maxTokens: clampedMaxTokens,
+        // Thinking counts against the output ceiling, so a directive makes room
+        // for it — bounded by what the context window can still hold.
+        maxTokens: reasoningMaxTokens(reasoningDirective, clampedMaxTokens, safeMaxTokens),
         signal: context.signal,
+        ...(reasoningDirective ? { reasoning: reasoningDirective } : {}),
         ...(context.cacheStablePrefix ? { cacheStablePrefix: true } : {}),
         ...(context.allowDelegatedToolExecution ? { allowDelegatedToolExecution: true } : {}),
       }, forceWorkspaceToolBackedInvestigation && workspaceRepromptCount === 0 ? undefined : onTextChunk);
@@ -3350,19 +3968,12 @@ export class Orchestrator {
       totalInputTokens += completion.inputTokens;
       totalOutputTokens += completion.outputTokens;
 
-      // Enforce per-task / per-agent budget caps using cumulative token usage.
+      // Enforce per-task / per-agent budget caps using cumulative token usage,
+      // the quarantined reader's spend included.
       if (typeof context.budgetCapUsd === 'number' && context.budgetCapUsd > 0) {
-        const cumulativeCost = this.estimateCostBreakdown(model, totalInputTokens, totalOutputTokens).costUsd;
+        const cumulativeCost = loopCostUsd();
         if (cumulativeCost > context.budgetCapUsd) {
-          completion = {
-            content:
-              `Execution stopped: estimated cost ${formatCost(cumulativeCost, 4)} exceeded the configured budget cap ` +
-              `of ${formatCost(context.budgetCapUsd, 4)}.`,
-            model,
-            inputTokens: totalInputTokens,
-            outputTokens: totalOutputTokens,
-            finishReason: 'error',
-          };
+          completion = budgetCapStop(cumulativeCost, context.budgetCapUsd);
           loopCapped = false;
           break;
         }
@@ -3470,12 +4081,46 @@ export class Orchestrator {
             };
           }
         }
+        // Announced-change gate: the reply says which change it is about to make
+        // and is the whole reply. Without this a chat turn could end on "I will
+        // now edit README.md …" with nothing edited — the workspace reprompt only
+        // recognises *inspection* narration, and only under a bias hint.
+        //
+        // Skipped where AtlasMind cannot see the work: an agent running tools in
+        // its own session may have made the change already, and nothing here
+        // could tell. Skipped in a dry run too, where nothing is written by
+        // design and the dry-run summary already says what would have been.
+        if (
+          tools.length > 0
+          && !context.allowDelegatedToolExecution
+          && !dryRunNow()
+          && !wroteWorkspaceFile
+          && !tddBlockedCaveatApplied
+          && looksLikeUnactedChangeAnnouncement(completion.content)
+        ) {
+          if (!announcedActionRepromptDone) {
+            announcedActionRepromptDone = true;
+            onProgress?.('The model said what it would change and stopped without changing it — AtlasMind is asking it to carry the step out.');
+            messages.push({ role: 'assistant', origin: 'generated-instruction', content: completion.content });
+            messages.push({ role: 'user', origin: 'system-prompt', content: buildAnnouncedActionReprompt() });
+            continue;
+          }
+          stoppedAtAnnouncement = true;
+          completion = {
+            ...completion,
+            content: appendUnactedAnnouncementCaveat(completion.content, sideEffectingToolRan),
+          };
+        }
         // Completion-integrity gate: if the response acknowledges work that was
         // not finished (e.g. "not yet wired", "important follow-up"), inject one
         // re-prompt so the agent either completes the work or declares explicit
         // unresolved blockers instead of silently leaving gaps in the delivery.
+        //
+        // Not after the not-done notice: that notice is the honest end of the
+        // turn, and a further re-prompt would replace it with whatever came back.
         if (
           !completionIntegrityRepromptDone
+          && !stoppedAtAnnouncement
           && completion.content.length > 0
           && (looksLikeIncompleteDelivery(completion.content, context.completionCriteria?.incompletePatterns)
             || looksLikeAnswerlessCompletionClaim(completion.content)
@@ -3580,7 +4225,34 @@ export class Orchestrator {
         MAX_PARALLEL_TOOL_EXECUTIONS,
         async (toolCall): Promise<ToolExecutionEntry> => {
           const startedAt = Date.now();
-          await this.toolWebhookDispatcher?.emit({
+          // Decided once per call. A dry run emits no webhook at all: a webhook
+          // is a request to somebody else's endpoint, and "nothing executes"
+          // has to include the notification that something did.
+          const dryRunActive = dryRunNow();
+          const webhooks = dryRunActive ? undefined : this.toolWebhookDispatcher;
+          const simulate = (decision: ReturnType<typeof decideDryRun>, args: Record<string, unknown>): ToolExecutionEntry => {
+            const record = buildDryRunRecord({
+              at: new Date().toISOString(),
+              taskId: context.taskId,
+              toolName: toolCall.name,
+              args,
+              rule: decision.rule,
+              policy: decision.policy,
+              wouldHaveAsked: decision.wouldHaveAsked,
+            });
+            this.noteDryRunRecord(dryRunTurn, record);
+            onProgress?.(`Dry run: simulated ${toolCall.name} — ${decision.policy.summary}.`);
+            return {
+              toolCall,
+              result: describeSimulatedResult(toolCall.name, decision, record.argsPreview),
+              durationMs: Date.now() - startedAt,
+              checkpointed: false,
+              shouldVerify: false,
+              isFailure: false,
+              dryRunSimulated: true,
+            };
+          };
+          await webhooks?.emit({
             event: 'tool.started',
             timestamp: new Date().toISOString(),
             taskId: context.taskId,
@@ -3609,7 +4281,7 @@ export class Orchestrator {
               + 'which is a per-turn choice and not a repository-wide policy. Re-send the request with writes '
               + 'enabled for the turn if that is what you want. Do not conclude that every write is forbidden — '
               + 'read-only tools, and any route that does not write locally, are unaffected.';
-            await this.toolWebhookDispatcher?.emit({
+            await webhooks?.emit({
               event: 'tool.failed',
               timestamp: new Date().toISOString(),
               taskId: context.taskId,
@@ -3628,6 +4300,50 @@ export class Orchestrator {
               checkpointed: false,
               shouldVerify: false,
               isFailure: true,
+            };
+          }
+          if (toolCall.name === QUARANTINE_RELEASE_TOOL) {
+            // Answered here, like find-tool: the held text belongs to this loop,
+            // and no registered skill — nor one a workspace or a server could
+            // add under this name — may stand in for it.
+            const lookup = lookupQuarantineRelease(quarantineStore, toolArguments);
+            if (lookup.status === 'refused') {
+              return { toolCall, result: lookup.message, durationMs: Date.now() - startedAt, checkpointed: false, shouldVerify: false, isFailure: true };
+            }
+            if (!this.toolApprovalGate) {
+              return {
+                toolCall,
+                result: describeReleaseWithoutGate(lookup.entry.handle),
+                durationMs: Date.now() - startedAt,
+                checkpointed: false,
+                shouldVerify: false,
+                isFailure: true,
+              };
+            }
+            // Always a fresh approval, whatever the approval mode or Autopilot
+            // says: releasing this text is the decision the quarantine exists
+            // to put in front of a person.
+            const approval = await this.toolApprovalGate(context.taskId, toolCall.name, toolArguments, {
+              escalation: buildRawReleaseEscalation(lookup.entry, provenanceCell.current, escalationScope),
+            });
+            if (!approval.approved) {
+              return {
+                toolCall,
+                result: approval.reason || `Releasing quarantined result "${lookup.entry.handle}" was denied. Work from the extract.`,
+                durationMs: Date.now() - startedAt,
+                checkpointed: false,
+                shouldVerify: false,
+              };
+            }
+            const released = renderQuarantineRelease(lookup.entry, lookup.offset);
+            return {
+              toolCall,
+              result: released.content,
+              durationMs: Date.now() - startedAt,
+              checkpointed: false,
+              shouldVerify: false,
+              executed: true,
+              quarantineRelease: released.source,
             };
           }
           if (toolCall.name === TOOL_DISCOVERY_SKILL_ID) {
@@ -3649,7 +4365,21 @@ export class Orchestrator {
             }
             let discoveryMessage = discovery.message;
             const externalQuery = discovery.granted.length === 0 ? prepareCapabilityQuery(query) : '';
-            if (externalQuery && this.externalCapabilitySearch) {
+            // The search query is model-composed text sent off the machine, so
+            // once the turn is tainted it is the same exfiltration channel as a
+            // network read — and nobody is asked here. Skipped, and said so.
+            const externalEscalation = evaluateTaintEscalation(provenanceCell.current, { category: 'network-read' }, escalationScope);
+            const searchExternally = !dryRunActive && externalEscalation.decision === 'free';
+            if (externalQuery && this.externalCapabilitySearch && dryRunActive) {
+              // dry-run.find-tool-local: the local pool was searched; the
+              // registry search would send the query off the machine.
+              discoveryMessage = `${discovery.message}\n\n[DRY RUN] Resource Discovery was not searched: it would send `
+                + `"${externalQuery}" off the machine. Plan with the tools you have, and say what is missing.`;
+            } else if (externalQuery && this.externalCapabilitySearch && externalEscalation.decision !== 'free') {
+              discoveryMessage = `${discovery.message}\n\nResource Discovery was not searched (${externalEscalation.rule}): `
+                + 'this task has read untrusted content, and a search would send model-written text off the machine '
+                + 'without anyone being asked. Use one of the tools you have, or tell the user what is missing.';
+            } else if (externalQuery && this.externalCapabilitySearch) {
               onProgress?.(`Nothing installed can do that; searching Resource Discovery for "${externalQuery}"…`);
               let outcome: Awaited<ReturnType<ExternalCapabilitySearch>>;
               try {
@@ -3674,9 +4404,18 @@ export class Orchestrator {
               durationMs: Date.now() - startedAt,
               checkpointed: false,
               shouldVerify: false,
+              executed: true,
+              ...(externalQuery && this.externalCapabilitySearch && searchExternally
+                ? { reachedNetwork: true }
+                : {}),
             };
           }
 
+          if (!skill && dryRunActive) {
+            // dry-run.unknown-skill: synthesising a skill to find out what it
+            // would do is itself writing and running new code.
+            return simulate(decideDryRun({ toolName: toolCall.name, args: toolArguments, skill: undefined }), toolArguments);
+          }
           if (!skill) {
             const args = isJsonObject(toolCall.arguments) ? toolCall.arguments : {};
             const synthesisResult = await this.synthesizeSkillForTool(
@@ -3688,7 +4427,7 @@ export class Orchestrator {
             );
             if (typeof synthesisResult === 'string') {
               const unknownMessage = synthesisResult;
-              await this.toolWebhookDispatcher?.emit({
+              await webhooks?.emit({
                 event: 'tool.failed',
                 timestamp: new Date().toISOString(),
                 taskId: context.taskId,
@@ -3707,11 +4446,14 @@ export class Orchestrator {
             tools.push(...buildToolDefinitions([skill]));
           }
 
+          let executionStarted = false;
           try {
             let checkpointed = false;
+            let sandboxBoundContext: SkillExecutionContext | undefined;
+            let approvalAudit: ToolApprovalAudit | undefined;
             if (!isJsonObject(toolCall.arguments)) {
               const invalidArgs = `Invalid arguments for tool "${toolCall.name}": expected a JSON object.`;
-              await this.toolWebhookDispatcher?.emit({
+              await webhooks?.emit({
                 event: 'tool.failed',
                 timestamp: new Date().toISOString(),
                 taskId: context.taskId,
@@ -3728,7 +4470,7 @@ export class Orchestrator {
 
             const schemaError = validateToolArguments(skill, toolCall.arguments);
             if (schemaError) {
-              await this.toolWebhookDispatcher?.emit({
+              await webhooks?.emit({
                 event: 'tool.failed',
                 timestamp: new Date().toISOString(),
                 taskId: context.taskId,
@@ -3745,7 +4487,7 @@ export class Orchestrator {
 
             const tddGateMessage = evaluateProjectTddWriteGate(toolCall.name, toolCall.arguments, projectTddState);
             if (tddGateMessage) {
-              await this.toolWebhookDispatcher?.emit({
+              await webhooks?.emit({
                 event: 'tool.failed',
                 timestamp: new Date().toISOString(),
                 taskId: context.taskId,
@@ -3760,11 +4502,53 @@ export class Orchestrator {
               return { toolCall, result: tddGateMessage, durationMs: 0, checkpointed: false, shouldVerify: false };
             }
 
+            // Decided against what the turn had read when this round began:
+            // results from calls running alongside this one are absorbed after
+            // the round, which is also when the model first sees them.
+            const escalation = evaluateTaintEscalation(
+              provenanceCell.current,
+              classifyToolInvocation(toolCall.name, toolCall.arguments),
+              escalationScope,
+            );
+            // Before the taint refusal and the approval gate: a simulated call
+            // never runs, so it asks nobody and is refused by nothing — it says
+            // what the gate would have decided instead.
+            if (dryRunActive) {
+              const decision = decideDryRun({
+                toolName: toolCall.name,
+                args: toolCall.arguments,
+                skill,
+                approvalMode: getToolApprovalMode(this.readSetting<string | undefined>('toolApprovalMode', undefined)),
+                escalation,
+              });
+              if (decision.action === 'simulate') {
+                return simulate(decision, toolCall.arguments);
+              }
+            }
+            if (escalation.decision === 'refuse' || (escalation.decision === 'fresh-approval' && !this.toolApprovalGate)) {
+              const refusal = describeTaintRefusal(toolCall.name, escalation, escalation.decision !== 'refuse');
+              await webhooks?.emit({
+                event: 'tool.failed',
+                timestamp: new Date().toISOString(),
+                taskId: context.taskId,
+                agentId: context.agentId,
+                model,
+                toolName: toolCall.name,
+                toolCallId: toolCall.id,
+                status: 'failed',
+                durationMs: Date.now() - startedAt,
+                error: refusal,
+              });
+              return { toolCall, result: refusal, durationMs: Date.now() - startedAt, checkpointed: false, shouldVerify: false };
+            }
+
             if (this.toolApprovalGate) {
-              const approval = await this.toolApprovalGate(context.taskId, toolCall.name, toolCall.arguments);
+              const approval = escalation.decision === 'fresh-approval'
+                ? await this.toolApprovalGate(context.taskId, toolCall.name, toolCall.arguments, { escalation })
+                : await this.toolApprovalGate(context.taskId, toolCall.name, toolCall.arguments);
               if (!approval.approved) {
                 const deniedMessage = approval.reason || `Tool "${toolCall.name}" was denied by policy.`;
-                await this.toolWebhookDispatcher?.emit({
+                await webhooks?.emit({
                   event: 'tool.failed',
                   timestamp: new Date().toISOString(),
                   taskId: context.taskId,
@@ -3778,25 +4562,56 @@ export class Orchestrator {
                 });
                 return { toolCall, result: deniedMessage, durationMs: Date.now() - startedAt, checkpointed: false, shouldVerify: false };
               }
+              // An approval that holds only inside a sandbox session — the gate
+              // skipped the prompt because the command will run in a container it
+              // checked. The call is bound to that exact session, so the runner
+              // plans on the reading the gate used; a context that cannot be
+              // bound, or a session that is not `require`, is a refusal, never a
+              // run on whatever this context would otherwise do.
+              if (approval.sandboxSession) {
+                if (approval.sandboxSession.mode !== 'require' || typeof skillContext.withSandbox !== 'function') {
+                  const unbound = `Tool "${toolCall.name}" was approved only to run in the execution sandbox, and this call `
+                    + 'could not be bound to that sandbox session, so it was not run.';
+                  await webhooks?.emit({
+                    event: 'tool.failed',
+                    timestamp: new Date().toISOString(),
+                    taskId: context.taskId,
+                    agentId: context.agentId,
+                    model,
+                    toolName: toolCall.name,
+                    toolCallId: toolCall.id,
+                    status: 'failed',
+                    durationMs: Date.now() - startedAt,
+                    error: unbound,
+                  });
+                  return { toolCall, result: unbound, durationMs: Date.now() - startedAt, checkpointed: false, shouldVerify: false, isFailure: true };
+                }
+                sandboxBoundContext = skillContext.withSandbox(approval.sandboxSession);
+                approvalAudit = approval.audit;
+              }
             }
 
-            if (this.writeCheckpointHook && requiresWriteCheckpoint(toolCall.name, toolCall.arguments)) {
+            if (!dryRunActive && this.writeCheckpointHook && requiresWriteCheckpoint(toolCall.name, toolCall.arguments)) {
               await this.writeCheckpointHook(context.taskId, toolCall.name, toolCall.arguments);
               checkpointed = true;
               checkpointedTools.add(toolCall.name);
             }
 
-            if (context.sideEffectsStarted && isSideEffectingToolCall(toolCall.name, toolCall.arguments)) {
+            if (!dryRunActive && context.sideEffectsStarted && isSideEffectingToolCall(toolCall.name, toolCall.arguments)) {
               context.sideEffectsStarted.push(classifyToolInvocation(toolCall.name, toolCall.arguments).summary);
             }
             const effectiveTimeout = skill.timeoutMs ?? this.cfg.toolExecutionTimeoutMs;
+            executionStarted = true;
+            if (dryRunActive) {
+              dryRunTurn.executedReads += 1;
+            }
             const result = await withTimeout(
-              skill.execute(toolCall.arguments, skillContext),
+              skill.execute(toolCall.arguments, dryRunActive ? dryRunSkillContext : (sandboxBoundContext ?? skillContext)),
               effectiveTimeout,
               `Tool "${toolCall.name}" timed out after ${effectiveTimeout}ms.`,
             );
             updateProjectTddStateAfterToolResult(projectTddState, toolCall.name, toolCall.arguments, result);
-            await this.toolWebhookDispatcher?.emit({
+            await webhooks?.emit({
               event: 'tool.completed',
               timestamp: new Date().toISOString(),
               taskId: context.taskId,
@@ -3819,10 +4634,12 @@ export class Orchestrator {
               checkpointed,
               shouldVerify: requiresPostToolVerification(toolCall.name) && !resultIsFailure,
               isFailure: resultIsFailure,
+              executed: true,
+              ...(approvalAudit ? { approvalAudit } : {}),
             };
           } catch (err) {
             const failure = `Skill "${toolCall.name}" failed: ${err instanceof Error ? err.message : String(err)}`;
-            await this.toolWebhookDispatcher?.emit({
+            await webhooks?.emit({
               event: 'tool.failed',
               timestamp: new Date().toISOString(),
               taskId: context.taskId,
@@ -3834,7 +4651,7 @@ export class Orchestrator {
               durationMs: Date.now() - startedAt,
               error: err instanceof Error ? err.message : String(err),
             });
-            return { toolCall, result: failure, durationMs: Date.now() - startedAt, checkpointed: false, shouldVerify: false };
+            return { toolCall, result: failure, durationMs: Date.now() - startedAt, checkpointed: false, shouldVerify: false, executed: executionStarted };
           }
         },
       );
@@ -3859,11 +4676,12 @@ export class Orchestrator {
           checkpointed: entry.checkpointed,
           resultPreview: toTextPreview(entry.result),
           ...(commandName === undefined ? {} : { commandName }),
+          ...(entry.approvalAudit ? { approval: entry.approvalAudit } : {}),
         });
       }
 
       if (context.userMessage) {
-        this.rememberSuccessfulToolResolutions(context.userMessage, toolResults);
+        this.rememberSuccessfulToolResolutions(context.userMessage, toolResults.filter(entry => !entry.dryRunSimulated));
       }
 
       // Not for an isolated subtask. The verifier reads the editor's own
@@ -3871,7 +4689,9 @@ export class Orchestrator {
       // isolated subtask edited a different copy, so the answer would be about
       // a file it never touched. "No problems" about the wrong file is the
       // worst result available here: a pass nobody earned.
-      if (this.postToolVerifier && !context.worktreePath) {
+      // Nor during a dry run: the verifier runs the project's checks, which is
+      // executing repository code, and there is nothing new to verify anyway.
+      if (this.postToolVerifier && !context.worktreePath && !dryRunTurn.active) {
         const verificationTargets = toolResults
           .filter(result => result.shouldVerify)
           .map(result => ({
@@ -3894,13 +4714,68 @@ export class Orchestrator {
         }
       }
 
-      for (const { toolCall, result } of toolResults) {
+      for (const { toolCall, result, executed, reachedNetwork, quarantineRelease, dryRunSimulated } of toolResults) {
+        if (dryRunSimulated) {
+          // AtlasMind's own description of the model's own proposed call: not a
+          // tool result, so it is labelled as generated text, which absorbs
+          // nothing — a simulated web-fetch read no web page.
+          messages.push({ role: 'tool', origin: 'generated-instruction', content: result, toolCallId: toolCall.id, toolName: toolCall.name });
+          continue;
+        }
+        if (quarantineRelease) {
+          // Already fenced and labelled from text that was redacted when it was
+          // held; what a person released is still third-party.
+          provenanceCell.current = absorbProvenance(provenanceCell.current, quarantineRelease);
+          messages.push({ role: 'tool', origin: 'tool-result', content: result, toolCallId: toolCall.id, toolName: toolCall.name });
+          continue;
+        }
+        // Data Privacy fail-safe first (withhold/redact confidential file reads
+        // and classified content when the running model is not trusted), then
+        // provenance: a third-party result is scanned and fenced, anything else
+        // passes through byte-for-byte.
+        const toolArgs = isJsonObject(toolCall.arguments) ? toolCall.arguments : {};
+        const redacted = this.redactToolResultForModel(toolCall, result, model);
+        const routing = decideQuarantine({
+          toolName: toolCall.name,
+          args: toolArgs,
+          facts: { reachedNetwork: reachedNetwork === true },
+          textLength: redacted.length,
+          executed: executed === true,
+          mode: quarantineMode,
+        });
+        if (routing.action === 'quarantine') {
+          // The large third-party result never enters the loop: a tool-less
+          // model reads it and the loop gets the extract and a handle.
+          const quarantined = await this.readQuarantined({
+            store: quarantineStore,
+            toolCall,
+            rawResult: result,
+            redacted,
+            provenanceRule: routing.provenanceRule,
+            context,
+            taskSpentUsd: loopCostUsd(),
+            spend: quarantineSpend,
+            onProgress,
+          });
+          provenanceCell.current = absorbProvenance(provenanceCell.current, quarantined.source);
+          if (!tools.some(definition => definition.name === QUARANTINE_RELEASE_TOOL)) {
+            tools.push(QUARANTINE_RELEASE_DEFINITION);
+          }
+          messages.push({ role: 'tool', origin: 'tool-result', content: quarantined.content, toolCallId: toolCall.id, toolName: toolCall.name });
+          continue;
+        }
+        const prepared = prepareToolResultForModel({
+          toolName: toolCall.name,
+          args: toolArgs,
+          text: redacted,
+          executed: executed === true,
+          facts: { reachedNetwork: reachedNetwork === true },
+        });
+        provenanceCell.current = absorbProvenance(provenanceCell.current, prepared.source);
         messages.push({
           role: 'tool',
           origin: 'tool-result',
-          // Data Privacy fail-safe: withhold/redact confidential file reads and
-          // classified content when the running model is not trusted.
-          content: this.redactToolResultForModel(toolCall, result, model),
+          content: prepared.content,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
         });
@@ -3908,6 +4783,14 @@ export class Orchestrator {
       // Carry the raw-output failure verdict (isFailure) alongside the possibly
       // verification-enriched result so failure classification stays accurate.
       lastToolResults = toolResults.map(({ toolCall, result, isFailure }) => ({ toolCall, result, isFailure }));
+      for (const entry of lastToolResults) {
+        if (isSideEffectingToolCall(entry.toolCall.name, entry.toolCall.arguments)) {
+          sideEffectingToolRan = true;
+        }
+        if (requiresWriteCheckpoint(entry.toolCall.name, entry.toolCall.arguments) && !isFailedToolEntry(entry)) {
+          wroteWorkspaceFile = true;
+        }
+      }
 
       // Prune the oldest tool-exchange pairs when the messages array grows too
       // large.  The system message (index 0) and the initial user message
@@ -3990,7 +4873,7 @@ export class Orchestrator {
 
     return {
       completion,
-      artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary, projectTddState, difficulty.failedToolCalls),
+      artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary, projectTddState, difficulty.failedToolCalls, stoppedAtAnnouncement),
     };
   }
 
@@ -4157,10 +5040,11 @@ export class Orchestrator {
    * allowance would leave a genuinely stalled endpoint holding the turn open for
    * a minute longer than it needs to.
    */
-  private resolveAttemptTimeoutMs(providerId: string, request: ProviderCompletionRequest): number {
-    return getProviderTimeoutMs(providerId, this.cfg.providerTimeoutMs, request.model, {
+  private resolveAttemptTimeout(providerId: string, request: ProviderCompletionRequest): ProviderTimeoutPlan {
+    return planProviderTimeout(providerId, this.cfg.providerTimeoutMs, request.model, {
       promptTokens: estimateCompletionRequestInputTokens(request.messages, request.tools),
       warmedUp: this.warmLocalModels.has(request.model),
+      ...(typeof request.maxTokens === 'number' ? { outputTokens: request.maxTokens } : {}),
       ...(providerId === 'local' && this.localAdmissionBudgetMs !== undefined
         ? { admissionBudgetMs: this.localAdmissionBudgetMs }
         : {}),
@@ -4217,7 +5101,7 @@ export class Orchestrator {
     request: ProviderCompletionRequest,
     onTextChunk?: (chunk: string) => void,
   ): Promise<CompletionResponse> {
-    const timeoutMs = this.resolveAttemptTimeoutMs(provider.providerId, request);
+    const timeout = this.resolveAttemptTimeout(provider.providerId, request);
     // An ACP prompt is stateful and can continue running after a transport
     // timeout. Retrying it on a fresh session can spend twice and execute tools
     // twice, so uncertainty is terminal for this attempt. The adapter still
@@ -4241,8 +5125,8 @@ export class Orchestrator {
         });
         const completion = await withTimeout(
           execute,
-          timeoutMs,
-          `Provider timed out after ${timeoutMs}ms.`,
+          timeout.timeoutMs,
+          () => new ProviderTimeoutError(timeout.timeoutMs, timeout.describes, 'total'),
         );
         this.markModelWarm(provider.providerId, request.model);
         return completion;
@@ -4270,23 +5154,39 @@ export class Orchestrator {
     request: ProviderCompletionRequest,
     onTextChunk: (chunk: string) => void,
   ): Promise<CompletionResponse> {
-    const timeoutMs = this.resolveAttemptTimeoutMs(provider.providerId, request);
+    const timeout = this.resolveAttemptTimeout(provider.providerId, request);
+    const inactivity = usesStreamInactivityBudget(provider.providerId);
+    const ceilingMs = Math.max(timeout.timeoutMs, HOSTED_STREAM_CEILING_MS);
     const maxRetries = provider.providerId === 'acp' ? 0 : MAX_PROVIDER_RETRIES;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       const scoped = createProviderAttemptRequest(request, shouldAbortSupersededRequest(provider.providerId));
       try {
-        const completion = await withTimeout(
-          dispatchGuardedCompletion({
-            provider,
-            origins: originsFromMessages(scoped.request.messages),
-            external: !isLocalProviderId(provider.providerId),
-            request: scoped.request,
-            onTextChunk,
-            ...(this.egressSecretConfirmer ? { confirmSecret: this.egressSecretConfirmer } : {}),
-          }),
-          timeoutMs,
-          `Provider timed out after ${timeoutMs}ms.`,
-        );
+        const dispatch = (onChunk: (chunk: string) => void): Promise<CompletionResponse> => dispatchGuardedCompletion({
+          provider,
+          origins: originsFromMessages(scoped.request.messages),
+          external: !isLocalProviderId(provider.providerId),
+          request: scoped.request,
+          onTextChunk: onChunk,
+          ...(this.egressSecretConfirmer ? { confirmSecret: this.egressSecretConfirmer } : {}),
+        });
+        // A hosted stream's budget restarts on every chunk, so the long answer
+        // the output allowance was sized for is never cut off mid-delivery. The
+        // first chunk still gets the whole planned budget, because thinking
+        // streams nothing visible before it. The ceiling catches a stream that
+        // never ends.
+        const completion = inactivity
+          ? await withInactivityTimeout(
+            touch => dispatch(chunk => { touch(); onTextChunk(chunk); }),
+            timeout.timeoutMs,
+            ceilingMs,
+            () => new ProviderTimeoutError(timeout.timeoutMs, timeout.describes, 'inactivity'),
+            () => new ProviderTimeoutError(ceilingMs, HOSTED_STREAM_CEILING_RULE, 'stream-ceiling'),
+          )
+          : await withTimeout(
+            dispatch(onTextChunk),
+            timeout.timeoutMs,
+            () => new ProviderTimeoutError(timeout.timeoutMs, timeout.describes, 'total'),
+          );
         this.markModelWarm(provider.providerId, request.model);
         return completion;
       } catch (err) {
@@ -5383,6 +6283,10 @@ export class Orchestrator {
         // A reading taken off a live third-party service: untrusted text with
         // an authoritative-looking source, which is the tool-result case.
         origin: 'tool-result',
+        // Named so the provenance taint can tell the operator's own Lens
+        // selection from an anonymous tool result (which it treats as
+        // third-party). Never sent to a model as a tool name.
+        toolName: LENS_SELECTION_SOURCE,
         content: lensContextMessage,
       });
     }
@@ -5586,6 +6490,26 @@ interface ToolExecutionEntry {
    * PASSING verification run into a phantom "tool-execution problem" dump.
    */
   isFailure?: boolean;
+  /**
+   * The skill actually ran (or threw while running). A call refused, denied or
+   * rejected before execution produced AtlasMind's own text and read nothing,
+   * so it taints nothing.
+   */
+  executed?: boolean;
+  /** `find-tool` went on to search Resource Discovery off the machine. */
+  reachedNetwork?: boolean;
+  /**
+   * A person released a quarantined result's text: `result` is already fenced
+   * and labelled, and this is what the turn absorbs for it.
+   */
+  quarantineRelease?: ProvenanceSource;
+  /**
+   * Dry run answered this call with a description instead of running it.
+   * Nothing happened, so nothing is absorbed, verified or remembered for it.
+   */
+  dryRunSimulated?: boolean;
+  /** The call ran without a prompt; this cites what stood in for it (a sandbox attestation). */
+  approvalAudit?: ToolApprovalAudit;
 }
 
 /**
@@ -6056,9 +6980,10 @@ function buildExecutionArtifacts(
   verificationSummary: string | undefined,
   projectTddState: ProjectTddState | undefined,
   failedToolCallCount: number,
+  stoppedAtAnnouncement = false,
 ): Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'> | undefined {
   const tddArtifact = buildProjectTddArtifact(projectTddState, verificationSummary);
-  if (toolArtifacts.length === 0 && checkpointedTools.size === 0 && !verificationSummary && !tddArtifact) {
+  if (toolArtifacts.length === 0 && checkpointedTools.size === 0 && !verificationSummary && !tddArtifact && !stoppedAtAnnouncement) {
     return undefined;
   }
 
@@ -6072,6 +6997,7 @@ function buildExecutionArtifacts(
     tddStatus: tddArtifact?.status,
     tddSummary: tddArtifact?.summary,
     checkpointedTools: [...checkpointedTools],
+    ...(stoppedAtAnnouncement ? { stoppedAtAnnouncement: true } : {}),
   };
 }
 
@@ -6308,6 +7234,78 @@ export function looksLikePreambleOnly(response: string): boolean {
 }
 
 /**
+ * The first line of the notice appended to a chat turn that announced a change
+ * and ended without making it. Exported so the subtask boundary can recognise a
+ * reply the notice made too long for {@link looksLikePreambleOnly} — the same
+ * reason {@link TOOL_EXECUTION_FAILURE_PREFIX} is matched with `includes`.
+ */
+export const UNACTED_ANNOUNCEMENT_MARKER = '⚠️ **Announced, not done**';
+
+const ANNOUNCED_CHANGE_PATTERN = /\b(?:let'?s|let me(?!\s+know\b)|i'?ll|i will|i am going to|i'?m going to)\b.*\b(?:add|write|create|update|edit|modify|apply|implement|fix|patch|refactor|rename|wire|generate|remove|delete|trim|replace|rewrite|change|move)\b/i;
+const CONDITIONAL_OFFER_PATTERN = /\bif (?:you|the user)\b|\b(?:would|do) you (?:like|want)\b|\bwant me to\b|\bshall i\b|\bshould i\b/i;
+
+/**
+ * A chat reply that says which change it is about to make, and is the whole reply.
+ *
+ * Observed verbatim, twice in one conversation, on two different models: *"I
+ * will now edit `README.md` to retain only the three most recent builds … and
+ * remove all older patch notes."* — and the turn ended there. Nothing was
+ * edited. {@link looksLikePreambleOnly} recognises the shape, but only the
+ * project scheduler ever asked it, so in a chat turn the announcement went out
+ * as the answer and the summary headed it "Completed".
+ *
+ * Narrower than its parent on purpose, because a chat turn that trips this is
+ * re-prompted and then labelled as not done. Three exclusions carry that:
+ *
+ * - **A change verb is required.** "Let me check the router" is investigation
+ *   narration, which the workspace reprompt already owns; this is about a
+ *   promised *edit*.
+ * - **An offer is not an announcement.** "If you'd like, I'll update the wiki
+ *   too", "want me to trim it?", or anything ending in a question asks the
+ *   operator something, and stopping to ask is a legitimate place to stop.
+ * - **"Let me know" leads nothing.** "Let me know if you want me to update the
+ *   docs" is a sign-off, not a promise.
+ *
+ * Sentences are tested one at a time so an offer in one sentence cannot excuse
+ * an announcement in another.
+ */
+export function looksLikeUnactedChangeAnnouncement(response: string): boolean {
+  if (!response.trim() || !looksLikePreambleOnly(response)) {
+    return false;
+  }
+  return response
+    .trim()
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map(sentence => sentence.trim())
+    .some(sentence => ANNOUNCED_CHANGE_PATTERN.test(sentence)
+      && !CONDITIONAL_OFFER_PATTERN.test(sentence)
+      && !/\?\s*$/.test(sentence));
+}
+
+/**
+ * Appended when the announcement survived its one re-prompt.
+ *
+ * The second sentence is only as strong as the evidence: it says nothing ran
+ * that could change the workspace only when no side-effecting tool call ran this
+ * turn, and otherwise points at the tool calls rather than guessing.
+ */
+export function appendUnactedAnnouncementCaveat(content: string, sideEffectingToolRan: boolean): string {
+  const evidence = sideEffectingToolRan
+    ? 'Some tool calls that can change the workspace did run this turn; check them before assuming anything changed.'
+    : 'No tool that can change the workspace ran this turn, so nothing was changed.';
+  return `${content.replace(/\s+$/, '')}\n\n---\n${UNACTED_ANNOUNCEMENT_MARKER} — the reply above says what Atlas was about to do, and the turn ended without doing it. ${evidence} Ask again to have it carried out.`;
+}
+
+function buildAnnouncedActionReprompt(): string {
+  return [
+    'You said what you were about to change, then ended your turn without changing it: no tool call followed the announcement.',
+    'Make the change now, in this turn, using the available tools. Do not describe the step again first.',
+    'If something genuinely prevents it — a tool is unavailable, a permission was refused, the request is ambiguous — say exactly what is blocking it instead.',
+    'Do not say the change was made unless a tool call in this turn made it.',
+  ].join('\n');
+}
+
+/**
  * Classify a subtask's final response as a failure when it did not actually
  * deliver. Returns a short human-readable reason, or `undefined` when the
  * response looks like genuine completed work. Used by the project scheduler so a
@@ -6328,7 +7326,11 @@ export function classifySubTaskFailure(response: string): string | undefined {
   if (trimmed.includes(TOOL_EXECUTION_FAILURE_PREFIX)) {
     return 'Subtask ended on a tool-execution failure without recovering.';
   }
-  if (looksLikePreambleOnly(trimmed)) {
+  // The marker is checked as well as the shape: the notice that marks an
+  // unacted announcement can push the reply past `looksLikePreambleOnly`'s
+  // length cap, and a subtask must not pass this boundary *because* the loop
+  // said it had not done the work.
+  if (looksLikePreambleOnly(trimmed) || trimmed.includes(UNACTED_ANNOUNCEMENT_MARKER)) {
     return 'Subtask stopped after announcing an action without delivering any result.';
   }
   if (looksLikeToolCapabilityRefusal(trimmed)) {
@@ -6637,6 +7639,19 @@ export function intersectTurnCapabilities(
     commandsAllowed,
     ...(reason ? { reason } : {}),
   };
+}
+
+/**
+ * The reply with the dry-run summary after it. Appended rather than rewritten,
+ * so a surface that streamed the answer can show the summary as the tail of
+ * what it already rendered.
+ */
+function withDryRunSummary<T extends { response: string }>(result: T, turn: DryRunTurn): T {
+  const summary = summarizeDryRun(turn);
+  if (!summary) {
+    return result;
+  }
+  return { ...result, response: result.response ? `${result.response}\n\n${summary}` : summary };
 }
 
 export function isToolAllowedByTurnEnvelope(
@@ -7099,7 +8114,8 @@ export function summarizeAttemptFailures(attempts: TaskModelAttempt[]): AttemptF
   const lines = failed.map(attempt => {
     const seconds = Math.max(1, Math.round(attempt.durationMs / 1000));
     if (attempt.status === 'timeout') {
-      return `- \`${attempt.model}\` — timed out after ${seconds}s`;
+      const budget = attempt.timeoutBudget ? ` (budget ${attempt.timeoutBudget})` : '';
+      return `- \`${attempt.model}\` — timed out after ${seconds}s${budget}`;
     }
     const reason = attempt.reason ? `: ${attempt.reason}` : '';
     return `- \`${attempt.model}\` — failed after ${seconds}s${reason}`;
@@ -7178,6 +8194,41 @@ export interface ProviderTimeoutInputs {
    * inputs widen the budget or leave it alone.
    */
   admissionBudgetMs?: number;
+  /**
+   * The output this attempt is planned to produce: the request's `max_tokens`,
+   * which already includes the thinking a reasoning directive made room for
+   * (`reasoningMaxTokens`). Absent means not known and leaves a hosted budget
+   * at its base — it never narrows it.
+   */
+  outputTokens?: number;
+}
+
+/** The declared rules a provider attempt's budget can come from. */
+export type ProviderTimeoutRule =
+  | 'acp-enclosing'
+  | 'local-scaled'
+  | 'hosted-flat'
+  | 'hosted-output-allowance'
+  | 'hosted-output-capped';
+
+/**
+ * Every rule, as a sentence. Published so a failure explanation can name the
+ * rule that sized the budget rather than a bare number of milliseconds.
+ */
+export const PROVIDER_TIMEOUT_RULES: Readonly<Record<ProviderTimeoutRule, string>> = {
+  'acp-enclosing': 'an ACP turn gets the adapter\'s prompt ceiling plus handshake headroom',
+  'local-scaled': 'a local model gets the base plus allowances for its size, the prompt, a cold start and GPU admission',
+  'hosted-flat': `a hosted call planned to write at most ${HOSTED_TIMEOUT_COVERED_OUTPUT_TOKENS.toLocaleString('en-US')} output tokens gets the flat base`,
+  'hosted-output-allowance': `a hosted call gets the base plus ${HOSTED_TIMEOUT_MS_PER_1K_OUTPUT_TOKENS / 1000}s per 1,000 planned output tokens above ${HOSTED_TIMEOUT_COVERED_OUTPUT_TOKENS.toLocaleString('en-US')}, thinking included`,
+  'hosted-output-capped': `the output allowance reached the ${HOSTED_PROVIDER_MAX_TIMEOUT_MS / 60_000}-minute hosted ceiling`,
+};
+
+/** How long an attempt may take, and the declared rule that decided it. */
+export interface ProviderTimeoutPlan {
+  timeoutMs: number;
+  rule: ProviderTimeoutRule;
+  /** The rule applied to this attempt's numbers, composed here so no caller restates it. */
+  describes: string;
 }
 
 /**
@@ -7204,11 +8255,32 @@ export function getProviderTimeoutMs(
   modelId?: string,
   inputs?: ProviderTimeoutInputs,
 ): number {
+  return planProviderTimeout(providerId, defaultTimeoutMs, modelId, inputs).timeoutMs;
+}
+
+/**
+ * `getProviderTimeoutMs` with its reason attached.
+ *
+ * The hosted rule is the one added for deep reasoning: thinking is output that
+ * has to be generated before anything visible arrives, so the budget grows with
+ * the planned output — `max_tokens`, which a reasoning directive has already
+ * raised to cover the thinking — at a declared 50 tokens/s floor above the
+ * output the base covers, clamped to `HOSTED_PROVIDER_MAX_TIMEOUT_MS`. It never
+ * falls below the configured base: a user who set 60s keeps 60s for a one-line
+ * answer.
+ */
+export function planProviderTimeout(
+  providerId: string,
+  defaultTimeoutMs: number,
+  modelId?: string,
+  inputs?: ProviderTimeoutInputs,
+): ProviderTimeoutPlan {
   if (providerId === 'acp') {
-    return Math.max(defaultTimeoutMs, ACP_PROVIDER_TIMEOUT_MS);
+    const timeoutMs = Math.max(defaultTimeoutMs, ACP_PROVIDER_TIMEOUT_MS);
+    return { timeoutMs, rule: 'acp-enclosing', describes: `rule acp-enclosing: ${PROVIDER_TIMEOUT_RULES['acp-enclosing']} = ${timeoutMs}ms` };
   }
   if (providerId !== 'local') {
-    return defaultTimeoutMs;
+    return planHostedTimeout(defaultTimeoutMs, inputs?.outputTokens);
   }
 
   const parametersBillions = modelId ? inferParametersBillions(modelId) : undefined;
@@ -7220,11 +8292,64 @@ export function getProviderTimeoutMs(
   const coldStartAllowance = inputs?.warmedUp === true ? 0 : LOCAL_COLD_START_TIMEOUT_MS;
   const admissionAllowance = Math.max(0, inputs?.admissionBudgetMs ?? 0);
 
-  return Math.min(
+  const timeoutMs = Math.min(
     LOCAL_PROVIDER_MAX_TIMEOUT_MS,
     defaultTimeoutMs + sizeAllowance + promptAllowance + coldStartAllowance + admissionAllowance,
   );
+  return { timeoutMs, rule: 'local-scaled', describes: `rule local-scaled: ${PROVIDER_TIMEOUT_RULES['local-scaled']} = ${timeoutMs}ms` };
 }
+
+function planHostedTimeout(baseMs: number, outputTokens: number | undefined): ProviderTimeoutPlan {
+  const planned = typeof outputTokens === 'number' && Number.isFinite(outputTokens) ? Math.max(0, Math.floor(outputTokens)) : 0;
+  const excess = Math.max(0, planned - HOSTED_TIMEOUT_COVERED_OUTPUT_TOKENS);
+  if (excess === 0) {
+    return { timeoutMs: baseMs, rule: 'hosted-flat', describes: `rule hosted-flat: ${PROVIDER_TIMEOUT_RULES['hosted-flat']} = ${baseMs}ms` };
+  }
+  const allowance = Math.round((excess / 1000) * HOSTED_TIMEOUT_MS_PER_1K_OUTPUT_TOKENS);
+  const uncapped = baseMs + allowance;
+  const timeoutMs = Math.max(baseMs, Math.min(HOSTED_PROVIDER_MAX_TIMEOUT_MS, uncapped));
+  const arithmetic = `${baseMs}ms base + ${allowance}ms for ${planned.toLocaleString('en-US')} planned output tokens`;
+  return uncapped > timeoutMs
+    ? { timeoutMs, rule: 'hosted-output-capped', describes: `rule hosted-output-capped: ${arithmetic}, but ${PROVIDER_TIMEOUT_RULES['hosted-output-capped']} = ${timeoutMs}ms` }
+    : { timeoutMs, rule: 'hosted-output-allowance', describes: `rule hosted-output-allowance: ${PROVIDER_TIMEOUT_RULES['hosted-output-allowance']}; ${arithmetic} = ${timeoutMs}ms` };
+}
+
+/**
+ * Whether a streamed attempt's budget is an inactivity budget.
+ *
+ * A hosted stream that keeps delivering chunks is working, and a total-duration
+ * timer would cut off exactly the long answer the output allowance was sized
+ * for. ACP keeps its own inactivity timer inside the adapter, and a local
+ * stream stays on its total budget, which the GPU arbiter's admission
+ * accounting is sized against.
+ */
+export function usesStreamInactivityBudget(providerId: string): boolean {
+  return providerId !== 'acp' && providerId !== 'local';
+}
+
+/**
+ * A provider attempt that ran out of its planned budget. Structural, so the
+ * attempt record can carry the rule that sized the budget; the message still
+ * says "timed out", which is what every existing timeout classifier reads, so
+ * the failover path is unchanged.
+ */
+export class ProviderTimeoutError extends Error {
+  constructor(
+    readonly timeoutMs: number,
+    readonly budget: string,
+    readonly kind: 'total' | 'inactivity' | 'stream-ceiling',
+  ) {
+    super(kind === 'inactivity'
+      ? `Provider timed out after ${timeoutMs}ms with nothing streamed (inactivity budget, restarted on every chunk; ${budget}).`
+      : kind === 'stream-ceiling'
+        ? `Provider timed out after ${timeoutMs}ms in total while still streaming (${budget}).`
+        : `Provider timed out after ${timeoutMs}ms (${budget}).`);
+    this.name = 'ProviderTimeoutError';
+  }
+}
+
+/** The ceiling a streamed hosted attempt hits, stated as a rule like the others. */
+export const HOSTED_STREAM_CEILING_RULE = 'rule hosted-stream-ceiling: a streamed hosted call may not run longer than this in total, however busy it is';
 
 function buildPromptBudget(
   contextWindow: number | undefined,
@@ -8406,11 +9531,14 @@ function isModelDeprecatedError(err: unknown): boolean {
 async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
-  timeoutMessage: string,
+  timeoutMessage: string | (() => Error),
 ): Promise<T> {
   let timeoutHandle: unknown;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutHandle = getTimerGlobals().setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    timeoutHandle = getTimerGlobals().setTimeout(
+      () => reject(typeof timeoutMessage === 'string' ? new Error(timeoutMessage) : timeoutMessage()),
+      timeoutMs,
+    );
   });
 
   try {
@@ -8419,6 +9547,47 @@ async function withTimeout<T>(
     if (timeoutHandle !== undefined) {
       getTimerGlobals().clearTimeout(timeoutHandle);
     }
+  }
+}
+
+/**
+ * Race `start` against an inactivity timer it can restart and an absolute
+ * ceiling it cannot. `start` receives `touch`, which re-arms the inactivity
+ * timer; the caller calls it on every sign of progress (a streamed chunk).
+ */
+export async function withInactivityTimeout<T>(
+  start: (touch: () => void) => Promise<T>,
+  idleMs: number,
+  ceilingMs: number,
+  onIdle: () => Error,
+  onCeiling: () => Error,
+): Promise<T> {
+  const timers = getTimerGlobals();
+  let idleHandle: unknown;
+  let settled = false;
+  let fail: (error: Error) => void = () => {};
+  const guard = new Promise<never>((_, reject) => { fail = reject; });
+  const arm = (): void => {
+    if (idleHandle !== undefined) {
+      timers.clearTimeout(idleHandle);
+    }
+    idleHandle = timers.setTimeout(() => fail(onIdle()), idleMs);
+  };
+  const touch = (): void => {
+    if (!settled) {
+      arm();
+    }
+  };
+  arm();
+  const ceilingHandle = timers.setTimeout(() => fail(onCeiling()), ceilingMs);
+  try {
+    return await Promise.race([start(touch), guard]);
+  } finally {
+    settled = true;
+    if (idleHandle !== undefined) {
+      timers.clearTimeout(idleHandle);
+    }
+    timers.clearTimeout(ceilingHandle);
   }
 }
 

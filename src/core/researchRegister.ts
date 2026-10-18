@@ -55,6 +55,7 @@ import {
   type ResearchScanId,
   type ResearchSeverity,
 } from './researchScanCatalog.js';
+import { SsotHomeRefusalError } from './workspaceScope.js';
 
 export const RESEARCH_SSOT_PATH = 'project_memory/analysis/research.json';
 export const RESEARCH_SUMMARY_SSOT_PATH = 'project_memory/analysis/research.md';
@@ -895,7 +896,19 @@ export class ResearchRegisterManager {
   private preserveExisting = false;
   private notice: string | undefined;
 
-  constructor(private readonly workspaceRoot: string | undefined) {
+  /**
+   * @param workspaceRoot The SSOT home — the folder holding project memory,
+   *   from `ssotHomeRoot()`, never assumed to be the first folder.
+   * @param refusal Why project memory may not be read or written here, when
+   *   the home is ambiguous. A refused manager reads nothing and **throws** on
+   *   every write: a write that quietly did nothing would read exactly like one
+   *   that worked, and one sent to the first folder instead would land in a
+   *   repository nobody was looking at.
+   */
+  constructor(
+    private readonly workspaceRoot: string | undefined,
+    private readonly refusal?: string,
+  ) {
     this.applyRead();
   }
 
@@ -913,7 +926,7 @@ export class ResearchRegisterManager {
   }
 
   getNotice(): string | undefined {
-    return this.notice;
+    return this.refusal ?? this.notice;
   }
 
   getRegister(): ResearchRegister | undefined {
@@ -946,6 +959,9 @@ export class ResearchRegisterManager {
   }
 
   async save(register: ResearchRegister): Promise<void> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     this.register = register;
     if (this.workspaceRoot && !this.preserveExisting) {
       await writeResearchRegister(this.workspaceRoot, register);

@@ -169,13 +169,10 @@ describe('theme safety', () => {
       }
     }
 
-    // Two badge rules remain: white/near-black text on a themed chart colour,
-    // where the pairing is legible in both themes and changing it would be a
-    // restyle rather than a fix.
-    const BASELINE = new Set([
-      'src/views/settingsPanel.ts → color: #fff',
-      'src/views/settingsPanel.ts → color: #1a1a1a',
-    ]);
+    // Empty, and meant to stay that way. Two badge rules used to sit here as
+    // "legible in both themes"; measured, white on Dark Modern's chart blue was
+    // 2.6:1, and both now take the page colour (`--tint-toward`) instead.
+    const BASELINE = new Set<string>();
 
     const regressions = offenders.filter(entry => !BASELINE.has(entry));
     expect(regressions, `fixed text colour on a themed background: ${regressions.join(' | ')}`).toEqual([]);
@@ -186,10 +183,15 @@ describe('theme safety', () => {
     // and backwards on a light one, where it washes the text out against the
     // page. `var(--tint-away)` resolves to white on dark and black on light,
     // so the accent always moves away from the background.
+    //
+    // The light branch is declared on the document (`:root:has(> body.vscode-light)`)
+    // rather than on body: VS Code puts the theme class on body but the colours
+    // on html, so a branch on body never reaches the shared tokens declared on
+    // :root that compose --tint-away and --tint-toward. High-contrast light is a
+    // light page and must take the same branch.
     const shell = readFileSync(path.join(VIEWS_DIR, 'webviewUtils.ts'), 'utf8');
     expect(shell).toContain('--tint-away: white');
-    expect(shell).toContain('body.vscode-light');
-    expect(shell).toMatch(/body\.vscode-light\s*\{[^}]*--tint-away:\s*black/);
+    expect(shell).toMatch(/:root:has\(> body\.vscode-light\),\s*:root:has\(> body\.vscode-high-contrast-light\)\s*\{[^}]*--tint-away:\s*black/);
 
     const EXEMPT = new Set(['src/views/personalityProfilePanel.ts']);
     const offenders: string[] = [];
@@ -208,8 +210,13 @@ describe('theme safety', () => {
     // An undefined custom property makes the whole declaration invalid, so the
     // rule silently vanishes rather than failing loudly — `--atlas-panel-fg`,
     // `--panel-border` and `--dash-fg` were each dropping styling this way.
+    // The shell is in scope too: it wraps every panel, and it is where the
+    // theme-branched tokens (--atlas-boundary, --atlas-ink-share,
+    // --atlas-edge-accent) are declared, because they must reach the panels
+    // that do not opt into the dashboard skin as well as those that do.
     const shared = readFileSync(path.join(VIEWS_DIR, 'dashboardTheme.ts'), 'utf8')
-      + readFileSync(path.join(VIEWS_DIR, 'dashboardWidgets.ts'), 'utf8');
+      + readFileSync(path.join(VIEWS_DIR, 'dashboardWidgets.ts'), 'utf8')
+      + readFileSync(path.join(VIEWS_DIR, 'webviewUtils.ts'), 'utf8');
     const offenders: string[] = [];
     for (const { file, text } of allWebviewSources) {
       const partnerRel = CSS_PARTNER[file];

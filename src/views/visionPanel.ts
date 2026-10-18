@@ -393,7 +393,7 @@ export class VisionPanel {
         .hero-badge-button:hover, .hero-badge-button:focus-visible { outline: 2px solid var(--atlas-accent); outline-offset: 2px; }
         .search-shell { display: grid; gap: 6px; margin: 0 0 18px; }
         .search-label { font-weight: 600; }
-        .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 10px 12px; border-radius: 12px; }
+        .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--atlas-boundary); padding: 10px 12px; border-radius: 12px; }
         .panel-layout { display: grid; grid-template-columns: minmax(220px, 240px) minmax(0, 1fr); gap: 18px; align-items: start; }
         .panel-nav { position: sticky; top: 20px; display: grid; gap: 8px; padding: 16px; border: 1px solid var(--atlas-border); border-radius: 18px; background: linear-gradient(180deg, var(--atlas-surface-strong), var(--atlas-surface)); }
         .nav-link { width: 100%; text-align: left; border: 1px solid transparent; border-radius: 12px; padding: 11px 12px; background: transparent; color: var(--vscode-foreground); font-weight: 600; }
@@ -419,7 +419,7 @@ export class VisionPanel {
           resize: vertical;
           color: var(--vscode-input-foreground);
           background: var(--vscode-input-background);
-          border: 1px solid var(--vscode-input-border, var(--atlas-border));
+          border: 1px solid var(--atlas-boundary);
           padding: 8px;
           font-family: var(--vscode-font-family, system-ui, sans-serif);
           border-radius: 12px;
@@ -467,7 +467,7 @@ export class VisionPanel {
         }
         .output-box th,
         .output-box td {
-          border: 1px solid var(--vscode-widget-border, #444);
+          border: 1px solid var(--atlas-boundary);
           padding: 6px 8px;
           text-align: left;
         }

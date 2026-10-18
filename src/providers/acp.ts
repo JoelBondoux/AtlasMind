@@ -78,6 +78,7 @@ import {
   type AcpToolCall,
 } from './acpProtocol.js';
 import { resolveAcpPermission } from './acpPermission.js';
+import { planHostCommandEnvironment } from '../core/hostCommandEnvironment.js';
 import {
   ACP_EFFORT_CATEGORY,
   acpEffortTiersFor,
@@ -551,6 +552,12 @@ export interface AcpProcessLaunchOptions {
   privateDesktop?: boolean;
   /** Structured, data-minimal launch evidence for diagnostics. */
   onLaunched?: (event: AcpProcessLaunchEvent) => void;
+  /**
+   * Names from `atlasmind.terminal.passEnvironment`: credential-shaped
+   * variables the user asked to give the agent process anyway. Everything else
+   * credential-shaped is withheld — see `hostCommandEnvironment.ts`.
+   */
+  passEnvironment?: readonly string[];
 }
 
 export type AcpProcessFactory = (
@@ -736,6 +743,13 @@ export class AcpAdapter implements ProviderAdapter {
       onLiveSessionChange?: (summary: AcpLiveSessionSummary) => void;
       /** Records the effective launch boundary without exposing command lines or PIDs. */
       onProcessLaunch?: (event: AcpProcessLaunchEvent) => void;
+      /**
+       * Names to pass to the agent process even though they are
+       * credential-shaped — `atlasmind.terminal.passEnvironment`. A getter so a
+       * changed setting reaches the next launch; part of the settings stamp, so
+       * a live process started under the old list is replaced, not reused.
+       */
+      passEnvironment?: readonly string[] | (() => readonly string[]);
     },
   ) {
     if (options?.keepAlive) {
@@ -993,7 +1007,8 @@ export class AcpAdapter implements ProviderAdapter {
     const environment = Object.entries(agent.env ?? {})
       .sort(([left], [right]) => left.localeCompare(right));
     return `${agent.command}|${JSON.stringify(agent.args ?? [])}|${this.options?.cwd ?? ''}`
-      + `|private-desktop:${this.hideConsoleWindows()}|env:${JSON.stringify(environment)}`;
+      + `|private-desktop:${this.hideConsoleWindows()}|env:${JSON.stringify(environment)}`
+      + `|pass-env:${this.passEnvironment().join(',')}`;
   }
 
   private agents(): AcpAgentConfig[] {
@@ -1065,6 +1080,7 @@ export class AcpAdapter implements ProviderAdapter {
         {
           privateDesktop: this.hideConsoleWindows(),
           onLaunched: this.options?.onProcessLaunch,
+          passEnvironment: this.passEnvironment(),
         },
       );
       const initialized = await session.initialize();
@@ -1355,6 +1371,7 @@ export class AcpAdapter implements ProviderAdapter {
       {
         privateDesktop,
         onLaunched: this.options?.onProcessLaunch,
+        passEnvironment: this.passEnvironment(),
       },
     );
     const abortBeforeReady = () => session.dispose(createAcpAbortError());
@@ -1371,7 +1388,8 @@ export class AcpAdapter implements ProviderAdapter {
         if (error instanceof AcpAuthRequiredError) {
           throw new Error(
             `${agent.command} needs you to sign in before it will answer. Run it once in a terminal and follow its own login`
-            + `${initialized.authMethods.length > 0 ? ` (${initialized.authMethods.join(', ')})` : ''}. AtlasMind never handles that credential.`,
+            + `${initialized.authMethods.length > 0 ? ` (${initialized.authMethods.join(', ')})` : ''}. AtlasMind never handles that credential.`
+            + ` ${ACP_WITHHELD_ENVIRONMENT_HINT}`,
           );
         }
         throw error;
@@ -1465,10 +1483,27 @@ export class AcpAdapter implements ProviderAdapter {
     }
   }
 
+  /**
+   * The pass-through list, sorted. A getter that throws passes nothing:
+   * withholding is the safe direction.
+   */
+  private passEnvironment(): string[] {
+    try {
+      const configured = this.options?.passEnvironment;
+      const names = typeof configured === 'function' ? configured() : configured;
+      return Array.isArray(names) ? names.filter(name => typeof name === 'string').sort() : [];
+    } catch {
+      return [];
+    }
+  }
+
   private settingsStamp(agent: AcpAgentConfig, mcpServers: AcpMcpServer[]): string {
     try {
-      return this.options?.settingsStamp?.(agent, mcpServers)
-        ?? defaultAcpSettingsStamp(this.options?.cwd, agent, mcpServers);
+      // The pass-through list decides what the process was started with, so a
+      // change to it must replace a live process rather than reuse it.
+      return (this.options?.settingsStamp?.(agent, mcpServers)
+        ?? defaultAcpSettingsStamp(this.options?.cwd, agent, mcpServers))
+        + `|pass-env:${this.passEnvironment().join(',')}`;
     } catch {
       // A changing sentinel prevents reuse when AtlasMind cannot prove the
       // settings are unchanged. Safe, with the cost of one extra startup.
@@ -1593,6 +1628,7 @@ export class AcpAdapter implements ProviderAdapter {
       {
         privateDesktop: this.hideConsoleWindows(),
         onLaunched: this.options?.onProcessLaunch,
+        passEnvironment: this.passEnvironment(),
       },
     );
     const abortBeforePrompt = () => session.dispose(createAcpAbortError());
@@ -1625,7 +1661,8 @@ export class AcpAdapter implements ProviderAdapter {
         if (error instanceof AcpAuthRequiredError) {
           throw new Error(
             `${agent.command} needs you to sign in before it will answer. Run it once in a terminal and follow its own login`
-            + `${initialized.authMethods.length > 0 ? ` (${initialized.authMethods.join(', ')})` : ''}. AtlasMind never handles that credential.`,
+            + `${initialized.authMethods.length > 0 ? ` (${initialized.authMethods.join(', ')})` : ''}. AtlasMind never handles that credential.`
+            + ` ${ACP_WITHHELD_ENVIRONMENT_HINT}`,
           );
         }
         throw error;
@@ -2494,6 +2531,15 @@ export class AcpAuthRequiredError extends Error {
 }
 
 /**
+ * Said beside a sign-in failure, because an agent that used to authenticate
+ * from an environment variable now fails here instead: credential-shaped
+ * variables are withheld from the agent process.
+ */
+const ACP_WITHHELD_ENVIRONMENT_HINT =
+  'If it signs in from an environment variable (an API key or token), AtlasMind no longer passes credential-shaped variables to agent processes: '
+  + 'add that exact variable name to atlasmind.terminal.passEnvironment in your user settings.';
+
+/**
  * Spawn the agent for real. Never through a shell, and never installed by us.
  *
  * The command is resolved through {@link resolveAcpLaunch} first, because on
@@ -2522,7 +2568,18 @@ const defaultAcpProcessFactory: AcpProcessFactory = (config, cwd, options) => {
     cwd,
     windowsHide: true,
     shell: false,
-    env: { ...process.env, ...(config.env ?? {}) },
+    // The agent runs the commands its model asks for (under
+    // atlasmind.acp.toolsEnabled) with this environment, so it never gets the
+    // editor's credentials: every credential-shaped variable is withheld, the
+    // user's pass-through names are kept, and the agent's own declared `env`
+    // is layered on top. It used to be the whole `process.env`.
+    env: {
+      ...planHostCommandEnvironment(process.env, {
+        passThrough: options?.passEnvironment ?? [],
+        platform: process.platform,
+      }).env,
+      ...(config.env ?? {}),
+    },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   child.stdout.setEncoding('utf8');

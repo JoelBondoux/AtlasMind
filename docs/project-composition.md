@@ -27,6 +27,19 @@ architecture presets seed editable component sets without persisting a governing
 divergence is now a read-only, engine-agnostic core reading with bounded evidence and comparable
 snapshots; applying it to domain surfaces remains Phase 2 work.
 
+Multi-root slice A1 adds the host adapter `src/utils/workspaceRoots.ts` — the one module permitted to
+read `vscode.workspace.workspaceFolders` — and routes the execution boundary through it (the skill
+execution context, `runCommand`, the git tools and the workspace-containment check), together with the
+Project Dashboard's scope resolution and register getters and the Buzz inbound service's root. Behaviour
+is identical: the adapter's default is the same first folder (§8).
+
+Slice A2 locates the SSOT home in a multi-root workspace (§2.6, §8.2) and fixes `.` to resolve against
+the folder the composition was read from. Behaviour changes only for a multi-root workspace whose home is
+not the first folder, and for one whose home is ambiguous. 0.498.1 finishes it: every reader and writer
+of project memory now resolves through the same home, and a static guard keeps it so (§8.2). A component picker (A3), component routing
+(A4), binding the domain studios to a component (A5) and ratcheting the remaining reads down (A6+) are
+later slices.
+
 ### 0.3 Non-goals
 
 - Replacing VS Code's own multi-root workspace mechanism. AtlasMind reads it; it does not manage it.
@@ -48,6 +61,12 @@ one answer, so the error propagates into every downstream surface.
 `src/`, of which 123 take `[0]`**. One comment acknowledges multi-root
 (`workflowAutomation.ts:101`); nothing handles it. `docs/roadmap.md` lists multi-root awareness as an
 open gap.
+
+The tail kept growing after this was written. Recounted at v0.497.1 with comments excluded, there were
+**229 direct reads of `vscode.workspace.workspaceFolders` in 44 files, 203 of them taking `[0]` on the
+spot** — roughly 60% more than at v0.213.0, with no mechanism to stop the next one. v0.497.2 routed 25
+of them through the adapter (§8) and left **204 reads, 182 taking `[0]`, in 42 files**, each file
+ceilinged by `tests/baselines/workspaceFolderReads.test.ts`.
 
 **3. The gap is already live in the most-invested domain.** The bootstrap project-type picker is a
 single-select `showQuickPick` writing one `intake.projectType` string
@@ -143,6 +162,14 @@ would fragment the one thing the SSOT exists to unify.
 Facts that genuinely are per-component — git status, pull requests, CI runs, build results, asset
 inventory — MUST be scoped to their component and MUST be labelled with it on any surface that shows
 them (§6.2).
+
+In a multi-root workspace the home's folder MUST be located, not assumed to be the first (§8.2). Where it
+cannot be located without guessing, project memory MUST NOT be written anywhere, and the surface MUST name
+the candidate folders and say how to declare the home.
+
+Every read and every write of project memory MUST resolve the home the same way, so the two can never land
+in different folders; a surface that reads project memory while its home is ambiguous MUST NOT present one
+candidate's files as the project's.
 
 ## §3 Invariants
 
@@ -278,8 +305,95 @@ Surfaces migrate **by consequence, not by count**. Those where single-root is ac
 first — asset inventory, build, git status, debt scan, CI, observed delta. The rest follow when
 touched for other reasons.
 
-A mechanical rewrite of all 123 sites is an explicit non-goal: it would be unreviewable, and it would
-land its bugs everywhere simultaneously.
+A mechanical rewrite of every remaining site (119 direct reads at v0.498.1, 93 taking `[0]`) is an
+explicit non-goal: it would be unreviewable, and it would land its bugs everywhere simultaneously.
+
+### 8.1 The host adapter and the ratchet
+
+`src/utils/workspaceRoots.ts` is the only module that may read `vscode.workspace.workspaceFolders`
+from now on. It decides nothing: `defaultWorkspaceFolder()` delegates to
+`defaultWorkspaceFolderOf` in `workspaceScope.ts`, which is the single statement of the first-folder
+rule, and `resolveScope()` hands the probed folder list to `resolveWorkspaceScope`. It caches nothing,
+because folders open and close while the extension runs and every replaced call site re-read the live
+list. A migrated call site therefore gives byte-for-byte the answer it gave before; the migration moves
+the question, never the answer.
+
+The execution boundary migrated first, because it is where a wrong root does damage rather than shows
+a wrong number: the skill execution context's root, directory listing, `runCommand`, the git status,
+diff, log, branch and patch tools, debug launch, and `assertInsideWorkspace`. A core service MUST NOT
+read the host's folders; it takes the root injected (`BuzzInboundService` now does).
+
+Every other direct read is ceilinged per file by `tests/baselines/workspaceFolderReads.test.ts`, the
+two-way ratchet `testTypecheck.test.ts` uses: a file whose count rises fails, a file whose count falls
+fails until its ceiling is lowered, an unlisted file must have none, and `src/core/**` must have none
+unless its entry carries a written reason. ESLint cannot ratchet per file, which is why this is a test.
+
+### 8.2 Locating the SSOT home
+
+`locateSsotHome(folders, probe)` in `workspaceScope.ts` is pure; the adapter's `ssotHomeRoot()` supplies
+the probe (does `<ssotPath>/` exist here, and does this folder's own `workflow.json` declare a
+composition) and turns the answer back into the host's folder. `SSOT_HOME_RULES`, first match wins:
+
+| Rule | Applies when | Home |
+|---|---|---|
+| `no-folder` | No folder is open | none |
+| `single-root` | One folder is open — nothing is probed | that folder |
+| `declared-home` | Exactly one folder's valid `workflow.json` places the home component in that folder | that folder |
+| `ambiguous` | More than one folder declares itself home, or none does and more than one holds `<ssotPath>/` | **unknown** |
+| `sole-ssot` | Exactly one folder holds the configured `<ssotPath>/` | that folder |
+| `no-ssot-first-folder` | Nothing declares a home or holds project memory | the first folder, where bootstrap writes |
+
+A declaration outranks a directory because declaring the home is the documented way to settle an
+ambiguity; a folder whose composition places its home somewhere else is not a declaration of itself. A
+folder that could not be looked inside (a virtual scheme, an unreadable path, or past the 32-folder probe
+cap) is reported as `unprobed`, never read as empty. An `ambiguous` result returns no folder:
+`describeSsotHomeRefusal` composes the one sentence every surface shows, naming the candidates and the
+fix, and AtlasMind neither loads nor writes project memory until it is settled.
+
+A component at `.` resolves against the **anchor** — the folder the composition was read from
+(`WorkspaceScopeOptions.anchorFsPath`). Before A2 it resolved against folder 0 while the composition was
+also read from folder 0, so a home that was not first could not find itself.
+
+A2 opted in the workflow file, the dashboard's scope and SSOT reads, memory loading, the project soul,
+operator feedback and two chat reads — and left every register manager on the first folder. That was a
+split brain: with the home in the second folder, the dashboard read a register from the home while its
+manager wrote the change into folder 0, so the write vanished from the page and a stray `project_memory/`
+in folder 0 then made the home ambiguous by itself. 0.498.1 moves **every** reader and writer of
+project memory onto the one resolution:
+
+- **Register managers** take `(home, refusal)` from `ssotHomeRoot()`. A refused manager reads nothing and
+  every write throws `SsotHomeRefusalError` with the one sentence; the dashboard shows it as a warning, not
+  as a failed action, and rebinds its cached managers when the home moves.
+- **Host writes** ask `ssotHomeForWrite()` (a folder, or the sentence to show) or
+  `requireSsotHomeForWrite()` (throws it); **reads** ask `ssotHomeRootPath()`, empty when ambiguous.
+  Automatic writes (a run report, a gap-analysis reply, the roadmap anchors on open) are skipped and
+  logged rather than shown.
+- **Bootstrap, import, update, describe and purge** go to the home; a person picks a folder only when none
+  holds project memory yet, which is the choice the probe finds afterwards.
+- **The Project Dashboard** leaves project-memory sections empty while the home is ambiguous, and its
+  banner says so and names the folder its git, CI and file facts are read from.
+- **Promotions** run in the home, the repository `delivery.json` describes. The Website Studio and preview
+  read `website.json` and emit manifests from the home and keep content, surfaces and emitted files on
+  the first folder until the site is bound to a component (A5).
+- **The data-privacy policy** is the exception to "read nothing": an ambiguous home applies the strictest
+  combination of every candidate's policy, because no policy at all would switch redaction off.
+
+Workspace **identity** — the cost-tracker key and the machine-private cost-history hash — deliberately
+stays on the first folder: re-keying it would orphan every spend record already written under it. The
+*committed* cost-history copy (`cost.historyLocation: repository`) is project memory and moves to the home.
+
+`tests/baselines/ssotHomeResolution.test.ts` holds this statically. It walks `src/` with the TypeScript
+AST, taints values that come from the first folder, derives the set of functions, methods and classes
+that touch project memory and take the root first, and fails when a tainted value reaches one — or is
+joined with the SSOT path. Its allowlist must give a reason per entry; its one entry is the project run
+report, whose configurable folder sends it to the home when it is inside project memory and to the first
+folder otherwise.
+
+**Known inconsistency, reported rather than fixed here.** The presence probe follows `atlasmind.ssotPath`,
+but every register, the workflow file included, lives at a fixed `project_memory/...` path. The refusal's
+way out therefore names `project_memory/operations/workflow.json` (`SSOT_HOME_DECLARATION_PATH`, pinned
+equal to `WORKFLOW_SSOT_PATH`) rather than a path built from the setting. Making the registers follow the
+setting touches some thirty modules and is its own change.
 
 ## §9 Conformance
 
@@ -293,3 +407,5 @@ An implementation conforms when:
 - [x] `upstreamDivergence` has no engine-specific symbol in it.
 - [ ] No write path to any non-git version control system exists.
 - [x] A single-root workspace behaves exactly as it did at v0.213.0; default scope remains the first folder.
+- [x] A multi-root workspace locates its SSOT home by a declared rule, and an ambiguous home is refused, never picked.
+- [x] Every reader and writer of project memory resolves the home the same way, held by a static guard.

@@ -19,6 +19,573 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.504.3 -- The secret scan is green again
+
+Three test values added in 0.503.0 looked like API keys to CI's secret scanner. Each was checked: they
+are placeholder names for a sandbox volume, not credentials. A new `.gitleaksignore` file now lists
+exactly those three findings, so the scan passes, and a real key added to the same files later would
+still be caught. Nothing in AtlasMind behaves differently.
+
+## v0.504.2 -- Unsloth models that are installed but not routable say so
+
+Unsloth Studio lists every model you have downloaded, but out of the box it only serves the one it has
+loaded. AtlasMind used to quietly leave the unloaded ones out of the routed model list while the local
+model advisor still called them installed, with nothing to explain the difference. It now reads Studio's
+**Switch model by request** setting. With it on, every downloaded model is usable and Studio loads it when
+asked. With it off, only loaded models are, and the rest are listed with the reason: in the provider
+summary, and next to each Studio model in the advisor. To use one, load it with **AtlasMind: Manage
+Unsloth Models**, or turn the setting on in Studio under Settings → API.
+
+## v0.504.1 -- Every Dependabot alert fixed
+
+All ten open Dependabot alerts are fixed, and `npm audit` reports zero. The critical one was in
+`proxy-addr`, reached through the MCP SDK's web server: it could treat an IPv4-mapped IPv6 address as
+inside a trusted IPv4 subnet. The MCP SDK itself moves to 1.32.1, which stops a server choosing where its
+OAuth client sends credentials. `ip-address`, `undici`, and three packages `npm audit` found before
+Dependabot did (`fast-uri`, `brace-expansion`, `source-map-js`) are on patched releases too. Nothing
+behaves differently.
+
+## v0.504.0 -- Unsloth Studio as a local runtime
+
+Unsloth Studio joins Ollama and LM Studio as a local runtime, with its own model management.
+**AtlasMind: Connect Unsloth Studio** checks the server really is Studio before it asks for the API key,
+because Studio's default port, 8888, is Jupyter's too. It tries the key before storing it, and keeps it for
+that endpoint alone. **AtlasMind: Manage Unsloth Models** shows what Studio has loaded and downloaded,
+finds Unsloth's chat-model builds on Hugging Face, and lists every quantisation with its size and whether
+it fits your GPU, suggesting one. It then loads, unloads or deletes. Downloads and deletes ask first, a
+download can be cancelled, and a dry run holds every step. The Settings panel's local model advisor gains
+an **Install in Unsloth** button.
+
+Studio can run Python, a shell and web search itself, inside a reply, and some ways of starting it turn
+that on by default. Anything it ran that way would skip AtlasMind's approvals, sandbox and dry run, so
+AtlasMind now asks Studio to keep those tools off on every request. A Studio started with
+`--enable-tools` can override that, and AtlasMind cannot tell, so start it with `--disable-tools`.
+
+Two smaller changes apply to every local endpoint. An endpoint can now hold its own API key, which is
+never sent to another endpoint. And you can declare which runtime an endpoint is (`runtime` in
+`atlasmind.localOpenAiEndpoints`), for a runtime on a non-default port.
+
+## v0.503.2 -- A turn that says it will edit, edits
+
+Asking Atlas to change something could end with *"I will now edit `README.md` …"* and nothing edited,
+under a summary that said "Completed". A reply like that is now sent back once to make the change; if the
+model still only announces it, the reply says plainly that it was not done, and so does the summary.
+
+Two follow-on problems from the same conversation are fixed too. Saying "continue" after such a reply
+finishes that step instead of planning a twelve-step project around it. **Approve and run** now starts the
+run it approves; for a run reached by "continue" it used to send an ordinary chat message instead.
+
+The README now shows only the three newest releases; every release is still in the full changelog.
+
+---
+
+## v0.503.1 -- Two code-scanning fixes
+
+- The game profile's markdown mirror escapes backslashes in table cells, as well as pipes, so a label can no
+  longer break out of its cell.
+- Detecting a leading doctype in a page is now a linear scan. It replaces a regex that backtracked exponentially
+  on a crafted file, and it ends a comment at its first `-->`, as a browser does.
+
+## v0.503.0 -- Sandboxed commands get their dependencies from a volume you prepared
+
+- Under `atlasmind.sandbox.mode = require`, a command that loads installed packages (`npm test`, `vitest`,
+  `tsc`, `node`…) runs only with a **dependency volume** prepared for the folder's current lockfile, mounted
+  over `node_modules`. Your own `node_modules` — Windows or macOS binaries a Linux container cannot load — is
+  never used there, and without a volume the command is refused: *dependencies not prepared*.
+- **AtlasMind: Prepare Sandbox Dependencies** is the sandbox's one network-on step. It shows every command and
+  what network access means first, mounts only `package.json` and the lockfile read-only, writes only into the
+  volume, and skips install scripts unless you confirm a second warning. npm, pnpm and Yarn 1; a symlinked
+  lockfile, workspaces, Bun and Yarn 2+ are refused with the reason. A changed lockfile needs preparing again.
+- **AtlasMind: Remove Sandbox Dependency Volumes** cleans up the volumes that accumulate, on request.
+- Scheduled routines can now run tests unattended against a prepared volume; without one they stop and report
+  that dependencies are not prepared. They still never install anything.
+- Fixed: the sandbox probe could not start Docker on Windows, because it picked Docker Desktop's extensionless
+  WSL script over `docker.exe`.
+
+## v0.502.0 -- A game profile the team declares
+
+- **`domain/game.json`** (with a readable `game.md`) holds what only the team knows about a game: engine,
+  platform targets, build configurations, per-target performance budgets, content roots, discipline owners and
+  store targets.
+- Choosing a game architecture preset in `/bootstrap` seeds it — engine `unknown`, the preset's content roots —
+  and never overwrites a profile you already have, including one written by a newer AtlasMind.
+- Anything that should never be committed — an absolute path, a credential-shaped field, an SDK or engine
+  binary location, anything shaped like a secret — refuses the whole profile instead of being scrubbed. A
+  console target is a label you write; AtlasMind names no console.
+- Invalid values are reported, not corrected; fields a newer AtlasMind added survive an edit.
+
+## v0.501.0 -- Sandboxed terminal writes can stop asking
+
+- **New setting `atlasmind.sandbox.relaxTerminalApprovals`** (off; your user settings only). With the sandbox
+  required and confirmed, a terminal write that will run in the container skips its approval prompt.
+- It still asks after the agent has read someone else's text, still refuses when terminal writes are off,
+  still simulates in a dry run, and never applies to file writes, git or network calls — or to a command the
+  sandbox would not run.
+- The run is tied to the exact sandbox reading that was checked: if it expires first, the command is refused,
+  never run on your machine and never asked about afterwards.
+- Every skipped prompt is recorded in the output channel and the run record with the attestation, image digest
+  and rule it rested on. A status bar item says whether it is active, and **Check Execution Sandbox** shows the
+  rules.
+
+## v0.500.1 -- Agent commands no longer see your keys
+
+- A command an agent runs on your machine used to inherit everything the editor was started with, so `env`
+  or `printenv` could read your provider keys, `GITHUB_TOKEN`, `AWS_*` keys or npm token back. Now every
+  variable whose name or value looks like a credential is withheld, and a proxy URL loses its
+  `user:password@`. `PATH` and everything else a build needs still arrive.
+- The same applies to an ACP agent's own process and to the `atlasmind` CLI.
+- A command that fails says which names were withheld — never their values.
+- **New setting `atlasmind.terminal.passEnvironment`**: list an exact name when a task genuinely needs it.
+  User settings only — a repository cannot add to it.
+- **This can break a command** that relied on a token from the editor's environment, until you pass it
+  through. Your own terminals, the routines you run and the Delivery and promotion buttons are unchanged.
+
+## v0.500.0 -- Agent commands run in the sandbox, or not at all
+
+- Set `atlasmind.sandbox.mode` to `require` and every command an agent asks for — terminal and test runs,
+  npm scripts, routine steps, the check after a write — runs in a container with no network, none of your
+  keys and only your project (or a scheduled run's worktree) mounted. One it cannot run is **refused**, and
+  the message names the rule; it is never run on your machine instead.
+- git, installs, publishes and network tools are refused under `require`; so are a debug launch, an ACP
+  agent's command and a model's managed-terminal follow-up, because they would run outside the container.
+- A command that times out has its container removed; closing the window removes any still running.
+  Approvals are unchanged, and a dry run still runs nothing — not even a check of the engine.
+- With the mode `off` (the default) nothing changes. **Check Execution Sandbox** now says which of the two
+  you are in.
+
+## v0.499.0 -- Check whether the command sandbox would work here
+
+- New **AtlasMind: Check Execution Sandbox**: asks Docker or Podman whether it runs Linux containers, looks
+  for your digest-pinned image on this machine (it never pulls one), and starts one throwaway container with
+  no network to prove the sandbox shape works. The report lists every rule with its result and tells you
+  what to do about the one that failed.
+- New `atlasmind.sandbox.*` settings for the mode, engine, image, CPU and memory. The image, engine and
+  limits are machine settings, so a repository can never choose what your commands run in; a repository can
+  turn the sandbox on but never off.
+- **Not enforced yet** — commands still run on your machine. In a dry run the check reads the engine but does
+  not start its container.
+
+## v0.498.3 -- The sandbox rules, written down before they are switched on
+
+- Nothing changes yet: every command still runs on your machine as before.
+- The rules a future command sandbox will follow are now written and tested: only an image pinned by
+  digest (a tag is refused), only a Linux container engine checked in the last ten minutes, no network, no
+  extra privileges, one folder of your machine and never your home folder, credentials or the Docker
+  socket, and only a short list of harmless environment variables.
+- With the sandbox required, a command it cannot run is refused with the reason — never quietly run on the
+  host. Dry run, approvals after untrusted content, and scheduled routines are unaffected.
+
+## v0.498.2 -- Unreadable project memory is not empty project memory
+
+- When two open folders both look like the project's home, AtlasMind reads no project memory — and the
+  automatic agent refresh then saw no golden cases and let a rewritten prompt through unchecked. It is now
+  held, and the reason names the folders. A damaged cases file holds it too.
+- The Overview says project memory could not be read, instead of "nothing needs you".
+- Testing coverage is no longer graded against two default methodologies when your matrix could not be
+  read, and the release gate on your testing policy reads *unknown* rather than passed.
+
+## v0.498.1 -- Project memory is read and written in the same place
+
+- In a multi-root workspace, everything that reads or writes project memory now uses the same home folder.
+  Before, some registers (tech debt, defects, approvals and others) still wrote into the first folder while
+  the dashboard read them from the home, so a change could seem to vanish.
+- If two folders both look like the home, every write is refused with the same message naming the folders,
+  and the dashboard leaves its project-memory sections empty instead of showing one folder's as the
+  project's. Data-privacy rules keep applying meanwhile, using the strictest combination of the candidates'.
+- Bootstrap, import and the other project-memory commands go to the home; you choose a folder only when none
+  has project memory yet.
+
+## v0.498.0 -- Project memory is found where it lives
+
+- In a multi-root workspace AtlasMind now looks for the folder holding project memory instead of assuming
+  it is the first: a folder whose own `workflow.json` declares itself the home wins, then the one folder
+  with `project_memory/`, then the first folder.
+- If two folders both look like the home, nothing is guessed: no project memory is loaded or written, and
+  the Project Dashboard names the folders and says how to declare the home.
+- A `.` component location now means the folder the composition was read from. Single-folder workspaces
+  are unchanged, and cost history stays keyed on the first folder so none of it is orphaned.
+
+## v0.497.2 -- One place asks which folder is open
+
+- A structural step toward multi-root workspaces, with no behaviour change. AtlasMind asked VS Code which
+  folder is open in over two hundred places; `src/utils/workspaceRoots.ts` is now the one place that asks,
+  and its answer is the same first folder as before.
+- Where a wrong folder would do damage — running commands, reading git, checking a path is inside the
+  workspace — now goes through it. The remaining 204 direct reads are each capped per file by a test, so the
+  count can fall but not rise.
+
+## v0.497.1 -- Current Claude models answer again, and deep thinking gets time to think
+
+- Newer Claude models (Opus 4.7 and later, Sonnet 5 and later, Fable, Haiku 5.5) reject a `temperature`
+  setting, and AtlasMind sent one on every direct Anthropic request — so those models failed before they saw
+  the prompt. It is now sent only to the older Claude models listed as accepting it; any other model, including
+  one released after the list, simply uses Anthropic's default. Claude on Bedrock follows the same list.
+- A hosted model's deadline now grows with how much the request may write, thinking included — 20 seconds per
+  extra 1,000 tokens above 4,096, up to 10 minutes — so a deep-thinking turn is no longer called a timeout at
+  30 seconds while it works.
+- A streaming reply's deadline restarts every time text arrives, so a long answer is never cut off halfway
+  (30-minute ceiling).
+- When an attempt does time out, the failure report says which rule set the deadline and how it was worked out.
+
+## v0.497.0 -- How hard to think, as a routing dial
+
+- A third routing dial beside budget and speed: **Reasoning mode** (`atlasmind.reasoningMode`). `auto` reads the
+  level from the task — planning, architecture, root-cause and review work gets deep — or fix it at `minimal`,
+  `standard` or `deep` on the Settings page.
+- The level is sent only where a vendor publishes the control: Anthropic `output_config.effort`, and
+  `reasoning_effort` for OpenAI and Gemini, each on the models their docs list. Every other model is still used
+  and sent nothing, and is never preferred for deep work on a guess.
+- Thinking is billed as output, so a deeper level raises the cost estimate, the daily limit counts it, and a task
+  cost cap steps the level down instead of letting it through. Each answer's routing summary names the level,
+  the rule that chose it, and what was sent.
+- Fixed: Gemini's thinking tokens are now counted in the billed output, so cost caps see them.
+
+## v0.496.0 -- Routines that run on their own, and report back
+
+- A routine can declare `schedule: daily at 02:00` (or weekly, or every N hours). Once scheduled routines are
+  switched on and you approve the routine's exact steps in **AtlasMind: Manage Scheduled Routines**, it runs
+  on its own — while the editor is open. A missed night is caught up once, never repeated.
+- Each run happens in a new git worktree on its own `chore/scheduled-…` branch. It never touches your working
+  tree and never pushes, merges or opens a pull request. A step that would, or that installs packages, stops
+  the run, and the report says it needs you. Editing a step withdraws your approval.
+- Reports land in the Run Center, a notification and the Overview's attention band. **AtlasMind: Add Nightly
+  Dependency Check Routine** adds a worked example that lists what is outdated and leaves the update for you.
+
+## v0.495.0 -- Select and edit the elements of a real page
+
+- **Select & edit elements…** opens a found HTML page with every element selectable. Click one, or pick it
+  from a list, and VS Code offers what can be done: change its text, set or remove an allowlisted attribute,
+  insert a block from the Studio's palette before, inside or after it, move it, remove it, or open it in the
+  editor at its line. **Show where elements can go** outlines everything that can take a new element.
+- **Only the bytes you changed change.** Each edit is one minimal change to the file, shown before and after
+  and written only when you confirm; your indentation, quoting and line endings stay as they were. If the
+  file changed since it was shown, nothing is written.
+- **Where an element may go follows HTML's own rules**, from a published table: list items into lists,
+  inline content into paragraphs, nothing into an image, a table row or an SVG.
+- **Components say so.** A React, Vue or Svelte component is not edited in place — UI Studio does not parse
+  their templates — and its card offers **Open in editor** instead.
+
+## v0.494.0 -- UI Studio shows the real surface, not only its draft
+
+- **Pick up a found HTML page and it renders as the real file** beside the canvas — scripts off, only files
+  from its own folder loaded, refreshed when the folder changes — labelled with its path, the time it was
+  last changed, and anything that did not load.
+- **A component renders through your own dev server**, if you ask. AtlasMind recognises the project's `dev`
+  script, shows you the exact command, and starts nothing until you confirm; the page opens in VS Code's
+  browser at the address the server printed, on the route Next.js, SvelteKit or Nuxt routing gives it — or
+  at the app's root, labelled as the root, when no route can be worked out.
+- **What cannot be rendered says why.** A webview script, a token stylesheet and an engine file (*cannot
+  render in the editor* — use Launch) are named, never replaced by the Studio's draft. The full preview now
+  says it is the draft.
+
+## v0.493.0 -- The project in your own words, asked first and walked onto the roadmap
+
+- **`/bootstrap` asks first.** Before any specific question: who the project is for, what it should do,
+  and what should be true once it works. Saved exactly as you wrote it to `project_memory/project-brief.md`.
+  Skip it and it is recorded as not given — nothing is filled in for you.
+- **AtlasMind: Describe the Project in Your Own Words**, and a Get Started walkthrough step for it. It asks
+  before replacing a brief you already wrote.
+- **A "From your brief" card on the Ideation board** shows the chain: read the brief into cards, raise the
+  cards that quote it as roadmap items, and optionally file a plan for each and quote the brief in the
+  project soul. It says what each step would write and which is next, and picks up wherever your files say.
+- **Only a card that quotes your brief can become work.** Questions stay on the board. Every step shows
+  exactly what it writes and waits for you; plan files are created only where none exists, and the soul is
+  appended to, never rewritten.
+
+## v0.492.0 -- Dry run: nothing AtlasMind does runs, not just the agent's tools
+
+- **The one switch now covers everything.** With **AtlasMind: Toggle Dry Run** on, AtlasMind's own actions
+  are recorded instead of done as well: routines and `/ship`, promotions and rollbacks, git and GitHub
+  changes from the dashboard (deleting or switching a branch, pulling, filing or closing an issue, labels),
+  Director emails and Buzz messages, webhooks, MCP tools called from any panel, anything typed into a
+  terminal, installers, the website setup and the portal deploy, live-service probes, and `/bootstrap`.
+- **So are the writes AtlasMind makes on its own** — memory clean-ups on a timer, the report written after a
+  project run, the gap analysis saved after its turn, and the files touched when the Roadmap page loads.
+- **You're told, not left guessing.** Press a button that dry run stops and a notification says dry run is
+  on and names what wasn't done, with a button to open the **AtlasMind Dry Run** output, where every record
+  lands — the agent's described tool calls and these, in one list.
+- **Plans come back as the record.** `/ship` shows the commands it would have run; a promotion shows each
+  step as *Dry run: would have run …*. Neither is logged as having run or shipped.
+- **What still works:** reading — so the dashboard still shows your branches, issues and pipeline — model
+  calls, and a save you press a button to make (a form, a register entry, a template, a report).
+- **The ACP agent** gets `--dry-run` too, and won't post its Buzz reply while it's on.
+- **It can't quietly fall behind.** A test scans the source for everything that can act and fails until each
+  file either asks the dry run first or says, in writing, why it doesn't need to.
+
+---
+
+## v0.491.0 -- Dry run: see what would happen, with nothing done
+
+- **One switch, and nothing acts.** **AtlasMind: Toggle Dry Run** (or `atlasmind.dryRun.enabled`) lets the
+  agent plan and call tools as usual, but every call that would write a file, run a command, change git or
+  reach the network gets a description back instead: what it would have done, how risky it is, whether it
+  would have asked you, and the arguments with secrets taken out. The reply ends with a list of everything
+  that would have happened, and the **AtlasMind Dry Run** output channel keeps the session's record.
+- **Only AtlasMind's own local reads run** — file reads, searches, `git status`/`diff`/`log`, diagnostics,
+  symbols — so the plan is grounded in your real code. MCP tools and custom skills are always described,
+  and so are commands like `npm test`, which run your repository's code, and web fetches, which send text
+  off your machine.
+- **Nothing described asks you anything**, takes a checkpoint, runs checks or fires a webhook, and a
+  described fetch doesn't count as the agent having read someone else's text.
+- **On applies straight away; off waits for the next message**, so a run never finishes half-real. A
+  *Dry run* item sits in the status bar while it's on. A repository can't switch it off for you.
+- **Model calls still run and still cost money** — they're how the agent works out what it would do.
+- **In the CLI**, `--dry-run` now does the same for `chat` and `project`.
+- Not yet covered: things that happen outside a chat turn's tools — routines, promotions, panel buttons,
+  Director messages. That's next.
+
+---
+
+## v0.490.2 -- A fetch goes only where it was checked to go
+
+- **Fetching a URL can no longer reach your machine or your network by a side door.** `web-fetch` and
+  `http-request` used to check the *name* in the URL against a short list. A public name that pointed at
+  `10.0.0.5` passed; the cloud metadata address `169.254.169.254`, which hands out credentials on a cloud
+  VM, wasn't blocked; plain `http` was allowed; and a public page could redirect anywhere. Now the name is
+  looked up, **every** address it points to is checked by value against a published list of private and
+  reserved ranges, the connection is made only to the addresses that were checked (so the answer can't
+  change in between), and every redirect is checked the same way.
+- **One rule for every fetch a model can start.** The check now sits underneath the tools, so a skill a
+  model drafts gets it too, and resource discovery uses the same one. Each refusal names its rule and the
+  range it hit.
+- **`https` only.** A plain-`http` URL is refused. Lens endpoints, which you declare in a reviewed file,
+  are unchanged.
+
+---
+
+## v0.490.1 -- The long-page reader stays inside your budget
+
+- **The reader counts toward your cost caps.** In 0.490.0 the separate model that reads long pages was
+  recorded in the cost dashboard but not counted toward the task's cost cap, the daily limit or the cost
+  the task reported, so a task reading many long pages could spend past a cap meant to stop it. Each read
+  is now checked against both limits **before** it is sent, using its worst case; one that would go over
+  isn't made, and the agent gets the short excerpt with the reason named. What it spends counts toward the
+  cap from then on, and appears in the task's cost exactly once.
+- **A written prompt-injection threat model.** The new [[Prompt Injection Threat Model]] page sets out what
+  an attacker would be after, who AtlasMind treats as having written what, which control answers which
+  attack — and a full section on what is **not** defended: MCP tools are pinned rather than signed, there
+  is no AI guardrail before actions (your fresh approval stands in for it, and the page says why), ACP
+  agents' own tools are invisible to it, and more.
+
+Still to come on this roadmap item: a guardrail-model check before destructive and external actions, and
+signed MCP tool definitions.
+
+---
+
+## v0.490.0 -- A long page is read by a model that can't do anything
+
+A fence tells the agent fetched text is data; it doesn't stop the agent reading every sentence of a long
+page. Now it doesn't have to.
+
+- **Long third-party results are read in quarantine.** Over 8,000 characters of someone else's text — a
+  fetched page, an MCP answer, `gh` output, another agent's answer — goes to a separate model with **no
+  tools**, no agent prompt and no project memory, which extracts what answers your request.
+- **The extract is checked, not trusted.** One JSON object with at most 20 one-line facts, `https` links
+  and 5 exact quotes. Anything else is refused whole; a link the page never contained, a quote it never
+  said, or a fact shaped like an instruction is withheld and counted.
+- **It still counts as someone else's text.** Reading the extract taints the task exactly as reading the
+  page would, so writes ask again and, after an injected page, the network stays off-limits.
+- **Failures are stated.** No model, a failed call or an answer that doesn't validate gives the agent a
+  2,000-character fenced excerpt with a `[SECURITY]` note — never the whole page.
+- **The full text only with your say-so.** `quarantine-read` releases it by handle and always asks you
+  first, even with Autopilot on. The CLI refuses it unless `--allow-untrusted-escalation`.
+- **Short and local results are untouched.**
+- **New setting:** `atlasmind.security.quarantineReader` — `on` (default) or `off`. Each reader call is one
+  cheap model request, recorded as `quarantined-reader`.
+
+Still to come on this roadmap item: a guardrail-model check before destructive and external actions,
+signed MCP tool definitions, and a written injection threat model.
+
+---
+
+## v0.489.1 -- It remembers for the rest of the conversation
+
+In 0.489.0 the "ask again" rule lasted one turn, so a page read in one message could steer a write in the
+next without anyone being asked. Now it lasts for the conversation.
+
+- **The next turn starts from everything the conversation has read.** A write asked for after an earlier
+  fetch asks again, even with Autopilot on, and the dialog says the source was read earlier in the
+  conversation.
+- **A new chat, or clearing this one, is the only reset.** Deleting or rewinding messages isn't, because
+  the session summary can still carry what they read. A window reload doesn't reset it either.
+- **You can see it.** A short note under the turn says the conversation includes third-party content.
+- **Project runs started from chat inherit it**, and run history records what each step read, so a resumed
+  run seeds the next step from the record.
+- **"Allow for this task" really ends with the task** — every per-task grant is dropped when its task
+  finishes.
+
+## v0.489.0 -- After it reads someone else's text, it asks again
+
+A fetched page, an issue body or an MCP server's answer can contain text aimed at the agent rather than at
+you, and nothing can reliably tell the two apart. So AtlasMind now watches for the moment it matters: the
+task has read someone else's text, and the next thing it wants to do changes something or leaves your
+machine.
+
+- **It tracks what each task has read.** Your words, AtlasMind's own, your repository, or third-party —
+  a fetched page, a search result, an MCP answer, `gh` output, another agent's answer, or any tool
+  AtlasMind can't identify. A task keeps the highest of these for the rest of its life.
+- **Reads stay free.** Files, search, git history and test runs never ask again because of this.
+- **Changes and network calls ask again, even with Autopilot on.** The dialog names what was read and the
+  rule. **Allow for this task — I've seen the source** releases that kind of action until the task ends.
+- **Content that tries to give orders is kept and flagged.** If a page says "ignore previous
+  instructions", you still see it, marked `[SECURITY]`, and the task can't reach the network at all.
+- **Fetched text is fenced** so it can't close its own fence and carry on in AtlasMind's voice.
+- **Subtasks inherit** what the steps they depend on read, and a tainted task is not handed to a
+  subscription agent's own tools, which AtlasMind can't see.
+- **New setting:** `atlasmind.security.untrustedEscalationScope` — `third-party` (default) or
+  `workspace-and-third-party`. There is no off.
+- **New CLI flag:** `--allow-untrusted-escalation`. The CLI refuses instead of asking; the flag lets
+  `--allow-writes` decide as usual, and grants nothing itself.
+
+Not yet: this does not carry across turns of a conversation, and very large fetched results still reach
+the model whole.
+
+---
+
+## v0.488.1 -- An empty first listing is still a first listing
+
+Two fixes to MCP pinning and the skills it registers.
+
+- **First sight is spent once, even on an empty listing.** A server that listed no tools when you enabled
+  it used to leave no record, so tools it added later were trusted as first sight. Now the first successful
+  listing records the server as seen whatever it held, and a tool that appears afterwards is held for
+  review. A failed connect records nothing.
+- **Upgrading from 0.488.0 is careful.** 0.488.0 kept no record of a server that listed nothing, so a
+  configured server it has no record of is treated as unverifiable: its tools are held once, for you to
+  approve. Pins it did record carry over unchanged.
+- **Reconnecting brings approved MCP skills back.** A disconnect now *suspends* a server's skills instead
+  of disabling them as if you had, and a reconnect lifts the suspension. A skill you disabled yourself
+  stays disabled, a held tool is never switched on, and a suspension is never saved.
+
+---
+
+## v0.488.0 -- MCP tools are pinned, and a changed tool waits for you
+
+Enabling an MCP server used to trust every tool it would ever list. Each tool became a skill, its
+description went to the model as written, and nothing asked you again when the server changed. Now every
+tool is **pinned** when it is first approved: a hash of its description and input schema, kept with the
+text you agreed to.
+
+- **A server you just enabled is trusted on first use.** Its tools are pinned as they are, so you are not
+  asked about each one on the way in.
+- **A tool that changes is held.** If a description or schema changes, or a pinned server adds a tool,
+  the tool does not reach your agents until you approve it. The skill made from the old version is
+  removed, not just disabled.
+- **Tool descriptions are scanned.** Instruction tags such as `<IMPORTANT>`, "before using any other
+  tool", asking the agent to hide something from you, credential paths like `~/.ssh` or `.env`, hidden
+  characters and base64 blobs flag a tool. A flagged tool is held even on first sight. The scan reads the
+  input schema too, including its defaults and enum values.
+- **Review changed tools** in the MCP panel shows the approved and offered text side by side, with the
+  rule that held the tool and what the scan found. **Approve and pin** registers exactly the version you
+  reviewed. A flagged tool asks you to confirm in a dialog that lists the findings.
+- **A pin store that cannot be read holds tools instead of trusting them.**
+
+There is no setting to turn this off. The way through is approving one tool at a time.
+
+---
+
+## v0.487.1 -- The Auto tree keeps the plan on screen
+
+The roadmap's dependency canvas used to spread the plan far wider than the screen. On this repository's
+roadmap the outstanding plan was 9,210px wide, and Fit all could show only 7 of its 46 cards. It is now
+4,330 × 1,640px, and Fit all shows every card.
+
+- **Finished work no longer leaves holes.** It used to be laid out inside the plan and then hidden. It now
+  gets its own blocks beside the plan, and **Show completed** re-fits the view so you can see them.
+- **Sub-plans pack into strips** shaped for the canvas, instead of one long row.
+- **A layer too wide for the canvas folds** into sub-rows. One item that unlocks forty no longer makes a
+  row forty cards wide.
+- **Cards settle closer to their links** in both directions, instead of being pushed further along at
+  every collision.
+- **Fit all's floor drops from 35% to 20%**, so it can show the whole plan instead of half of it.
+
+A plan that already fits is drawn exactly as before. A card you drag still stays where you put it, and it
+no longer pulls its neighbours after it.
+
+---
+
+## v0.487.0 -- Find candidates for a release gate
+
+Every release gate on the Roadmap page now has a **Find candidates** action: beside the gate selector on
+the backlog, and beside the Gate picker on the canvas once a gate is highlighted. AtlasMind reads the
+backlog against the gate and lists the items that may belong on it. Each item names the rule that
+matched it: something already on the gate waits on it, it names the release, it is foundational work (MVP
+only), or it shares a subject with work already there. Candidates are ranked by how much the gate depends
+on them, with at most twelve shown and the rest counted.
+
+Pick the items you agree with and press **Add**. A confirmation lists every item and the tag it gains, and
+only the tag is written. Items already on the gate and delivered items are never proposed. A gate the scan
+cannot assess, such as a new gate with a generic name and nothing on it yet, says so instead of showing an
+empty list.
+
+---
+
+## v0.486.0 -- Release gates on every roadmap card
+
+Each card on the Roadmap page now carries a row of coloured dots, one for every release gate it is on, so
+"which releases is this on?" is answered on the card instead of by picking each gate in turn. The dots
+appear on the dependency canvas, By person, Delivered, the finished work *Show completed* adds, and the
+board; a busy card shows four and a "+N".
+
+A colour key sits beside the Gate picker on the canvas toolbar. On the canvases each key, and each dot on a
+card, highlights that gate's items — press it again to clear. Gates are coloured in the order you declared
+them, MVP first, so everybody sees the same colours; every colour stands out against the card in Dark
+Modern, Light Modern and both high-contrast themes, and every dot is named by its gate for screen readers.
+
+---
+
+## v0.485.0 -- Show completed on every roadmap view
+
+The Roadmap page now has a **Show completed** toggle, in the row every view shares. Switched on, delivered
+work appears on the dependency canvas in the gaps the tree left for it, joins each person's band on By
+person, fills the board's Delivered column, is listed under the timeline (finished work takes no time, so
+it gets no bar) and returns to the prioritised backlog. Delivered items carry a tick as well as the green
+tone, so colour is never the only cue.
+
+It is a way of looking at the plan, not a change to it: the critical path, routes and dates do not move,
+nothing is written to the roadmap, and the choice is remembered for your editor. While it is off, every
+view says how many finished items it is hiding. It is not offered on Delivered, where everything is
+already finished.
+
+---
+
+## v0.484.0 -- Dashboards you can read at a glance
+
+Every card, chip, chat bubble, badge and field on every dashboard now has an edge that stands off the
+page. Before, a card's outline was about 1.1:1 against the background, so you had to work out where one
+box ended and the next began. Edges are now derived from your own theme's text and background colours,
+and in high contrast they use the theme's contrast border. They clear the 3:1 that WCAG asks of a
+component boundary in Dark Modern, Light Modern and both high-contrast themes.
+
+Light themes also look like light themes now: the page and the cards no longer shade toward grey, and
+status colours (errors, warnings, passed tests) are deepened until they read as text on white. In high
+contrast, active chips, selected tabs and accent edges no longer disappear black on black. All text on
+every dashboard is now held to 4.5:1 in all four theme kinds by the test suite, and every edge to 3:1.
+
+---
+
+## v0.483.0 -- Local CI for organisation repositories
+
+Local CI can now lend its runner to a repository an organisation owns. Such a repository has no owner
+account, so the old "only the owner may start this" rule could never be met and every job was skipped.
+AtlasMind now pins the one account allowed to start the job by its GitHub account id, and checks that
+account again before it lends the machine. Personal repositories are unchanged.
+
+---
+
+## v0.482.3 -- Sanitization the scanner can see
+
+Release-design import now strips tags until nothing changes, then removes any leftover angle bracket.
+The previous version was already safe, but the code scanner couldn't tell and kept its alert open.
+
+---
+
+## v0.482.2 -- Published baseline refreshed
+
+The README now names v0.482.1 as the last Marketplace publication.
+
+---
+
 ## v0.482.1 -- Release checks pass again
 
 Importing a release design stripped HTML tags only once, so nested markup such as `<<b>script>` could

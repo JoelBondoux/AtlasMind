@@ -3,6 +3,9 @@ import { promisify } from 'node:util';
 import type { ProjectRunRecord, RoutineDefinition, RoutineRunResult, RoutineStepResult } from '../types.js';
 import type { ProjectRunHistory } from './projectRunHistory.js';
 import type { RoutineExecutionPlan, RoutinePlannedStep } from './routineExecutionPolicy.js';
+import { describeHostDryRunNotice } from './dryRun.js';
+import { interceptDryRun } from './dryRunHost.js';
+import { installedSandboxHost } from './sandboxRunner.js';
 
 const execAsync = promisify(exec);
 const STEP_TIMEOUT_MS = 60_000;
@@ -24,6 +27,24 @@ export type RoutineFailureCallback = (
   step: RoutinePlannedStep,
   result: RoutineStepResult,
 ) => Promise<'retry' | 'skip' | 'abort'>;
+
+/**
+ * How a run is written to run history, for a caller that is not a person at a
+ * prompt. `/ship` and the Run Center pass nothing.
+ */
+export interface RoutineRunRecordOptions {
+  /** Replaces `Routine` in the run-history title, e.g. `Scheduled routine`. */
+  titlePrefix?: string;
+  /** Lines logged after the steps: where the run happened and what it left behind. */
+  notes?: string[];
+  /**
+   * Steps deliberately not run, with why. A run whose executed steps all passed
+   * is still recorded as not finished when this is non-empty: a routine that
+   * stopped before half its steps did not complete, and recording it as
+   * `completed` would say it had.
+   */
+  notRun?: Array<{ label: string; reason: string }>;
+}
 
 export class RoutineRunner {
   constructor(private readonly runHistory: ProjectRunHistory) {}
@@ -47,6 +68,7 @@ export class RoutineRunner {
     workspaceRoot: string,
     onProgress: RoutineProgressCallback,
     onFailure: RoutineFailureCallback,
+    recordOptions: RoutineRunRecordOptions = {},
   ): Promise<RoutineRunResult> {
     const startedAt = Date.now();
     const stepResults: RoutineStepResult[] = [];
@@ -72,8 +94,31 @@ export class RoutineRunner {
         durationMs: Date.now() - startedAt,
         refusedReason: reason,
       };
-      await this.persistResult(routine, result);
+      await this.persistResult(routine, result, recordOptions);
       return result;
+    }
+
+    // A dry run stops here, at the runner rather than at its callers, so `/ship`,
+    // the Run Center and anything added later cannot reach a step by
+    // forgetting to ask. Not persisted to run history: a routine that never ran
+    // is not a failed one, and recording it as `failed` would say otherwise.
+    const dryRun = interceptDryRun({
+      surface: 'routine',
+      kind: 'process',
+      summary: `run the "${routine.name}" routine (${plan.steps.length} step${plan.steps.length === 1 ? '' : 's'})`,
+      details: { routineId: routine.id, steps: plan.steps.map(step => ({ label: step.label, command: step.command })) },
+      wouldHaveAsked: true,
+    });
+    if (dryRun) {
+      return {
+        routineId: routine.id,
+        routineName: routine.name,
+        steps: [],
+        succeeded: false,
+        durationMs: Date.now() - startedAt,
+        refusedReason: describeHostDryRunNotice(dryRun),
+        dryRun: true,
+      };
     }
 
     for (let i = 0; i < plan.steps.length; i++) {
@@ -125,7 +170,7 @@ export class RoutineRunner {
       durationMs: Date.now() - startedAt,
     };
 
-    await this.persistResult(routine, result);
+    await this.persistResult(routine, result, recordOptions);
     return result;
   }
 
@@ -137,6 +182,33 @@ export class RoutineRunner {
     // `planRoutineExecution`, so the string here is the one that was shown.
     const command = step.command;
     const stepStart = Date.now();
+
+    // Under `atlasmind.sandbox.mode = require`, the step runs in the sandbox or
+    // is refused — never through the host shell below. A step is a shell line
+    // by definition, so it runs as `sh -c <step>`: the shell is the
+    // container's, and its metacharacters act inside the container and nowhere
+    // else. The folder mounted is the one this run uses, which for a scheduled
+    // run is its own worktree. Under `off`, the path below is unchanged.
+    const sandbox = installedSandboxHost();
+    if (sandbox?.isRequired()) {
+      const result = await sandbox.runCommand({
+        executable: 'sh',
+        args: ['-c', command],
+        root: workspaceRoot,
+        cwd: workspaceRoot,
+        env: process.env,
+        timeoutMs: STEP_TIMEOUT_MS,
+        surface: 'routine',
+      });
+      return {
+        stepId: step.stepId,
+        label: step.label,
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        durationMs: Date.now() - stepStart,
+      };
+    }
 
     try {
       const { stdout, stderr } = await execAsync(command, {
@@ -166,15 +238,20 @@ export class RoutineRunner {
     }
   }
 
-  private async persistResult(routine: RoutineDefinition, result: RoutineRunResult): Promise<void> {
+  private async persistResult(
+    routine: RoutineDefinition,
+    result: RoutineRunResult,
+    options: RoutineRunRecordOptions,
+  ): Promise<void> {
     const now = new Date().toISOString();
     const runId = `routine-${routine.id}-${Date.now()}`;
+    const notRun = options.notRun ?? [];
 
     const record: ProjectRunRecord = {
       id: runId,
-      title: `Routine: ${routine.name}`,
+      title: `${options.titlePrefix ?? 'Routine'}: ${routine.name}`,
       goal: routine.description || routine.name,
-      status: result.succeeded ? 'completed' : 'failed',
+      status: result.succeeded && notRun.length === 0 ? 'completed' : 'failed',
       createdAt: now,
       updatedAt: now,
       estimatedFiles: 0,
@@ -184,9 +261,12 @@ export class RoutineRunner {
       totalSubtaskCount: routine.steps.length,
       currentBatch: 1,
       totalBatches: 1,
-      failedSubtaskTitles: result.failedStep
-        ? [result.steps.find(s => s.stepId === result.failedStep)?.label ?? result.failedStep]
-        : [],
+      failedSubtaskTitles: [
+        ...(result.failedStep
+          ? [result.steps.find(s => s.stepId === result.failedStep)?.label ?? result.failedStep]
+          : []),
+        ...notRun.map(step => `${step.label} (not run: ${step.reason})`),
+      ],
       subTaskArtifacts: [],
       executionOptions: {
         autonomousMode: true,
@@ -197,13 +277,21 @@ export class RoutineRunner {
       requireBatchApproval: false,
       paused: false,
       awaitingBatchApproval: false,
-      logs: result.steps.map(s => ({
-        timestamp: now,
-        level: s.exitCode === 0 ? 'info' as const : 'error' as const,
-        message: s.skipped
-          ? `[${s.label}] skipped`
-          : `[${s.label}] exit ${s.exitCode}${s.stderr ? `\n${s.stderr}` : ''}${s.stdout ? `\n${s.stdout}` : ''}`,
-      })),
+      logs: [
+        ...result.steps.map(s => ({
+          timestamp: now,
+          level: s.exitCode === 0 ? 'info' as const : 'error' as const,
+          message: s.skipped
+            ? `[${s.label}] skipped`
+            : `[${s.label}] exit ${s.exitCode}${s.stderr ? `\n${s.stderr}` : ''}${s.stdout ? `\n${s.stdout}` : ''}`,
+        })),
+        ...notRun.map(step => ({
+          timestamp: now,
+          level: 'warning' as const,
+          message: `[${step.label}] not run: ${step.reason}`,
+        })),
+        ...(options.notes ?? []).map(note => ({ timestamp: now, level: 'info' as const, message: note })),
+      ],
     };
 
     try {

@@ -31,6 +31,7 @@
 
 import type { LensProbeRequest } from '../core/lensProbePolicy.js';
 import type { LensProbeTransportResult } from '../core/lensProbeRunner.js';
+import { interceptDryRun } from '../core/dryRunHost.js';
 
 /**
  * Perform an HTTP probe.
@@ -42,6 +43,14 @@ import type { LensProbeTransportResult } from '../core/lensProbeRunner.js';
 export async function performHttpProbe(request: LensProbeRequest): Promise<LensProbeTransportResult> {
   if (!request.url || !request.method) {
     return { ok: false, error: 'The probe request named no destination.' };
+  }
+  if (interceptDryRun({
+    surface: 'lens-probe',
+    kind: 'network',
+    summary: `send a ${request.method} probe to ${request.url.slice(0, 120)}`,
+    details: { method: request.method, url: request.url },
+  })) {
+    return { ok: false, error: 'Dry run is on, so the probe was not sent.' };
   }
 
   const controller = new AbortController();

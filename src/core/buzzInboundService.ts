@@ -75,7 +75,14 @@ export interface BuzzPresenceLock {
 export interface BuzzInboundDeps {
   secrets: Pick<vscode.SecretStorage, 'get'>;
   presence?: BuzzPresenceLock;
-  workspaceRoot?: string;
+  /**
+   * Where follow-ups are recorded, asked at the moment there is something to
+   * record rather than at construction — folders open and close while the
+   * subscription runs. Injected by the host (`defaultWorkspaceRootPath`) so this
+   * core module never reads `vscode.workspace.workspaceFolders` itself; absent,
+   * nothing is recorded, which is the safe direction for a git-tracked write.
+   */
+  workspaceRoot?: () => string | undefined;
   log?: (message: string) => void;
 }
 
@@ -414,7 +421,7 @@ export class BuzzInboundService implements vscode.Disposable {
       return;
     }
 
-    const workspaceRoot = this.deps.workspaceRoot ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.deps.workspaceRoot?.();
     if (!workspaceRoot) {
       return;
     }

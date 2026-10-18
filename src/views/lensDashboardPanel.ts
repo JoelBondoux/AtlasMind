@@ -424,10 +424,10 @@ function buildDashboardHtml(cspSource: string): string {
         content: ''; width: 6px; height: 6px; border-radius: 50%; flex: none;
         background: currentColor; margin-top: .42em;
       }
-      .lens-tile[data-readiness="ready"] .lens-tile-state { color: var(--vscode-charts-green, #89d185); }
-      .lens-tile[data-readiness="needs-setup"] .lens-tile-state { color: var(--vscode-charts-orange, #d18616); }
-      .lens-tile[data-readiness="needs-selection"] .lens-tile-state { color: var(--vscode-charts-blue, #75beff); }
-      .lens-tile[data-readiness="unavailable"] .lens-tile-state { color: var(--vscode-errorForeground); }
+      .lens-tile[data-readiness="ready"] .lens-tile-state { color: color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)); }
+      .lens-tile[data-readiness="needs-setup"] .lens-tile-state { color: color-mix(in srgb, var(--vscode-charts-orange, #d18616) var(--atlas-ink-share), var(--tint-away)); }
+      .lens-tile[data-readiness="needs-selection"] .lens-tile-state { color: color-mix(in srgb, var(--vscode-charts-blue, #75beff) var(--atlas-ink-share), var(--tint-away)); }
+      .lens-tile[data-readiness="unavailable"] .lens-tile-state { color: color-mix(in srgb, var(--vscode-errorForeground) var(--atlas-ink-share), var(--tint-away)); }
       #rules-list { padding-left: 20px; display: grid; gap: 5px; }
       #rules-list code { font-family: var(--vscode-editor-font-family, monospace); font-size: .76rem; }
 

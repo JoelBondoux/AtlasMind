@@ -65,6 +65,17 @@ having come from nowhere. An affirmation on its own is now refused as a goal and
 to what you actually asked for; "Shall I go ahead **and update the README banner**?" still resolves to the
 work, because there the affirmation is only a preamble.
 
+**"Continue" after a stalled step finishes the step.** If the last reply was a chat turn that announced
+one change and stopped — "I will now edit `README.md` to …" with nothing edited — a bare "continue",
+"go ahead" or "yes" resumes that turn instead of planning a project around it. Until v0.503.2 it went to the
+planner, which turned a one-file README trim into a twelve-subtask plan with a branch, a commit, a push
+and a pull request, stopped at two approval gates. Saying "proceed autonomously", adding detail, replying
+to a described plan, or answering an offered project run still starts a run as before.
+
+**Approve and run starts the run it approves.** Before v0.503.2 a run reached by "continue" had no command
+to return to, so clicking **Approve and run** sent its prompt as an ordinary chat message and the approved
+run never started.
+
 **A stated precondition is honoured.** If the assistant said it was waiting on you — "once you confirm the
 version number, I can start a run" — a bare "continue" no longer overrides it, because it supplies none of
 what was asked for and the run would begin on exactly the information the model said it lacked. A reply
@@ -156,6 +167,25 @@ from what the plan actually holds — your declared gates, and the people the ho
 with no gates and nobody assigned gets neither control instead of two empty menus. *Unassigned* is
 offered as a person, because it is a real answer to "whose is this?" and the most useful one on a plan
 nobody has divided up yet.
+
+**Every card shows the release gates it is on** as a row of coloured dots — on the dependency canvas,
+By person, Delivered and the board — with four shown and a "+N" for the rest. A colour key sits beside the
+Gate picker; on the canvases pressing a key, or a dot on a card, highlights that gate (press again to
+clear). Gates are coloured in the order you declared them, MVP first, so everybody sees the same colours,
+and each dot is named by its gate, so a screen reader hears "MVP", not a colour.
+
+**Find candidates for a gate.** Beside the gate selector on the backlog, and beside the Gate picker on
+the canvas once a gate is highlighted, **Find candidates** (with the AtlasMind mark) scans the backlog for
+items that may belong on that release. Each candidate says which rule matched it and what it matched on:
+something already on the gate waits on it (through links you drew), it names the release ("beta" for
+*Public beta*, or a tag such as `v2` as a whole word), it is foundational work (MVP only — the same rule
+behind the suggested MVP route), or it shares its subject with work already on the gate. Two weaker
+signals — waiting on work on the gate, and being the gate's usual kind of work — only strengthen a match
+and never list an item alone. Candidates are ranked by the most consequential rule, at most twelve are
+shown with the rest counted, and items already on the gate or delivered are never proposed. If nothing
+could be assessed — a gate called "Next release" with nothing on it yet has no word to look for — the scan
+says so instead of showing an empty list. Pick the items you agree with and press **Add**: a confirmation
+lists every item and the tag it gains, and only the tag is written.
 
 **The three lenses combine rather than replace each other.** A card is highlighted only if it satisfies
 every lens that is on, so "MVP items assigned to Sam" is a question you can ask; letting the second
@@ -393,6 +423,16 @@ skipped and you get honest counts rather than a false "8/8 completed".
 If a tool-capable model refuses mid-run, AtlasMind hands the step to a different tool-capable model
 before it accepts a reasoning-only answer.
 
+### A step inherits what its dependencies read
+
+A step's prompt includes the output of the steps it depends on, so it also inherits what they **read**.
+If a research step fetched a web page, the step that writes the result to disk asks for a fresh approval
+before it changes anything — even under Autopilot — exactly as it would if it had fetched the page
+itself. See [Tool Execution](Tool-Execution.md) for the rules. Since 0.489.1 a run records what each step
+read, so a step resumed from an earlier run passes that on; one recorded before then has no record, and its
+dependents are treated as having read third-party content. A run started from a chat conversation also
+starts from what that conversation has read, and what its steps read comes back into the conversation.
+
 ### The temporary specialists
 
 | Role | Focus |
@@ -454,6 +494,60 @@ validating harder. It is closed by showing you the commands at the moment you ca
 with no `channel` used to run as `npm publish --tag`. It now stops and names what is missing — and an
 empty value counts as missing, since a blank field and an unsupplied one want the same thing from a
 command line.
+
+**In a dry run, nothing runs.** With **AtlasMind: Toggle Dry Run** on, a routine still asks first, then
+runs no step: `/ship` replies *Dry run — nothing was run* with the exact commands it would have run, the
+Run Center says the routine was not run, and the routine is listed in the **AtlasMind Dry Run** output.
+Nothing is written to run history — a routine that never ran did not fail. The refusal is in the routine
+runner itself, so every way of starting a routine gets it. Promotions behave the same way: the plan comes
+back as the record, every step marked *Dry run: would have run …*, and nothing is recorded as having
+shipped.
+
+### Routines that run on their own
+
+A routine can ask to run on a schedule by adding one line to its file:
+
+```yaml
+schedule: daily at 02:00        # or: weekly on monday at 09:30, or: every 6 hours
+```
+
+Three forms, nothing else — `every N hours` takes 1, 2, 3, 4, 6, 8 or 12 so runs land on the same clock
+times every day, and a cron string is refused by name rather than half-understood. Times are **local**,
+and every description says which zone.
+
+**It is ambient, not background.** VS Code does not run extensions with the editor closed, so a routine
+scheduled for 02:00 runs at 02:00 if the editor is open then — and otherwise once, when you next open it.
+Six missed nights are one catch-up run, never six.
+
+**The file asks; you decide.** Nothing runs until `atlasmind.routines.scheduling.enabled` is on (a user
+setting only — a repository cannot switch it on for you) *and* you approve the routine with **AtlasMind:
+Manage Scheduled Routines**. The approval dialog shows exactly which steps will run unattended and where
+the run will stop. Edit any step afterwards and the approval is withdrawn until you give it again, because
+the steps that would run are no longer the ones you read. Approvals live in your own workspace state, not
+in the committed memory.
+
+**It stops at propose.** Each run happens in a new git worktree on its own `chore/scheduled-<routine>-<date>`
+branch. It never touches your working tree, and it never pushes, merges or opens a pull request. A step
+that would — or that installs packages, whose effect is decided by the registry on the night rather than
+by the command you approved — stops the run there, and the report says it needs you. The steps before it
+ran; the ones from it on did not. If no worktree can be made, nothing runs.
+
+**It reports back.** Every scheduled run is in the Run Center as *Scheduled routine: …*, raises a
+notification (**Open Run Center**, **Mark reviewed**), and appears on the Overview's attention band until
+you mark it reviewed. A worktree that holds changes is kept and named; an empty one is removed. In a dry
+run, a due routine is recorded, not run.
+
+**Tests on their own need prepared dependencies (0.503.0).** A fresh worktree has no `node_modules`, and a
+scheduled run installs nothing. With `atlasmind.sandbox.mode` on `require`, a step that loads installed
+packages (`npm test`, `vitest`, `tsc`…) runs in the execution sandbox against the dependency volume you
+prepared for that lockfile with **AtlasMind: Prepare Sandbox Dependencies** — so scheduled tests can now run
+unattended. If none is prepared for the lockfile the run checked out, it stops at that step and the report says
+*dependencies are not prepared* (needing you, not a failed test). The approval dialog says this whenever a step
+needs dependencies. With the mode `off`, such steps run in the bare worktree as before.
+
+**The nightly dependency check** (**AtlasMind: Add Nightly Dependency Check Routine**) is the built-in
+example. Unattended, it runs `npm outdated` and stops before `npm update`, so the report tells you what is
+out of date and that the update is waiting for you. `/ship dependency-check` does all of it, attended.
 
 ### Very large drafts get staged
 

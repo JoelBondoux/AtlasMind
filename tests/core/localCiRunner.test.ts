@@ -14,6 +14,7 @@ import {
   expectedLocalCiRunBlocker,
   initialLocalCiRunnerSnapshot,
   normalizeLocalCiArch,
+  parseContainerEngineSecurity,
   parseDockerGpuRuntimes,
   localCiRunnerEnvArgs,
   parseDockerInfo,
@@ -145,6 +146,31 @@ describe('local CI platform evidence', () => {
       .toBeUndefined();
   });
 
+  it('reads the nested Podman info shape with the same parser, and never mixes the two', () => {
+    const podman = { host: { os: 'linux', arch: 'arm64', cpus: 4, memTotal: 8 * 1024 ** 3 } };
+    expect(parseDockerInfo(JSON.stringify(podman))).toEqual({ os: 'linux', arch: 'arm64', cpuCount: 4, memoryGb: 8 });
+    // Docker's top-level fields win: a Docker reading is never completed from a `host` object.
+    expect(parseDockerInfo(JSON.stringify({ OSType: 'linux', Architecture: '', NCPU: 4, MemTotal: 1e10, ...podman })))
+      .toBeUndefined();
+    expect(parseDockerInfo(JSON.stringify({ host: { os: 'linux', arch: 'amd64', cpus: 4 } }))).toBeUndefined();
+    expect(parseDockerInfo('null')).toBeUndefined();
+  });
+
+  it('reads how an engine maps users, and leaves it unknown when the engine does not say', () => {
+    expect(parseContainerEngineSecurity(JSON.stringify({
+      OSType: 'linux', SecurityOptions: ['name=seccomp,profile=builtin', 'name=cgroupns'], Runtimes: { runc: {} },
+    }))).toEqual({ rootless: false, runtimes: ['runc'] });
+    expect(parseContainerEngineSecurity(JSON.stringify({
+      OSType: 'linux', SecurityOptions: ['name=seccomp,profile=builtin', 'name=rootless'],
+    }))).toMatchObject({ rootless: true });
+    expect(parseContainerEngineSecurity(JSON.stringify({ OSType: 'linux' }))).not.toHaveProperty('rootless');
+    expect(parseContainerEngineSecurity(JSON.stringify({
+      host: { security: { rootless: true }, ociRuntime: { name: 'crun' } },
+    }))).toEqual({ rootless: true, runtimes: ['crun'] });
+    expect(parseContainerEngineSecurity(JSON.stringify({ host: { security: { rootless: 'yes' } } }))).toEqual({ runtimes: [] });
+    expect(parseContainerEngineSecurity('not json')).toEqual({ runtimes: [] });
+  });
+
   it('reports host GPU memory honestly and does not repeat a truncated Windows total', () => {
     expect(summarizeLocalCiGpuDevices([{
       index: 0,
@@ -239,6 +265,47 @@ jobs:\n
     const result = assessTrustedLocalCiWorkflow(unsafe, input);
     expect(result.ok).toBe(false);
     expect(result.blockers.join(' ')).toMatch(/untrusted|write permission|secret|full commit SHA/i);
+  });
+
+  /**
+   * An organisation owns no account, so `github.repository_owner` is the
+   * organisation's name there and no actor can equal it. The one account that
+   * may start the job is pinned by id instead, and that has to pass.
+   */
+  it('accepts an organisation workflow that pins one account id', () => {
+    const workflow = `name: Manual trusted job
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    if: github.repository == 'JoelBondoux/AtlasMind' && github.ref == 'refs/heads/develop' && github.actor_id == '6105707'
+    runs-on: [atlasmind-trusted-linux-x64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+`;
+    expect(assessTrustedLocalCiWorkflow(workflow, input)).toEqual({ ok: true, blockers: [], warnings: [] });
+  });
+
+  it('refuses a missing, doubled or commented-out actor condition', () => {
+    const workflow = readFileSync(path.join(process.cwd(), '.github', 'workflows', 'trusted-local-ci.yml'), 'utf8');
+    const ownerLine = /^(\s*)github\.actor == github\.repository_owner((?: &&)?)[ \t]*$/m;
+    expect(workflow).toMatch(ownerLine);
+    for (const [variant, expected] of [
+      [workflow.replace(ownerLine, "$1github.actor == 'JoelBondoux'$2"), /does not require the triggering actor/],
+      [workflow.replace(ownerLine, "$1(github.actor == github.repository_owner || github.actor_id == '6105707')$2"), /exactly one/],
+      [workflow.replace(ownerLine, "$1github.actor == 'JoelBondoux'$2").replace('name: Trusted local CI', "name: Trusted local CI\n# github.actor_id == '6105707'"), /does not require the triggering actor/],
+    ] as const) {
+      const result = assessTrustedLocalCiWorkflow(variant, input);
+      expect(result.ok).toBe(false);
+      expect(result.blockers.join(' ')).toMatch(expected);
+    }
   });
 
   it('refuses two jobs sharing the one-job label', () => {
@@ -385,6 +452,34 @@ describe('trusted workflow review', () => {
     const root = await workspaceWith({ 'trusted-local-ci.yml': goodWorkflow.plan.content });
     const review = await reviewerFor(root).reviewWorkflow(configuration, 'JoelBondoux/AtlasMind', 'atlasmind-trusted-linux-x64');
     expect(review).toMatchObject({ state: 'ok', blockers: [], scaffoldable: false });
+  });
+
+  /**
+   * The start preflight compares the queued run's actor with this, so the
+   * review has to say which condition it accepted: the owner in a personal
+   * repository, one pinned account in an organisation's.
+   */
+  it('reports which actor the accepted workflow authorises', async () => {
+    if (!goodWorkflow.ok) { return; }
+    const personal = await reviewerFor(await workspaceWith({ 'trusted-local-ci.yml': goodWorkflow.plan.content }))
+      .reviewWorkflow(configuration, 'JoelBondoux/AtlasMind', 'atlasmind-trusted-linux-x64');
+    expect(personal.actorGuard).toEqual({ kind: 'repository-owner' });
+
+    const organisationWorkflow = buildTrustedLocalCiStarter({
+      repoRemote: 'Hill-To-Die-On/Director-Of-Realms',
+      trustedBranch: 'develop',
+      runnerLabel: 'atlasmind-trusted-linux-x64',
+      workflowFile: 'trusted-local-ci.yml',
+      packageManager: 'npm',
+      scripts: ['build', 'lint', 'test'],
+      nodeVersion: '22',
+      authorizedAccount: { id: 6105707, login: 'JoelBondoux' },
+    });
+    expect(organisationWorkflow.ok).toBe(true);
+    if (!organisationWorkflow.ok) { return; }
+    const organisation = await reviewerFor(await workspaceWith({ 'trusted-local-ci.yml': organisationWorkflow.plan.content }))
+      .reviewWorkflow(configuration, 'Hill-To-Die-On/Director-Of-Realms', 'atlasmind-trusted-linux-x64');
+    expect(organisation).toMatchObject({ state: 'ok', actorGuard: { kind: 'account', id: 6105707 } });
   });
 
   /**

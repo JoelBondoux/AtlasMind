@@ -200,14 +200,14 @@ function buildStateHtml(cspSource: string): string {
         border: 1px solid var(--lens-border); border-radius: 999px;
         padding: 2px 8px; font-size: .68rem; color: var(--lens-muted);
       }
-      .state-badge[data-tone="warn"] { color: var(--vscode-charts-orange, #d18616); border-color: color-mix(in srgb, var(--vscode-charts-orange, #d18616) 45%, transparent); }
-      .state-badge[data-tone="bad"] { color: var(--vscode-errorForeground); border-color: color-mix(in srgb, var(--vscode-errorForeground) 45%, transparent); }
+      .state-badge[data-tone="warn"] { color: color-mix(in srgb, var(--vscode-charts-orange, #d18616) var(--atlas-ink-share), var(--tint-away)); border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-charts-orange, #d18616) var(--atlas-ink-share), var(--tint-away)) 45%, var(--atlas-boundary)); }
+      .state-badge[data-tone="bad"] { color: color-mix(in srgb, var(--vscode-errorForeground) var(--atlas-ink-share), var(--tint-away)); border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-errorForeground) var(--atlas-ink-share), var(--tint-away)) 45%, var(--atlas-boundary)); }
       .transition-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(285px, 1fr)); gap: 10px; }
       .transition-route {
         font-family: var(--vscode-editor-font-family, monospace); font-weight: 600;
         font-size: .86rem; margin: 0; display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
       }
-      .transition-arrow { color: var(--lens-accent); }
+      .transition-arrow { color: color-mix(in srgb, var(--lens-accent) var(--atlas-ink-share), var(--tint-away)); }
       @media (max-width: 640px) { .state-columns { gap: 26px; } }
     `,
     scriptContent: `

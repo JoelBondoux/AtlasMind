@@ -47,6 +47,7 @@
 import { assessTrustedLocalCiWorkflow } from './localCiRunner.js';
 import { safeWorkflowBranchRef } from './ciManager.js';
 import { parseRepoSlug } from './githubDeepLinks.js';
+import { isLocalCiAuthorizedAccount, type LocalCiAuthorizedAccount } from './localCiActorGuard.js';
 
 /**
  * The actions the trusted workflow uses, pinned to full commit SHAs.
@@ -92,6 +93,13 @@ export interface TrustedLocalCiStarterInput {
    * on `NodeCiStarterInput`.
    */
   nodeVersion: string;
+  /**
+   * The one account allowed to start the job, for an organisation-owned
+   * repository. There `github.repository_owner` is the organisation's name,
+   * which no actor can equal, so the owner condition would skip every run; the
+   * account is pinned by id instead. Absent writes the owner condition.
+   */
+  authorizedAccount?: LocalCiAuthorizedAccount;
 }
 
 export interface TrustedLocalCiStarterPlan {
@@ -208,6 +216,22 @@ export function buildTrustedLocalCiStarter(input: TrustedLocalCiStarterInput): T
   if (!nodeVersion) {
     return { ok: false, reason: `"${input.nodeVersion}" is not a Node version number.` };
   }
+  const account = input.authorizedAccount;
+  if (account !== undefined && !isLocalCiAuthorizedAccount(account)) {
+    return {
+      ok: false,
+      reason: 'The account to pin is not a valid GitHub account id and login, so AtlasMind will not write it into an authorization condition.',
+    };
+  }
+  // Who may start the job. A personal repository keeps the owner condition and
+  // the file reads byte for byte as it always has.
+  const who = account ? account.login : slug.owner;
+  const actorCondition = account ? `github.actor_id == '${account.id}'` : 'github.actor == github.repository_owner';
+  const accountNote = account
+    ? `# ${account.login} is pinned by GitHub account id ${account.id}: an organisation\n`
+      + `# owns this repository, so no account is its owner, and an id is not moved\n`
+      + `# by a rename.\n`
+    : '';
   // Corepack rather than `pnpm/action-setup`, deliberately. A third action
   // means a third commit SHA to review and re-review, and the only pins this
   // module may emit are ones somebody actually reviewed. Corepack ships with
@@ -229,10 +253,10 @@ export function buildTrustedLocalCiStarter(input: TrustedLocalCiStarterInput): T
 # This file authorises one borrowed machine to run one job.
 #
 # The runner label routes work; the conditions below are what authorise it.
-# Only ${slug.owner}'s push to ${branch}, or their manual dispatch of that exact
+# Only ${who}'s push to ${branch}, or their manual dispatch of that exact
 # ref, can reach this job. It receives no secret and no write permission, and
 # both actions are pinned to reviewed commits rather than moving tags.
-#
+${accountNote}#
 # AtlasMind re-reads and re-checks this file immediately before lending the
 # machine. Weakening a condition here does not weaken that check; it stops the
 # run instead.
@@ -255,7 +279,7 @@ jobs:
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       github.repository == '${repoSlug}' &&
       github.ref == 'refs/heads/${branch}' &&
-      github.actor == github.repository_owner
+      ${actorCondition}
     # Register the borrowed runner with --no-default-labels and this one public
     # routing label. Never place this label on a daily-use workstation.
     runs-on: [${runnerLabel}]
@@ -318,14 +342,14 @@ ${validationSteps}
         { ...TRUSTED_LOCAL_CI_ACTIONS_REVIEWED.setupNode },
       ],
       permits: [
-        `${slug.owner} pushing to ${branch} may run these checks on a machine you explicitly lend, one job at a time.`,
-        `${slug.owner} may also start a run by hand, but only against ${branch}.`,
+        `${who} pushing to ${branch} may run these checks on a machine you explicitly lend, one job at a time.`,
+        `${who} may also start a run by hand, but only against ${branch}.`,
         `The checks that run are: ${validationScripts.join(', ')}.`,
       ],
       refuses: [
         'Code from a fork, or from a proposed change nobody has merged, can never reach this machine — those triggers are absent from the file.',
         'The job gets no repository or environment secret, and its token can only read the repository.',
-        `Anyone other than ${slug.owner} triggering this workflow is refused by the job itself, not merely unlikely to match.`,
+        `Anyone other than ${who} triggering this workflow is refused by the job itself, not merely unlikely to match.`,
         'Both actions are pinned to an exact reviewed commit, so nobody can change what runs by moving a tag.',
       ],
       content,

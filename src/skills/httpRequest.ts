@@ -1,32 +1,8 @@
 import type { SkillDefinition } from '../types.js';
 import { MAX_WEB_FETCH_BODY_BYTES } from '../constants.js';
+import { describeEgressRefusal, screenEgressUrl } from '../core/egressDestinationPolicy.js';
 
 const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
-
-/** Rejects private/local-network hosts to prevent SSRF. Returns an error string or undefined. */
-function rejectPrivateHost(url: string): string | undefined {
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname.toLowerCase();
-    if (
-      host === 'localhost' ||
-      host === '127.0.0.1' ||
-      host === '::1' ||
-      host === '0.0.0.0' ||
-      host.endsWith('.local') ||
-      host.startsWith('10.') ||
-      host.startsWith('192.168.') ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
-      host === '[::1]' ||
-      host === 'metadata.google.internal'
-    ) {
-      return 'Error: Requests to private/local network addresses are not allowed.';
-    }
-  } catch {
-    return 'Error: Invalid URL format.';
-  }
-  return undefined;
-}
 
 export const httpRequestSkill: SkillDefinition = {
   id: 'http-request',
@@ -35,7 +11,7 @@ export const httpRequestSkill: SkillDefinition = {
   description:
     'Make an HTTP request with a configurable method, headers, and body. ' +
     'Useful for testing REST APIs, webhooks, and authenticated endpoints. ' +
-    'Supports GET, POST, PUT, PATCH, DELETE. Private/local network addresses are blocked.',
+    'Supports GET, POST, PUT, PATCH, DELETE. https only; private, loopback, link-local and metadata addresses are refused.',
   timeoutMs: 30_000,
   routingHints: [
     'call api', 'post request', 'put request', 'patch request', 'delete request',
@@ -47,7 +23,7 @@ export const httpRequestSkill: SkillDefinition = {
     properties: {
       url: {
         type: 'string',
-        description: 'The URL to request (must start with https:// or http://).',
+        description: 'The https:// URL to request. Private, loopback, link-local and metadata addresses are refused, including by DNS and by redirect.',
       },
       method: {
         type: 'string',
@@ -75,13 +51,13 @@ export const httpRequestSkill: SkillDefinition = {
       return 'Error: "url" parameter is required and must be a non-empty string.';
     }
 
+    // Fast, readable refusal here; DNS, the pinned connection and every
+    // redirect are screened inside `context.httpRequest` (`egressFetch`).
     const url = rawUrl.trim();
-    if (!/^https?:\/\//i.test(url)) {
-      return 'Error: URL must start with https:// or http://.';
+    const screen = screenEgressUrl(url);
+    if (!screen.allowed) {
+      return `Error: ${describeEgressRefusal(screen)}`;
     }
-
-    const ssrfError = rejectPrivateHost(url);
-    if (ssrfError) return ssrfError;
 
     const rawMethod = params['method'];
     const body = typeof params['body'] === 'string' ? params['body'] : undefined;

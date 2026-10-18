@@ -137,10 +137,14 @@ fastest way to confirm your keys are visible before running anything that costs 
 --model <provider/model>        Pin one specific model
 --allow-writes                  Permit changes (see Safety below)
 --allow-commands                Permit terminal reads (npm test, build, lint) that run repo-defined scripts
+--allow-untrusted-escalation    After a task reads third-party content, let the flags above decide
+                                writes and network calls instead of refusing them (grants nothing itself)
 --budget <cheap|balanced|expensive|auto>
 --speed <fast|balanced|considered|auto>
 --daily-limit-usd <n>
 --json                          Machine-readable output
+--dry-run                       chat/project: describe every tool call that would act instead of running it;
+                                build: print the build command without running it
 --help
 --version
 ```
@@ -166,6 +170,24 @@ repository's `package.json` says it does. They were permitted unconditionally un
 meant read-only mode could run arbitrary code from the checkout it was aimed at. It is a separate flag
 from `--allow-writes` on purpose: running a test suite should not also grant the ability to edit files.
 
+**After a task reads third-party content, writes and network calls are refused.** In the editor,
+AtlasMind would stop and ask you — a fetched page, an MCP answer or `gh` output can carry instructions
+aimed at the agent, and Autopilot was granted before the content was read. The CLI has nobody to ask,
+and your flags were chosen before the content existed, so it refuses and names the source and the rule.
+`--allow-untrusted-escalation` lets `--allow-writes` and `--allow-commands` decide as usual instead. It
+grants nothing on its own. Reads are never affected.
+
+A third-party result over 8,000 characters is read by a separate model with no tools, in the CLI as in the
+editor, and the agent gets its extract (see [Tool Execution](Tool-Execution.md)). Releasing the full text
+with `quarantine-read` is refused in the CLI unless you pass `--allow-untrusted-escalation`.
+
+**`--dry-run` shows what `chat` or `project` would do, and does none of it** — the editor's dry run
+(see [Tool Execution](Tool-Execution.md)). Every tool call that would write, run a command, change git or
+reach the network is described to the model instead of run, even with `--allow-writes`; only AtlasMind's
+built-in local reads run. Each described call is printed to stderr as `[dry run] …`, and the answer ends
+with a summary. Model calls still run and still cost money. The flag covers what the CLI does outside the
+agent's tools too: `build` prints its command instead of running it.
+
 ---
 
 ## Letting other tools drive AtlasMind
@@ -179,7 +201,13 @@ atlasmind-acp --workspace /absolute/path/to/project
 ```
 
 It opens no network port. Options are `--workspace`, `--ssot`, `--daily-limit-usd`, `--buzz-auto-reply`,
-`--help` and `--version`.
+`--dry-run`, `--help` and `--version`.
+
+**`--dry-run` is the editor's dry run for the ACP agent.** It runs in its own process, launched by a client
+that is not VS Code, so it cannot read `atlasmind.dryRun.enabled` and takes a flag instead, on for the life
+of the process. Every tool call that would act is described instead of run, and with `--buzz-auto-reply`
+the answer goes back to the client but is not posted to Buzz. Each record is written to stderr — the
+client's agent log — as `[atlasmind-acp] [dry run] …`, never to stdout, which is the protocol stream.
 
 ### Setting it up with Buzz
 

@@ -73,17 +73,18 @@ A reasonable starting `settings.json`:
 |---------|---------|-------------|
 | `atlasmind.budgetMode` | `balanced` | `cheap`, `balanced`, `expensive` or `auto` |
 | `atlasmind.speedMode` | `balanced` | `fast`, `balanced`, `considered` or `auto` |
+| `atlasmind.reasoningMode` | `auto` | How hard the model should think: `auto`, `minimal`, `standard` or `deep`. Only sent to models with a verified reasoning control; everything else is still routable |
 | `atlasmind.feedbackRoutingWeight` | `1` | How much your thumbs up/down affect future routing. `0` turns it off; up to `2` for stronger influence |
 | `atlasmind.planningModelId` | `""` | Pin a specific model for planning. Empty routes normally |
 | `atlasmind.synthesisModelId` | `""` | Pin a model for summarising results |
 | `atlasmind.draftModelId` | `""` | Pin a fast, cheap model for mechanical work. It escalates automatically if the model struggles |
-| `atlasmind.providerTimeoutMs` | `30000` | How long to wait for a provider before giving up |
+| `atlasmind.providerTimeoutMs` | `30000` | The base wait for a provider before giving up; deep-thinking requests and long streamed answers get more, never less |
 
 ### Connecting providers
 
 | Setting | Default | What it does |
 |---------|---------|-------------|
-| `atlasmind.localOpenAiEndpoints` | `[]` | Your local endpoints — Ollama, LM Studio, anything OpenAI-compatible. Each gets a label |
+| `atlasmind.localOpenAiEndpoints` | `[]` | Your local endpoints — Ollama, LM Studio, Unsloth Studio, anything OpenAI-compatible. Each gets a label, and may declare its `runtime` (`ollama`, `lmstudio`, `unsloth`) when it is on a non-default port. Add Unsloth Studio with **AtlasMind: Connect Unsloth Studio**, which stores its key for that endpoint alone |
 | `atlasmind.localOpenAiBaseUrl` | `http://127.0.0.1:11434/v1` | A single local endpoint, for the simple case |
 | `atlasmind.azureOpenAiEndpoint` | `""` | Your Azure OpenAI resource URL |
 | `atlasmind.azureOpenAiDeployments` | `[]` | Which Azure deployments to expose as models |
@@ -114,6 +115,9 @@ Providers**. Azure uses `atlasmind.provider.azure.apiKey`; Bedrock uses
 |---------|---------|-------------|
 | `atlasmind.toolApprovalMode` | `ask-on-write` | When approval is required |
 | `atlasmind.allowTerminalWrite` | `false` | Whether approved terminal commands may change things (installs, commits) |
+| `atlasmind.security.untrustedEscalationScope` | `third-party` | Once a task has read untrusted content, writes, commands and network calls need a fresh approval that Autopilot can't answer. Reads stay free. `workspace-and-third-party` also counts repository files and attachments. There is no off — the approval offers *Allow for this task, I've seen the source* |
+| `atlasmind.dryRun.enabled` | `false` | Dry run: see what a turn would do with nothing done. Tool calls that would write, run a command (even `npm test`), change git or reach the network are described instead of run; only AtlasMind's built-in local reads run. MCP tools and custom skills are always described. Nothing described asks for approval or fires a webhook. AtlasMind's own actions outside a turn — routines and `/ship`, promotions, dashboard git and GitHub changes, messages, terminal sends, installers, automatic writes — are recorded instead of done, and a button you press says dry run stopped it. Model calls still run and cost money. On applies straight away, off from the next turn. User settings only — a repository can't change it. Toggle with **AtlasMind: Toggle Dry Run** |
+| `atlasmind.security.quarantineReader` | `on` | A third-party result over 8,000 characters is read by a separate model with no tools, and the agent gets its checked extract instead of the raw text; the full text only after you approve `quarantine-read`. Costs one cheap model call per large result, counted toward the task's cost cap and the daily limit — a read that would pass either isn't made. `off` sends large results whole (still fenced, still asking before writes) |
 | `atlasmind.skillAutoSynthesisEnabled` | `false` | Whether a model may write a new skill and have it run when a tool does not exist. Scanned and shown to you first, every time |
 | `atlasmind.cli.addToTerminalPath` | `false` | Whether the `atlasmind` launchers go on the PATH of new integrated terminals |
 | `atlasmind.chat.revealOnApprovalRequest` | `true` | Bring the chat panel forward when something's waiting on you. You get a notification either way |
@@ -243,6 +247,40 @@ starts anything.
 The container has no host mount, Docker socket, GPU or persistent volume. Its result is Linux-container
 evidence even on Windows or macOS; native platform checks still need native runners. See the
 [safe local runner guide](../docs/local-ci-and-safe-runners.md).
+
+---
+
+## Execution sandbox
+
+These settings run agent commands in a container sandbox (0.500.0). With `mode` set to `require`, every
+command an agent asks for runs in the sandbox or is refused, with the rule that stopped it — never on your
+machine instead. **AtlasMind: Check Execution Sandbox** tells you whether the sandbox is available on this
+machine, rule by rule. With `mode` at `off` (the default) nothing changes. See [[Tool Execution]].
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.sandbox.mode` | `off` | `off` or `require`. `require` means a command runs in the sandbox or is refused — never quietly on your machine. git, installs, publishes and network tools are refused; so are a debug launch, an ACP agent's command and a managed-terminal follow-up, which would run outside it. The strictest value wins: a repository can ask for `require`, never switch it `off` for you |
+| `atlasmind.sandbox.engine` | `auto` | `auto` tries Docker, then Podman. Machine-scoped: a repository's value is ignored |
+| `atlasmind.sandbox.image` | *(empty)* | The image, pinned by digest: `name@sha256:<digest>`. A tag like `node:22` is refused. AtlasMind never pulls it — you do. Machine-scoped, so a repository can never pick the image your commands run in |
+| `atlasmind.sandbox.cpus` | `2` | CPU limit per command (0.25–64). Machine-scoped |
+| `atlasmind.sandbox.relaxTerminalApprovals` | `false` | Let a terminal write skip its approval prompt when it will run in a confirmed sandbox under `require`. Never after untrusted content, never when terminal writes are off, never for file writes, git, network calls or a command the sandbox would not run. Every skipped prompt is recorded with the attestation it rested on. Machine-scoped: only your user value counts |
+| `atlasmind.sandbox.memoryGb` | `4` | Memory limit per command in GB (0.5–256), with no swap on top. Machine-scoped |
+
+To find a digest: pull the image by its tag once (`docker pull node:22-bookworm-slim`, or whichever image has
+your project's tools — your choice), then run `docker image inspect --format "{{index .RepoDigests 0}}"
+node:22-bookworm-slim` and paste what it prints into `atlasmind.sandbox.image` in your **user** settings.
+
+### What an agent's command can see
+
+Since 0.500.1 a command an agent runs on your machine — and an ACP agent's own process — is started **without**
+your credentials: any variable whose name looks like one (`*_API_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`,
+`AWS_*` keys, `GITHUB_TOKEN`, the provider keys AtlasMind reads) or whose value looks like one is withheld, and
+a proxy URL loses its `user:password@`. A command that fails tells you which names were withheld, never their
+values. Your own terminals, routines and the Delivery and promotion buttons are not affected.
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| `atlasmind.terminal.passEnvironment` | `[]` | Exact names to pass to agent commands anyway, e.g. `["NPM_TOKEN"]`. A name that is not a plain variable name is reported and ignored. Machine-scoped: only your user value counts, so a repository cannot add a name. The `atlasmind` CLI reads the same list from `ATLASMIND_PASS_ENVIRONMENT` |
 
 ---
 
@@ -387,6 +425,7 @@ can only ever *add* promotion protection, never remove it.
 | `atlasmind.ambient.monthlySpendCapUsd` | number | `0` | The most ambient triggers may spend per month. `0` means an event can be reported to you but never worked on by a model: switching ambient triggers on and letting them cost something are two decisions. **Reporting is never capped** — refusing to tell you what happened because a budget ran out would be the worst reading of a cost control. |
 | `atlasmind.ambient.maxPerCheck` | number | `3` | How many events one check may raise. The remainder is stated rather than silently dropped, and nothing is lost — an event not raised this time is raised on the next check. |
 | `atlasmind.ambient.checkIntervalMinutes` | number | `30` | How often ambient triggers are evaluated while the editor is open. A VS Code extension does not run when the editor is closed, so this is *ambient* rather than *background*: it works while you are not looking at AtlasMind. |
+| `atlasmind.routines.scheduling.enabled` | boolean | `false` | Master switch for **scheduled routines** — a routine in `project_memory/routines/` that declares `schedule:` (`daily at HH:MM`, `weekly on <day> at HH:MM`, `every N hours` with N one of 1, 2, 3, 4, 6, 8, 12; local time, and the zone is always shown) running on its own. Off by default, and switching it on runs nothing: each routine also needs **your approval of its exact steps** (**AtlasMind: Manage Scheduled Routines**), which editing any step withdraws. *Ambient, not background*: routines run only while the editor is open, and a missed window is caught up once, never repeated. Each run happens in a new git worktree on a `chore/scheduled-…` branch, never touches your working tree, and never pushes, merges or opens a pull request; a step that would, or that installs packages, stops the run and is reported as needing you. Holds no model, so a scheduled run spends nothing. **User settings only** (`application` scope): a repository's workspace settings cannot switch it on for you. |
 | `atlasmind.research.enabled` | `false` | Master switch for research scans. Off by default — a scan reaches the network and spends money |
 | `atlasmind.research.automationLevel` | `observe` | The ceiling every scan is capped by. `observe` tells you one is due, `propose` drafts it, `auto` runs it |
 | `atlasmind.research.scans` | `{}` | Per-scan settings, keyed by scan id. Each takes `enabled`, `cadenceDays` and `automationLevel` |
@@ -403,7 +442,7 @@ can only ever *add* promotion protection, never remove it.
 | `atlasmind.ard.federationMode` | `referrals` | How far a search follows references between catalogues |
 | `atlasmind.ard.maxResults` | `10` | Results per search |
 | `atlasmind.ard.requestTimeoutMs` | `15000` | Per-request timeout |
-| `atlasmind.ard.allowInsecureEndpoints` | `false` | Allow finders using plain HTTP or localhost |
+| `atlasmind.ard.allowInsecureEndpoints` | `false` | Allow finders you marked insecure to use plain HTTP or localhost. Those finders follow no redirects; every other discovery request is checked by name, by the addresses it looks up to, and after every redirect |
 
 ---
 

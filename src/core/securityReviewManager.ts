@@ -40,6 +40,7 @@ import type {
   SecurityReviewHistoryEntry,
   SecuritySeverity,
 } from '../types.js';
+import { SsotHomeRefusalError } from './workspaceScope.js';
 
 export const SECURITY_REVIEW_SSOT_PATH = 'project_memory/operations/security-review.json';
 export const SECURITY_REVIEW_SUMMARY_SSOT_PATH = 'project_memory/operations/security-review.md';
@@ -731,7 +732,19 @@ export class SecurityReviewManager {
   private preserveExisting = false;
   private notice: string | undefined;
 
-  constructor(private readonly workspaceRoot: string | undefined) {
+  /**
+   * @param workspaceRoot The SSOT home — the folder holding project memory,
+   *   from `ssotHomeRoot()`, never assumed to be the first folder.
+   * @param refusal Why project memory may not be read or written here, when
+   *   the home is ambiguous. A refused manager reads nothing and **throws** on
+   *   every write: a write that quietly did nothing would read exactly like one
+   *   that worked, and one sent to the first folder instead would land in a
+   *   repository nobody was looking at.
+   */
+  constructor(
+    private readonly workspaceRoot: string | undefined,
+    private readonly refusal?: string,
+  ) {
     this.applyRead();
   }
 
@@ -750,7 +763,7 @@ export class SecurityReviewManager {
 
   /** Something worth telling the user about the file itself, if anything. */
   getNotice(): string | undefined {
-    return this.notice;
+    return this.refusal ?? this.notice;
   }
 
   getConfig(): SecurityReviewConfig | undefined { return this.config; }
@@ -766,6 +779,9 @@ export class SecurityReviewManager {
   }
 
   async ensureSeeded(): Promise<SecurityReviewConfig> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     if (this.config) { return this.config; }
     const seeded = seedSecurityReviewConfig();
     this.config = seeded;
@@ -783,6 +799,9 @@ export class SecurityReviewManager {
 
   /** Persist an updated register (e.g. after a review run) and cache it. */
   async save(config: SecurityReviewConfig): Promise<void> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     this.config = config;
     if (this.workspaceRoot) {
       await writeSecurityReviewConfig(this.workspaceRoot, config);

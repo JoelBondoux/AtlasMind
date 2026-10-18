@@ -46,6 +46,7 @@ Optional markdown description below the frontmatter — shown in the UI but not 
 | `name` | Yes | Human-readable label shown in the dashboard |
 | `description` | No | Short summary shown below the title |
 | `default` | No | Set `true` on the routine that `/ship` (with no argument) should run |
+| `schedule` | No | Ask to run on its own: `daily at HH:MM`, `weekly on <day> at HH:MM`, or `every N hours` (N one of 1, 2, 3, 4, 6, 8, 12). Local time. Nothing runs until scheduled routines are switched on and you approve the routine — see below |
 | `steps` | Yes | Ordered list of steps to execute |
 
 ## Step Fields
@@ -63,6 +64,19 @@ The `run` field supports `${varName}` tokens:
 
 - `${message}` — commit message text (taken from the chat prompt after `/ship`)
 - `${version}` — the `version` field from `package.json` if present
+
+## Scheduled routines
+
+A routine with a `schedule:` line *asks* to run on its own. Whether it does is decided elsewhere:
+`atlasmind.routines.scheduling.enabled` (a user setting, off by default) and your own approval of the
+routine's exact steps in **AtlasMind: Manage Scheduled Routines**. Editing a step withdraws the approval.
+
+- **Ambient, not background.** It runs only while the editor is open. A missed window is caught up once, never repeated.
+- **In a worktree, on its own branch** (`chore/scheduled-<routine>-<date>`). Never in your working tree; never pushed, merged or opened as a pull request.
+- **Stops where it would need you.** A step that pushes, publishes, deploys, changes git history or installs packages stops the run and is reported. `on_fail: prompt` aborts, since nobody is there to ask.
+- **No values.** A scheduled run supplies no `${message}`, so a routine that needs one is refused rather than run with a blank.
+
+**AtlasMind: Add Nightly Dependency Check Routine** writes `dependency-check.md` here as a worked example.
 
 ## Using `/ship`
 

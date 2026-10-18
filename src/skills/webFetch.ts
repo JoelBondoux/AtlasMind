@@ -1,5 +1,6 @@
 import type { SkillDefinition } from '../types.js';
 import { MAX_WEB_FETCH_BODY_BYTES } from '../constants.js';
+import { describeEgressRefusal, screenEgressUrl } from '../core/egressDestinationPolicy.js';
 
 export const webFetchSkill: SkillDefinition = {
   id: 'web-fetch',
@@ -15,7 +16,7 @@ export const webFetchSkill: SkillDefinition = {
     properties: {
       url: {
         type: 'string',
-        description: 'The URL to fetch (must start with https:// or http://).',
+        description: 'The https:// URL to fetch. Private, loopback, link-local and metadata addresses are refused, including by DNS and by redirect.',
       },
       maxBytes: {
         type: 'integer',
@@ -29,31 +30,14 @@ export const webFetchSkill: SkillDefinition = {
       return 'Error: "url" parameter is required and must be a non-empty string.';
     }
 
+    // The URL screen runs here for a fast, readable refusal. The full decision —
+    // DNS, every resolved address, the pinned connection and each redirect —
+    // happens inside `context.fetchUrl` (`egressFetch`), so a model-drafted skill
+    // that calls `fetchUrl` directly is held to the same rule.
     const url = rawUrl.trim();
-    if (!/^https?:\/\//i.test(url)) {
-      return 'Error: URL must start with https:// or http://.';
-    }
-
-    // Reject private/local network URLs to prevent SSRF
-    try {
-      const parsed = new URL(url);
-      const hostname = parsed.hostname.toLowerCase();
-      if (
-        hostname === 'localhost' ||
-        hostname === '127.0.0.1' ||
-        hostname === '::1' ||
-        hostname === '0.0.0.0' ||
-        hostname.endsWith('.local') ||
-        hostname.startsWith('10.') ||
-        hostname.startsWith('192.168.') ||
-        /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
-        hostname === '[::1]' ||
-        hostname === 'metadata.google.internal'
-      ) {
-        return 'Error: Fetching from private/local network addresses is not allowed.';
-      }
-    } catch {
-      return 'Error: Invalid URL format.';
+    const screen = screenEgressUrl(url);
+    if (!screen.allowed) {
+      return `Error: ${describeEgressRefusal(screen)}`;
     }
 
     const rawMax = params['maxBytes'];

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.482.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.504.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -119,7 +119,7 @@ guide even when the eventual implementation is native rather than HTML.
 2. Run **AtlasMind: Manage Model Providers** from the Command Palette (`Ctrl+Shift+P`) and connect one provider.
    Already pay for Claude, ChatGPT, Copilot or Qwen? You can use that subscription instead of an API key.
 3. Open your project.
-4. Tell AtlasMind about it — `@atlas /bootstrap` for a brand-new project, `@atlas /import` for an existing one.
+4. Tell AtlasMind about it — `@atlas /bootstrap` for a brand-new project (it asks first for the project in your own words), `@atlas /import` for an existing one.
 5. Ask for something.
 
 That's it. The [Getting Started guide](wiki/Getting-Started.md) covers the longer version.
@@ -137,7 +137,8 @@ AtlasMind does not sell you tokens. Connect whatever you already have:
 - **Cloud providers** — Anthropic, OpenAI, Google Gemini, Azure OpenAI, Amazon Bedrock, DeepSeek, Mistral, z.ai.
 - **Subscriptions you already own** — a Claude, ChatGPT, Copilot or Qwen plan, or an eligible Gemini Code
   Assist licence, used as routable capacity with **no per-token cost**.
-- **Local models** — Ollama, LM Studio, or anything else that speaks the OpenAI API. No key, no bill.
+- **Local models** — Ollama, LM Studio, Unsloth Studio, or anything else that speaks the OpenAI API. No bill;
+  only Unsloth Studio needs a key, and AtlasMind keeps it for that endpoint alone.
 
 AtlasMind then chooses between them per task, based on what the task needs, what's healthy, what's fast
 enough, what it costs, and what has actually worked well for you before. Set a daily spending cap and it
@@ -167,7 +168,8 @@ Ambitious automation is only worth having if you can trust it. AtlasMind is buil
 - **Everything untrusted is treated as untrusted** — issue text, web pages, model output, files. None of it
   can quietly become an instruction.
 
-Full detail in the [Security model](wiki/Security.md) and [Tool Execution](wiki/Tool-Execution.md).
+Full detail in the [Security model](wiki/Security.md), the [prompt-injection threat model](wiki/Prompt-Injection-Threat-Model.md)
+and [Tool Execution](wiki/Tool-Execution.md).
 
 Personal and classified project context has a separate, opt-in boundary. The
 [Data privacy and GDPR guide](wiki/Data-Privacy-and-GDPR.md) explains the detector pack, trusted-model
@@ -176,485 +178,31 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.482.1
+## What's new in 0.504.3
 
-Importing a release design no longer lets nested HTML survive into feature or tier names, and the
-release checks pass again.
+**CI's secret scan is green again.** Three test values added in 0.503.0 matched gitleaks' generic API-key
+rule; they are a sandbox volume's placeholder digest, not credentials. A new `.gitleaksignore` pins exactly
+those three findings, so a real key added to the same files would still be caught. No behaviour changes.
 
-## What's new in 0.482.0
+## What's new in 0.504.2
 
-Autopilot now covers an ordinary `git push` of a named working branch, instead of asking on every
-push. Pushes to protected branches, tags, force pushes and pushes without a branch named still ask.
-`git-push` can push a single release tag, and a request to promote into `main` is told to open a pull
-request rather than merge locally.
+**Unsloth Studio models no longer vanish from the routed list without a reason.** Studio lists every model you
+have downloaded, but with its default settings it serves only the one it has loaded. AtlasMind now reads Studio's
+**Switch model by request** setting. With it on, every downloaded model is routable and Studio loads it when asked.
+With it off, only loaded models are, and the others are listed with the reason: under *Listed but not routable* in
+the provider summary, and beside each Studio model in the local model advisor, which now reads Studio's load state
+live.
 
-## What's new in 0.481.3
+## What's new in 0.504.1
 
-A test fixture shaped like a secret is allowlisted by path so the release's secret scan passes; nothing
-in the extension changed.
+**Every open Dependabot alert is fixed, and `npm audit` reports zero.** The critical one was `proxy-addr`, which
+trusted an IPv4-mapped IPv6 address as if it were inside an IPv4 subnet. The MCP SDK moves to 1.32.1, so a
+server can no longer choose where its OAuth client sends credentials. `ip-address`, `undici`, `fast-uri`,
+`brace-expansion` and `source-map-js` move to patched releases. No behaviour changes.
 
-## What's new in 0.481.2
-
-The open Dependabot updates are applied, including the Agent Client Protocol SDK, `zod` and the
-`@vscode/vsce` 4 packaging tool (Node.js 22 or later for contributors). The remaining security alerts
-were already fixed on `develop` and close at the next release.
-
-## What's new in 0.481.1
-
-The reviewed-PR local CI workflow now runs from `develop`, and the AI instruction files AtlasMind
-manages tell every coding agent that `project_memory/roadmap/improvement-plan.md` is the canonical
-roadmap.
-
-## What's new in 0.481.0
-
-**Chat finds tools it doesn't have.** When nothing installed can do part of a task, AtlasMind searches
-the Resource Discovery finders you've enabled and offers the candidates in the reply, each with a
-**Review & install** button. Installing now shows exactly what would be added — for an MCP server, the
-command it would run — and it arrives switched off.
-
-**A failed turn no longer repeats work.** If a model fails after it has started a commit, push or file
-change, AtlasMind stops and tells you what already ran instead of handing the whole task to another
-model. ACP agents are no longer declared hung while they are still reporting progress, and Gemini 3
-tool calls keep working past the first round.
-
-Chat turns also no longer stall when the GPU is full of models AtlasMind did not load. Copilot token
-prices sync again, and provider refreshes are coalesced instead of overlapping.
-
-## What's new in 0.480.2
-
-The Editions importer now discovers product-design documents stored at the repository root as well as
-inside folders. Roadmap packaging tables can declare gates row by row—for example,
-`Free/Starter: core gallery, product tags`—and AtlasMind expands them into the named offerings,
-features, and planned entitlement cells shown in the review screen.
-
-## What's new in 0.480.1
-
-The Editions **Import design document…** action now reaches the extension host and opens its source
-picker. The import-preview response is handled on the host-message path rather than in the click
-dispatcher, removing the browser-side error that previously made the button appear to do nothing.
-
-## What's new in 0.480.0
-
-The Project Dashboard **Editions** page can now discover likely product-design documents in the open
-repository and lets you confirm the right source—or browse for another—before anything is imported.
-Its review screen understands Markdown comparison tables, named-tier feature lists, and structured
-JSON, shows every proposed offering, feature, entitlement cell, and source-file link, and imports only
-the rows you select. Existing names, pricing, statuses, parameters, links, and manual cell decisions
-are preserved; a document changed after preview must be scanned again.
-
-Each proposed feature is also compared conservatively with the current roadmap and loaded GitHub
-Issues. Strong relationships are selected for review by default, possible ones remain visible but
-unchecked, and weak coincidences are omitted. Accepted Issue relationships expose current open/closed
-state when Issue evidence is loaded, open the Issues page directly, and can be unlinked later without
-changing either the feature or the GitHub Issue.
-
-## What's new in 0.479.0
-
-The new Project Dashboard **Editions** page captures the product people intend to release, separately
-from the Versions page's history of what already shipped. Offering columns can represent Free,
-Student, Pro, expansions, DLC, plugins, bonuses, or custom commercial shapes; feature rows and their
-cells record current status, dates, pricing, tier-specific limits, notes, and workspace file links.
-Every column, row, and decided cell is editable or removable from the page and can be linked to—or
-removed from—the roadmap through a separately confirmed tracked-file change. Decision-coverage and
-readiness graphics keep explicit **not offered** decisions distinct from cells nobody has assessed.
-
-## What's new in 0.478.1
-
-Automatic roadmap reconciliation now stays within the repository that is actually open. Nested
-Git checkouts — including Kilo worktrees — the AtlasMind SSOT, its common backup directories, and test
-fixtures are excluded before Markdown is read. Repeated titles across genuine secondary roadmaps are
-proposed once; contradictory checkbox states are refused for a manual decision. The confirmation also
-distinguishes cancelling the proposed import from the Dashboard's separate anchor and instruction-file
-maintenance. Bullet-only narrative documents are left to deliberate Markdown import because their lists
-cannot be distinguished safely from top-level work during an automatic scan.
-
-## What's new in 0.478.0
-
-The Project Dashboard Versions page presents public releases as a reviewable portfolio. Stable and
-preview releases are classified by SemVer value tier and joined to their real roadmap gate, milestone
-progress, and filed design plans. Each version can open its GitHub release, its roadmap route, or its
-linked plans; a missing version gate can be created through a confirmed tracked-file write. AtlasMind's
-version-review action reconstructs its prompt from host-owned evidence and labels missing data instead
-of turning it into a confident zero.
-
-Source debugging now performs one finite compile before the Extension Development Host opens and turns
-off the unstable experimental Node network inspector. The default F5 profile also isolates AtlasMind
-from installed extensions and GitHub Copilot Chat; a separate profile retains Copilot when that
-integration is the subject of the test.
-
-Roadmap load-time reconciliation is now conservative about document shape: detailed implementation
-plans and validation/acceptance checklists no longer become hundreds of top-level backlog entries.
-The Roadmap header's **Check integrity** action uses stored import provenance plus the current source
-documents to highlight likely artifacts, then lets you choose exact rows before a separately confirmed
-removal. Reconciliation dialogs now group source, changes, conflicts, untouched data, and safety notes
-into labelled bullet sections instead of one dense block of text.
-
-## What's new in 0.476.5
-
-AtlasMind's dependency graph now requires patched releases of `hono`, `js-yaml`, and `morgan`,
-closing five Dependabot advisories across the MCP runtime and the development packaging/test toolchain.
-Regression checks keep all three transitive packages at or above their patched floors.
-
-## What's new in 0.476.4
-
-AtlasMind now keeps Gemini Live-only voice models out of its ordinary text chat route, pauses a cloud
-provider after an explicit API-key or project-access denial instead of trying another model behind the
-same refused account, and gives the local GPU gate the parameter count already present in model names
-such as `qwen3-8b`. That last fix lets an ordinary 8B Ollama or LM Studio model run when the card has
-room instead of being conservatively mistaken for an unknown 16 GiB model. Local `.kilo` worktrees are
-also excluded from VSIX packages so repository fixtures and token-shaped test data cannot ship.
-
-## What's new in 0.476.3
-
-AtlasMind now tells Codex and other repository agents that
-`project_memory/roadmap/improvement-plan.md` is the canonical roadmap and that any change to another
-roadmap file must be reconciled there in the same change. Opening the Roadmap dashboard also performs
-a bounded local drift check across roadmap-named markdown files, shows the exact plan before writing,
-and can carry additions, renames, and checkbox changes into AtlasMind. Local conflicts, ambiguous
-legacy status, and items missing from the secondary source are reported and left untouched.
-
-## What's new in 0.476.2
-
-The last Marketplace publication, **v0.476.1**, brought the changes below. Every release is written
-up in full in [CHANGELOG.md](CHANGELOG.md).
-
-Bypass Approvals and Autopilot now take effect on the click itself, so concurrent tool calls already
-waiting in one response settle together instead of asking repeatedly. Irreversible remote actions remain
-outside both bypass modes and their approval card now says why it reappeared. Short Git follow-ups such
-as `commit and push` also retain the file tools needed to finish an outstanding source edit recorded in
-the session, including when that history is carried by the structured context bundle. Dashboard prompt
-destinations also survive a stale Extension Development Host registry: a displayed Codex selection is retained
-for that workspace and used immediately instead of silently reverting to AtlasMind. The setting now shows the
-actual Dashboard prompt button and clicking it sends a live route test. Internal editor, notebook, agent, and
-terminal participants from one extension collapse into one service choice instead of duplicate-looking rows.
-Its hand-off guidance plainly identifies which privacy, model, quota/cost, context, and permission controls
-belong to the other chat.
-
-## What's new in 0.476.0
-
-Project Dashboard Atlas actions submit again instead of only filling AtlasMind's composer. A new
-**Settings → Chat & Sidebar → Atlas action destination** choice can send those prompts to AtlasMind,
-the current VS Code Chat target, or an installed extension that declares a compatible chat participant
-or chat-session route. The default remains AtlasMind; removed destinations fail closed without sending.
-
-## What's new in 0.475.1
-
-Operational scoring now reads full Project Soul sections and discovers tests throughout large monorepos. Nested checkouts are excluded, and a scan that reaches the safety limit says it is partial. No score weights or test requirements changed.
-
-## What's new in 0.475.0
-
-The current source adds the change below on top of the last Marketplace publication, **v0.474.1**.
-Every release is written up in full in [CHANGELOG.md](CHANGELOG.md).
-
-- **Run a reviewed agent PR locally without trusting the agent by name.** AtlasMind can patch any
-  GitHub repository with a committed exact-SHA local-CI contract, then let you inspect and approve one
-  same-repository PR commit before lending a one-job Docker runner. Conventional npm, pnpm
-  and Yarn repositories get a proposed locked install and check plan; another stack gets a disabled
-  contract until you declare its argv commands. Codex, Claude, other agentic services, AtlasMind and
-  human contributors all follow the same route. The controls live on Pipeline, Pull Requests and
-  Settings → Testing, with `/localci patch` and `/localci review` shortcuts. A new commit invalidates
-  the approval; forks, drafts, repository/environment secrets, host mounts, the Docker socket and
-  native-platform claims are refused. The job retains outbound network access for GitHub and dependency
-  installation, so Docker is defence in depth rather than a substitute for reviewing the proposed code.
-
-- **Website delivery is on the Dashboard's Delivery page.** The framework choice, the three hosting
-  environments, the platform targets and the n8n workflow map moved out of UI Studio and onto the
-  Project Dashboard's Delivery page, beside the pipeline that ships them. Frameworks are graded
-  against the primary platform with the reason on the card, each environment shows its readiness, the
-  drift against the pipeline is checked on every render, and the setup button stays withheld until
-  the setting is on. The Studio's Handoff view points there, and a save from either surface now
-  re-reads the plan from disk and touches only what it owns, so neither can undo the other.
-
-- **Emit a surface into its engine, and keep the words editable from here.** From the Handoff
-  view, a drawn surface can be written for Web (HTML + CSS), Unity UI Toolkit (UXML + USS) or Godot 4
-  (Control scene + Theme), with a shared token file from the brand presets; Unreal UMG, SwiftUI and
-  Compose get a handoff specification rather than unverified source. The layout is emitted once and
-  then belongs to the engine — a second emit over changed files is refused, and the card says
-  *Layout: owned by Unity since the emit on … · Content: editable here*. The words stay Studio's:
-  every node's copy sits in a region anchored by its id, and **Push content** patches those regions
-  by anchor in the file as it is now, refusing by name any anchor the engine removed and showing
-  any region somebody edited there rather than overwriting it. **Launch** runs Godot with a constant
-  argv and no shell, opens a web page in the browser, and shows Unity's command to copy.
-
-- **UI Studio, rebuilt around the surfaces.** The eight numbered steps and the six metric tiles are
-  gone. A Surfaces rail beside the canvas lists every UI file the scan found in the project — pick one
-  up and it becomes a surface that remembers where it came from — and every surface designed here;
-  clicking one opens it on the canvas. The views across the top are unnumbered (Design, Sitemap or
-  Screens & flows, Brands & system, Content design, Handoff, Delivery for websites, Brief) and the
-  Studio lands on the canvas. A new **Brands** view shows each brand's swatches and origin, applies
-  one to any set of surfaces, and reads a new one out of a stylesheet behind a confirmation that
-  shows the extraction's own evidence. The browser only ever names a file or an id; the host re-scans
-  and decides.
-
-- **Brand presets.** One named set of colours, fonts, spacing and radius, applied to many surfaces
-  **by alias** — change the brand and every surface follows, and a surface that keeps its own value is
-  reported as an override rather than pretending to wear the brand. A preset can be read out of a
-  stylesheet's custom properties, naming the file and line for every role and listing what it could
-  not read instead of guessing. The old two-places-for-one-colour design system folds into a preset at
-  migration, and only if you had changed it. The model half of the UI Studio rebuild; the surface
-  above is the shell half.
-
-- **The Ideation page, rebuilt as two panes.** The inspector used to sit under a canvas that filled
-  the screen, so editing a card meant scrolling away from the board — and four "stages" explained an
-  order the page did not have. Now a rail beside the canvas follows what you click: a card shows its
-  inspector, a link its editor, nothing shows the prompt. The toolbar only draws; there is one way off
-  the board, with the readiness reading inside it; and everything Atlas says lives in one drawer that
-  opens itself when it speaks. The stat tiles, board lanes, stage bar and the 180-word shortcut
-  paragraph are gone.
-
-- **Tell AtlasMind what the project is for, and watch it stay honest about it.** A brief composer on
-  the empty ideation board takes a couple of sentences in your own words and reads them into cards.
-  **Every card either quotes your brief word for word or is a question** — a quote that is not really
-  in your brief is turned into a question rather than shown as a finding, and the count is stated, so
-  an invented reading cannot look clean. Your brief is **stored exactly as you wrote it** and never
-  edited, which is what makes every derived card checkable. A brief too thin to work from is refused
-  with what to add. Writing it, reading it into cards and raising roadmap items stay three separate
-  confirmations.
-
-- **Name a baseline, and compare against it whenever you like.** *What moved* could only ever answer
-  "since you last looked" — the one span nobody chose. Now you can capture a moment worth comparing
-  against and ask the same question about it: since the release, since this branch started, since the
-  audit. It is the **same comparison**, so two cards can never disagree about one fortnight. **The age
-  is always shown**, because eleven changes over six weeks is not eleven changes today. Nothing is
-  captured automatically, nothing expires, and the oldest is never evicted to make room — it is the
-  only one that can speak about the whole project.
-
-- **Import absence from the rota app your team already uses.** Deputy, When I Work, Google Calendar or
-  anything else that exports an `.ics` file. It reads the published iCalendar format rather than a
-  vendor API, so one thing works everywhere. **Only events naming an absence are imported** — a rota
-  feed is mostly the shifts somebody is *working*, and recording those as time off would mark them away
-  on exactly the days they are rostered on; a file of shifts is refused, with that reason. Everything
-  left alone is counted and shown. **Nothing is fetched**: a calendar feed URL is a password, so you
-  download the file. The confirmation lists every entry, absence you typed by hand is kept, and
-  re-importing updates in place.
-
-- **See what each person is actually carrying — and read it honestly.** A Workload card on the
-  Director page joins your roster to the roadmap's estimates and assignments. It is **not a
-  performance measure**, and says so above the numbers: it counts work somebody was *given* against
-  capacity they *declared*. Capacity is written down, never worked out from commit rates. An
-  allocation it cannot read stays **unknown rather than being read as a full week**, unestimated work
-  is never counted as zero, a derived estimate is counted but flagged as derived, and an empty rota
-  means *nothing was recorded* rather than *everybody is available*. Overload is reported over a
-  stated window and **nothing offers to reassign anybody**.
-
-- **Golden cases for your agents, and a gate on the rewrite that would break them.** AtlasMind can
-  rewrite an agent's prompt on a cadence — a prompt edit deployed with no failing build. Pin cases with
-  a prompt, a check and the reason each exists, and a rewrite that regresses one is **held** rather than
-  shipped. So is one that could not be checked, because the cadence runs while nobody is watching. An
-  errored case is set aside rather than counted as a failure, a first run is a baseline rather than a
-  pass, and every verdict says how many cases actually ran.
-- **One button builds and publishes the portal.** Gather, narrow, prepare, deploy — with a single
-  confirmation that says what goes out, what is withheld, who can read it, which commands will run and
-  which step cannot be undone. It **refuses** rather than warns when you have named an audience your
-  host cannot enforce, or when a risk register would go out behind a policy nobody has confirmed. On a
-  host AtlasMind has no command for, it stops with the page prepared and leaves publishing to you.
-- **Say where the portal is hosted, and who may read it.** A new host choice — GitHub Pages,
-  Cloudflare Pages, Netlify, Vercel or your own — each presented with what it can *actually* enforce.
-  **Signing in with GitHub admits every GitHub account there is**, so a sign-in without an allowlist is
-  a public portal with a turnstile in front of it. Only Cloudflare Pages does both without an
-  enterprise plan; Netlify's shared password is not an audience; Vercel's is your Vercel team; GitHub
-  Pages cannot restrict at all outside Enterprise Cloud. The Director assigns the audience by contact,
-  never by address, and AtlasMind never claims to be enforcing any of it.
-- **Search your own codebase, semantically, without anything leaving the machine.** Two new commands
-  build and search an index of your source — the gap that meant an agent had to be told which files to
-  read. The default embedder needs no model at all; point it at a local Ollama model for genuinely
-  semantic results. There is **no remote embedder**, because offering one from a dropdown would mean
-  sending an entire repository to a third party. A file that looks like it holds a credential is never
-  indexed, a result whose file has changed since is dropped rather than flagged, and every search says
-  how much of the tree it actually covers and how old the index is.
-- **The six utilities every product needs, as decisions rather than packages.** Auth, payments,
-  email, analytics, i18n and accessibility now appear on the Gap Analysis page — each opening with the
-  question that actually matters. Whether you or your vendor is the **merchant of record** is a tax
-  question you cannot undo by swapping an SDK; whether your analytics sets a cookie decides whether you
-  need a consent banner at all. Every install line is read from the vendor’s own documentation on a
-  stated date and **nothing is ever run**; where a line was not verified, none is shown rather than one
-  being invented. What leaves your machine is stated for every candidate. Two libraries answering
-  opposite sides of one decision is reported, not added to. And accessibility is not offered as
-  something to install, because it is not.
-- **Ambient triggers: repository events, not just chat.** A failed CI run, an advisory, a review
-  waiting on you, a blocker defect — all of them happen while you are looking somewhere else, and none
-  of them reached you until you next opened the dashboard. Now they can raise a trigger. Off by
-  default, and switching it on subscribes to nothing: each event is a separate decision. An event is a
-  *change*, not a state, so a red pipeline fires once rather than on every check; an ambient response
-  never goes further than **proposing**, whatever your workflow permits, because nobody is watching;
-  and a source that could not be read is reported as *not observed* rather than as quiet. Nothing runs
-  unattended — you get a notification and a draft.
-- **Test management, for the half a scanner cannot read.** The Testing page now keeps the cases a
-  person carries out: who owns each, when it was last actually run, and what a tester needs in front of
-  them. Priority is derived from what breaks and how often the path is taken rather than asked for. A
-  case that was not run is **never run**, not passed; a result belongs to a *revision*, so a pass
-  against steps somebody has since rewritten reads as stale instead of staying green; and an automated
-  case is never given a manual result, because its result is measured by the test report. Test assets
-  **name** where a credential lives and never hold one — anything credential-shaped is refused outright
-  rather than quietly stripped.
-- **Who agreed, and to which version.** A new Approvals page records that a named person agreed to a
-  change — an idea reaching the roadmap, a document going out, a licence term, a commercial
-  commitment. Pending is never read as approved, there is deliberately no timeout that grants one,
-  and an approval that was given before the content changed goes **stale** rather than carrying over.
-  Each category routes to a role by a published rule, and if nobody holds it the request says so
-  instead of being handed to whoever is available. It is a record, not a permission: nothing here
-  blocks a commit or a release.
-- **Somewhere to write a bug down.** A new Defects page keeps bugs in a local committed file, so
-  recording one costs a keystroke rather than a remote, a `gh` and a network. Severity is never asked
-  for — you say what it does and how many people meet it, and a published rule table grades it, so a
-  grade made today still compares with one made in six months. Data loss and security exposures are
-  blockers whatever their reach; an intermittent bug is not a smaller one; and *fixed* is kept apart
-  from *verified*, because a fix nobody checked is a claim. Nothing is deleted and nothing is gated.
-- **`/portal` hosts the producer report as an actual page.** The report could be built and narrowed;
-  what was missing was the last mile, because GitHub Pages cannot serve an arbitrary folder. The guide
-  walks it — including the fact that a Pages site is public even when the repository is private — and
-  writes a deploy workflow that runs only when you run it. AtlasMind never turns Pages on and never
-  publishes.
-- **See what the chat is carrying, and carry less.** The context meter opens into a breakdown — session
-  history, attachments, your draft, each with its share — and says what gets dropped first when the
-  window fills. What the panel cannot measure (the system prompt, tool definitions, images) is named
-  rather than quietly left out of the total, and one control lets you carry all, half, one or none of
-  the earlier turns for this conversation.
-- **Assess an advisory with Atlas.** Any Dependabot or code-scanning finding can be handed to an agent
-  to answer the only question that matters: does it reach *your* code? "Present but not reachable here"
-  is a first-class answer, the advisory's own text is fenced as third-party content, and a named fixed
-  version is explicitly not treated as permission to bump it.
-- **The Security page now says what is known to be wrong.** Dependabot alerts and code-scanning
-  findings, ranked by severity across both, read when you refresh the repository. Severity is
-  GitHub's rather than ours, a dismissal is counted as a decision and never as a fix, and if a source
-  was not read — or the feature is switched off — the page says that instead of showing you a clean
-  list.
-- **A board view for the roadmap** — waiting, ready, in progress, in review, delivered. A card only
-  moves on evidence AtlasMind can point at: a branch that exists, or an open pull request. Nothing is
-  ever "in progress" because it looks important, delivered still means the backlog line is ticked, and
-  if your branches or pull requests could not be read the board says that instead of showing a project
-  where nobody has started.
-- **The roadmap can now be read against time.** A fifth view puts the plan on a timeline: when each
-  item can start and finish, how much room it has before the finish moves, and where each release gate
-  lands. The axis is days from today rather than dates, deliberately — your estimates are graded in
-  working days for people and wall clock for agents, and inventing a calendar to reconcile them would
-  be a commitment made up by a chart. Deadlines you set are drawn as markers, and they never move a bar.
-- **Ctrl+wheel zooms the Project Dashboard.** The gesture you already use in a browser now works on
-  the densest page in AtlasMind, on Chromium's own zoom ladder, with a quiet indicator that appears
-  only while zoomed and clicks back to 100%. The roadmap canvas keeps Ctrl+wheel for zooming the plan
-  — whichever the pointer is over wins — and dragging a node still lands where you dropped it at any
-  page zoom.
-- **Security housekeeping, with the findings read rather than waved through.** Every open CodeQL alert
-  on `develop` is addressed: 40 fixed, 8 dismissed with a written reason. The ones worth knowing about
-  — webview image previews now only load a source AtlasMind recognises, the content-security-policy
-  nonce comes from the platform CSPRNG instead of `Math.random()`, four webview values that were
-  missing their HTML escape have it, and an "official" badge on a recommended MCP server is decided by
-  parsing the URL's host rather than by looking for the host's name anywhere in it.
-- **Dependencies are current.** Every open Dependabot update is in, including Vitest 5 — taken in one
-  verified pass rather than merged one PR at a time. `@types/vscode` is deliberately held at the
-  version `engines.vscode` declares, because raising it would raise the minimum VS Code you need.
-- **The roadmap canvas stops glowing at an edge once you have dragged the plan back into view.** The
-  strips that say "the plan continues that way" were only recomputed by the wheel, so panning with a
-  drag — the way you move sideways — left them lit over cards that were already on screen.
-- **AtlasMind notices what you keep reaching for.** If your runs shell out to `gh` again and again,
-  the Runtime page will say once that there's a catalogued MCP server for it — and tell you what it
-  *costs* in the same breath as what it adds, because an MCP server publishes its whole tool list
-  into a budget your turns already spend. Say "Not this one" and it never comes back for that
-  project. Nothing is installed, and setting one up leaves it switched off.
-- **Commits can say which planned work they were for.** A commit message tells you what changed, and
-  never told you which backlog item or issue it belonged to — so anything joining code back to intent
-  had to guess from wording. AtlasMind now writes that link as a proper git trailer, taken from the
-  branch naming convention your workflow declares rather than from the commit's words, and the
-  dashboard's commit list shows it.
-- **The dashboard says when your providers are in trouble.** It already counted them — `4/9 providers
-  healthy` sat in a stat card's subtitle, in the same grey as everything else, on the page whose job
-  is to tell you what needs a person. No enabled model anywhere now leads the *Needs you* band, above
-  a red pipeline: a failing test is something you can work on, and no routable model is not. The
-  score also reflects how much of your configured team actually gets used — silently, until there's
-  enough run history to mean anything.
-- **Roadmap work assigned to an AI agent is estimated in minutes, not working days.** If your agents
-  do the coding, an item can be planned and finished inside an afternoon — and the roadmap couldn't
-  say so, because every estimate was in working days with a half-day floor. Worse, the arithmetic
-  rounded to the nearest half-day, so a plan run entirely by agents reported *no work left at all*.
-  Mark a contact as an AI agent on the Director page and their roadmap work is graded in wall-clock
-  instead. The size of the job is judged the same way; what a unit of it costs is not.
-- **The roadmap now says which chain of work the finish date rests on.** The backlog could tell you
-  what mattered most and the dependency canvas could tell you what waited on what. Neither said
-  *which chain actually decides when this lands* — so a plan could be correctly prioritised,
-  correctly sequenced, and still have everyone working on the items that were never the constraint.
-  The canvas now names the critical path and the days along it, and a lens highlights it while
-  leaving everything else drawn and dimmed, because the items with slack are the comparison that
-  makes the answer worth having.
-- **Closing or hiding a chat no longer stops it.** Clicking another view in the sidebar threw the
-  chat's window away mid-answer — VS Code disposes a hidden view's webview — and that killed the run.
-  The sidebar now keeps its contents when hidden, and a chat that genuinely loses its window keeps
-  going: your answer is written to the session as it arrives, so reopening the chat shows the
-  finished result. A run that outlives its window is still spending money, so a status-bar item names
-  what's running and lets you read or stop any of it — closing the window is no longer how you stop a
-  run, so that is. Reopen the chat and it picks the run back up: the answer streams in, the stop
-  button is back where you'd look for it, and asking something else starts a fresh conversation
-  rather than mixing two answers into one.
-- **Two steps of a job can no longer overwrite each other's edits.** When AtlasMind broke work into
-  steps it ran up to five of them at once against one copy of your files, with nothing keeping two of
-  them from editing the same file — and when that happened, one of the two changes simply wasn't
-  there afterwards, with both steps reported as finished. Steps that write now run one at a time.
-  That is slower, and it is the correct behaviour. Turn on `execution.worktreeIsolation` and the
-  parallelism comes back: each writing step gets its own git worktree, and its changes are applied to
-  your files as its batch finishes. A step whose changes won't apply cleanly keeps its worktree and
-  tells you where it is, rather than being forced in or thrown away. The second time a run queues
-  writers behind each other, AtlasMind offers you the setting — once, never modally, and never when
-  turning it on wouldn't have changed the run you just watched.
-- **Select several items and move them together, on both canvases.** Shift-drag on the roadmap or
-  the ideation board draws a selection box; dragging any selected item moves the whole group. Plain
-  dragging still pans, because panning is how you read a plan that doesn't fit on screen. On the
-  ideation board the box shares the selection that links cards, so selecting more than two now asks
-  you to choose the pair rather than guessing at it.
-- **"Read-only" now holds for the whole job, not just the first step.** Asking AtlasMind to work
-  read-only was enforced properly on the turn you typed — but if that turn became a multi-step project
-  run, each step re-read its own instructions and found no restriction in them. The limit you set now
-  travels with the work and can only narrow, never widen. Separately, an MCP server that asked for one
-  environment variable used to receive every credential the editor was started with; it now gets a
-  filtered set plus what it declared.
-- **Supply chain tightened.** Every CI action is now pinned to an exact commit rather than a movable
-  tag, the project bootstrapper no longer starts a shell for anything, and the Debian install path
-  that piped a download into `sudo` has been removed in favour of the manual instructions. There is a
-  written [dependency review](docs/dependency-security-review.md) and an SBOM command.
-- **Starting the editor contacts nobody.** AtlasMind loads when VS Code starts, and two things
-  reached third parties from there that your settings never asked for: an exchange-rate lookup that
-  ran even though costs display in USD by default and needed no conversion, and a downloadable-model
-  catalogue fetched from two sites even on machines with no local model runtime installed. Both are
-  now gated on your own configuration actually needing them. There is no telemetry and never has
-  been.
-- **Model-written skills no longer run beside the extension.** AtlasMind can write a small skill for
-  itself mid-task — off by default, and never without you reading the code and approving it. Until now
-  that code was evaluated in the extension's own scope: eight ways of reaching the filesystem were
-  tried against it and seven worked. It now evaluates somewhere with none of that in reach, and all
-  eight are refused. It is containment rather than a sandbox, the remaining gap is written down, and a
-  test asserts we never call it the stronger word.
-- **Routines show you the commands before they run, and Autopilot has a ceiling.** `/ship` and the
-  Run Center now list the exact shell commands a routine will run, in order, and say which ones reach
-  outside your machine — a routine file is an ordinary workspace file, so the moment before it runs is
-  the moment worth reading it. A placeholder with no value is refused rather than quietly becoming an
-  empty string. And Autopilot can no longer approve an outward change that cannot be undone — a push,
-  a remote branch delete, or a tool AtlasMind does not recognise.
-- **Nothing reaches a model without saying what it is.** Every prompt-bearing call in AtlasMind now
-  clears its context through one boundary first, which redacts repository-derived text, holds each
-  kind of content to its own size limit, and never silently rewrites what you typed. Direct calls
-  that skipped it: 11 → 0, with an architectural test that fails when a new one appears. If a
-  credential turns up in your own prompt on its way to an external provider, AtlasMind asks — *send
-  redacted* or *send as typed* — and dismissing the dialog sends nothing.
-- **AtlasMind follows the Open Source Maintenance Fee model.** The source code stays MIT permanently,
-  and compiling it yourself is free for everyone, always. From **v1.0.0** the official Marketplace
-  build carries a maintenance fee for organizations with annual gross revenue of US$10,000 or more
-  that use it in revenue-generating work — $10–$60 a month by headcount. Nothing is payable before
-  v1.0.0, nobody outside that scope ever pays, and no amount of money buys a feature, a vote or
-  priority. See [MAINTENANCE_FEE.md](MAINTENANCE_FEE.md).
-- **A command injection on Windows, found and closed.** Starting a tool through a shell concatenated
-  model-generated arguments into one unescaped command line, so `&` followed by anything ran as a
-  command of its own while the approval dialog showed something harmless. Commands now resolve to a
-  real executable and start without a shell; where that cannot be done, the run is refused rather
-  than falling back to the hazard.
-- **The roadmap became a dependency canvas.** The prioritised backlog is unchanged and still the only
-  place drag-reorder sets what comes next. Beside it, the plan now draws as a graph of what blocks
-  what: a readable tree layout, search that frames what it matched, highlighting by release gate or
-  owner, click-to-zoom, and edge hints when the plan continues past the frame. A roadmap AtlasMind
-  did not write is reconciled instead of duplicated, and any item can file its own plan document.
-- **An autonomous run refuses work your own workflow forbids, before spending anything.** The stage
-  ceilings you declared are checked up front rather than discovered mid-run, so a run that was never
-  permitted to open a pull request stops at the plan instead of at the attempt.
-- **Delivery, people and interfaces.** The dashboard's version pills switch your checkout to the
-  stage you clicked; the two people views in the sidebar stopped reporting the same number twice; and
-  UI Studio can locate the interface in your repository rather than asking you to point at it.
+Only the three newest releases are summarised here. The last Marketplace publication, **v0.482.1**, is
+the build the Marketplace serves; every release, older ones included, is written up in full in
+[CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -723,7 +271,7 @@ Type these in the AtlasMind chat panel as `/<command>`, or in the VS Code chat v
 
 | Command | What it does |
 |---|---|
-| `/bootstrap` | Set up project memory and foundations; declare Shopify composition or choose a game architecture seed |
+| `/bootstrap` | Set up project memory and foundations — asks first for the project in your own words (kept verbatim, skippable); declare Shopify composition or choose a game architecture seed |
 | `/import` | Build project memory from an existing repository |
 | `/project <goal>` | Plan and run a coordinated piece of multi-step work |
 | `/loop <goal>` | Chase a goal inside cost, time and iteration limits |
@@ -745,6 +293,16 @@ Type these in the AtlasMind chat panel as `/<command>`, or in the VS Code chat v
 
 The same reviewed-PR operations are also available as **AtlasMind: Patch This Repository for Local CI** and **AtlasMind: Run a Reviewed Pull Request on Local CI** in the Command Palette.
 
+**AtlasMind: Describe the Project in Your Own Words** (Command Palette, and a Get Started walkthrough step) asks who the project is for, what it should do and what should be true once it works, and saves the answer exactly as written to `project_memory/project-brief.md`. It asks before replacing a brief that already exists; reading the brief into cards is a separate step on the Ideation board.
+
+**AtlasMind: Prepare Sandbox Dependencies** (Command Palette) installs the open folder's lockfile (npm, pnpm or Yarn 1) into a dependency volume, so that under `atlasmind.sandbox.mode = require` commands that load installed packages can run in the sandbox — your own `node_modules` is never used there. It is the sandbox's one network-on step: it runs only when you ask, in a trusted workspace, shows every engine command and what network access means first, mounts only `package.json` and the lockfile read-only, writes only into the volume, and skips install scripts unless you confirm a second warning. **AtlasMind: Remove Sandbox Dependency Volumes** lists the volumes AtlasMind prepared and removes the ones you pick.
+
+**AtlasMind: Connect Unsloth Studio** (Command Palette, or *Connect Unsloth Studio…* in Settings → Models & Integrations) adds Unsloth Studio as a local endpoint. It asks for the address, checks the server answers as Unsloth Studio before asking for anything else, asks for an `sk-unsloth-` API key (create one in Studio under Settings → API Access), tries it, and only then stores it in the OS keychain for that endpoint alone. Plain HTTP to another machine asks first, because the key would cross the network unencrypted. **AtlasMind: Manage Unsloth Models** lists what Studio has loaded and downloaded, discovers Unsloth's chat-model GGUF builds on Hugging Face, and loads a model at a quantisation you pick (size, on disk or not, fits your VRAM or not, with a suggestion and the rule that made it). It can also unload or delete; downloading and deleting ask first, and a dry run holds all of it. Downloads are done by Studio itself — AtlasMind sends only the repository id and quant.
+
+**AtlasMind: Check Execution Sandbox** (Command Palette) reads your container engine on request and opens a report: every sandbox rule with its result and reason, what the probe ran, and what to do about the rule that failed. It never pulls an image; in a dry run it reads the engine but does not start the canary container. It says what the mode makes of the result: under `require` agent commands run in the sandbox or are refused, under `off` they still run on your machine.
+
+**AtlasMind: Toggle Dry Run** (Command Palette, or the *Dry run* status bar item while it is on) switches dry run on and off — tool calls that would write, run commands or reach the network are described instead of run, and AtlasMind's own actions outside a turn (routines and `/ship`, promotions, dashboard git and GitHub writes, messages, terminal sends, installers, automatic memory writes) are recorded instead of done. On applies at once; off from the next turn.
+
 Full behaviour and the Command Palette list are in [Chat Commands](wiki/Chat-Commands.md).
 
 ---
@@ -757,6 +315,7 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 |---|---:|---|
 | `budgetMode` | `balanced` | How much you're willing to spend per task |
 | `speedMode` | `balanced` | Fast answers versus more considered ones |
+| `reasoningMode` | `auto` | How hard the model should think — `minimal`, `standard`, `deep`, or `auto` from the task. Sent only to models with a verified reasoning control |
 | `dailyCostLimitUsd` | `0` | Daily spending cap; `0` means no cap |
 | `memory.backgroundSummarizationMode` | `off` | Whether a background timer may summarise project memory with a model. Off by default — nothing is sent on a timer unless you enable it |
 | `memory.selfHealingMode` | `report-only` | What background memory maintenance may do to your files. The default reports and never writes |
@@ -766,6 +325,9 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `producerReport.publishRisks` · `publishCost` | `false` | Add the risk register or cost to the published page. Off separately, because each is a disclosure |
 | `toolApprovalMode` | `ask-on-write` | How often AtlasMind asks before acting |
 | `allowTerminalWrite` | `false` | Whether approved terminal commands may change things |
+| `security.untrustedEscalationScope` | `third-party` | After a task reads untrusted content, writes and network calls need a fresh approval Autopilot cannot answer. Reads stay free; there is no off |
+| `dryRun.enabled` | `false` | Dry run: every tool call that would write, run a subprocess or reach the network is described instead of run, and AtlasMind's own actions outside a turn — routines, promotions, dashboard git and GitHub writes, messages, terminal sends, installers, automatic writes — are recorded instead of done; only reads run. Model calls still run. On applies at once, off from the next turn. User settings only |
+| `security.quarantineReader` | `on` | A third-party result over 8,000 characters is read by a separate tool-less model; the agent gets a checked extract, and the full text only after you approve releasing it. The reader counts toward the task's cost cap and the daily limit |
 | `skillAutoSynthesisEnabled` | `false` | Let a model write a new skill and run it when a tool does not exist. Off; every synthesis is scanned and shown to you first |
 | `cli.addToTerminalPath` | `false` | Put the `atlasmind` launchers on the PATH of new integrated terminals. Off, because it persistently changes your shell |
 | `autoVerifyAfterWrite` | `true` | Run your checks automatically after a change |
@@ -777,8 +339,13 @@ Everything is in the AtlasMind Settings panel, or under `atlasmind.*` in VS Code
 | `ci.localRunner.shutdownPolicy` | `ifStartedByAtlasMind` | Keep Docker open, close it only when AtlasMind opened it, or always close when no other container runs |
 | `testing.resourceShare` | `50` | Sliding scale for local test execution: the percentage of this computer tests may use, across every path AtlasMind runs or composes; the OS always keeps ≥25% (≥2 CPUs / 8 GB); machine-scoped |
 | `execution.worktreeIsolation` | `false` | Give each file-writing step of a job its own git worktree so a batch can write in parallel. Off means writers run one at a time — this setting buys back speed, it is not what makes the run safe |
+| `sandbox.mode` | `off` | Whether agent commands must run in the container sandbox. Under `require` a command runs in it or is refused with the rule that stopped it — never on your machine instead; check availability with *Check Execution Sandbox*. The tightest scope wins, so a repository can ask for it but never switch it off |
+| `sandbox.image` | *(empty)* | The sandbox image, pinned as `name@sha256:<digest>`; a tag is refused and nothing is pulled. Machine-scoped, so a repository cannot choose it |
+| `sandbox.relaxTerminalApprovals` | `false` | Let a terminal write skip its approval prompt when it will run in a confirmed sandbox under `require`. Never after untrusted content, never past `allowTerminalWrite`, never for anything but a terminal write the sandbox would run; every skipped prompt is recorded with its attestation. Machine-scoped: a repository cannot loosen your approvals |
+| `terminal.passEnvironment` | `[]` | Exact names of credential-shaped environment variables to pass to agent commands anyway. Everything credential-shaped is otherwise withheld from what an agent runs; machine-scoped, so a repository cannot add a name |
+| `routines.scheduling.enabled` | `false` | Let routines that declare a `schedule:` run on their own while the editor is open, each in its own worktree, once you approve their exact steps. Never pushes, merges or installs unattended |
 
-All 162 settings are documented in the [Configuration reference](wiki/Configuration.md).
+All 173 settings are documented in the [Configuration reference](wiki/Configuration.md).
 
 ---
 
@@ -786,18 +353,26 @@ All 162 settings are documented in the [Configuration reference](wiki/Configurat
 
 | Path | What's in it |
 |---|---|
-| `src/core/` | Orchestration, routing, planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, and hostile-input build-log reading (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`, `uiSurfaceScan.ts`), brand presets — one named token set applied to many surfaces by alias, extracted from a stylesheet with a citation (`brandPresets.ts`) — and the engine emitters with anchored, patch-by-anchor content write-back and constant-argv launch plans (`uiSurfaceEmit.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the provider-neutral reviewed-PR contract, exact-SHA policy and repository patcher (`localCiRepositoryPatch.ts`, `reviewedPrLocalCi.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the personal-vs-project split behind the two sidebar people views (`directorPriority.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the shell-free Windows shim bypass shared by the extension host, the CLI and the ACP launcher (`windowsShimBypass.ts`), parallel-write placement, worktree plumbing, merge-back and the run that ties them together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the defect register — what is broken, graded by a published table rather than asked for (`defectRegister.ts`), the approval register — who agreed, to which version, and what goes stale when it changes (`changeApprovals.ts`), the test-case register — the manual half of testing, its owners and the assets it needs (`testCaseRegister.ts`), the ambient event bus — what may wake AtlasMind up, how far it may go, and why it stayed quiet (`ambientTriggers.ts`), the six cross-cutting utility decisions with their verified vendor facts (`utilityPacks.ts`), the searchable codebase index — what may be indexed, what is stale, and what a result may be taken to mean (`codebaseIndex.ts`, `codebaseIndexStore.ts`), where the producer portal is hosted and who may read it, and what one press to publish would actually do (`portalHosting.ts`, `portalPublishPlan.ts`), golden cases for an agent and the gate on an unattended prompt rewrite (`agentEvalHarness.ts`), what each person has been asked to do against the capacity they declared, and declared absence read out of an exported calendar (`teamWorkload.ts`, `rotaImport.ts`), baselines you can name so "what changed" can be asked about a moment you chose (`baselineRegister.ts`), the project in your own words and the grounding rule for anything read out of it (`projectBrief.ts`), the roadmap dependency graph, its overlay store, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`, `roadmapReconcile.ts`) plus the guarded `localCiRunner.ts` executor, the governance-compliance stack — the control catalog, evidence register and readiness grader (`complianceControlCatalog.ts`, `complianceEvidenceRegister.ts`, `complianceReadiness.ts`) the per-methodology standard editions (`testingStandards.ts`), the Compliance page's view builder (`complianceDashboard.ts`), its walkthrough (`complianceSetupPlan.ts`), the shared stack-signal gatherer (`complianceStackSignals.ts`) and the mapping importer (`complianceMarkdownImport.ts`) — and project services |
+| `src/core/` | Orchestration, routing (with the reasoning axis — how hard to think, sent only to models with a declared control, `reasoningBudget.ts`), planning, safety, cost, project composition, opt-in workspace scope, read-only upstream distance, game-engine identity, bounded asset inventory, pure engine-fork interpretation, hostile-input build-log reading, and the declared game profile (`projectComposition.ts`, `workspaceScope.ts`, `upstreamDivergence.ts`, `gameEngineIdentity.ts`, `gameAssetInventory.ts`, `gameEngineDivergence.ts`, `gameBuildLog.ts`, `gameProfile.ts`), UI Studio's graph/edit/live-preview/repository core (`uiDesignGraph.ts`, `uiEditCommands.ts`, `uiPreviewRuntime.ts`, `uiRepositoryMapping.ts`, `uiRepositoryImport.ts`, `uiSurfaceScan.ts`), brand presets — one named token set applied to many surfaces by alias, extracted from a stylesheet with a citation (`brandPresets.ts`) — and the engine emitters with anchored, patch-by-anchor content write-back and constant-argv launch plans (`uiSurfaceEmit.ts`), what a found surface can honestly be rendered as — a real static file, the project's own dev server, or not here and why (`uiSurfaceRender.ts`), element editing in a found static page — a tolerant parser whose output is source offsets, a declared table of where an element may go, and each edit as one splice refused against a changed file (`htmlSourceMap.ts`, `uiSurfaceElementEdit.ts`, `uiSurfaceEditDocument.ts`), CI inspection/scaffolding (`ciManager.ts`, `trustedLocalCiStarter.ts`), the CI route model, routing policy, build ledger and act adapter (`ciRoutes.ts`, `ciRoutingPolicy.ts`, `ciCreditMeter.ts`, `ciBuildLedger.ts`, `ciActRoute.ts`), the local CI guide, GitHub CLI installer and remembered machine inspection (`localCiSetupPlan.ts`, `localCiInstaller.ts`, `localCiInspectionMemory.ts`), the provider-neutral reviewed-PR contract, exact-SHA policy and repository patcher (`localCiRepositoryPatch.ts`, `reviewedPrLocalCi.ts`), who may start a local-CI job — the repository owner, or the one account an organisation-owned repository pins by id (`localCiActorGuard.ts`), confirmed-write echo (`trackerWriteOutcome.ts`), the register-to-work hand-off (`registerHandoff.ts`), the personal-vs-project split behind the two sidebar people views (`directorPriority.ts`), the semver primitives and branch-to-channel versioning policy (`semver.ts`, `versioningPolicy.ts`), the shell-free Windows shim bypass shared by the extension host, the CLI and the ACP launcher (`windowsShimBypass.ts`), the pure core of sandboxed execution — digest-pinned image, Linux engine, one mount, no network, and `require` never falling back to the host; (`sandboxPlan.ts`), the probe that reads the engine for it — engine, pinned image present locally, a canary in the real argv, never a pull (`sandboxProbe.ts`), and the runner that under `require` runs an agent's command in the container or refuses it, never on the host (`sandboxRunner.ts`), and the opt-in that lets a terminal write bound for a confirmed sandbox skip its prompt, decided on the session that will run it (`sandboxApprovalRelaxation.ts`), the dependency volume a sandboxed command loads installed packages from — keyed to the lockfile, prepared only on request in the one network-on container, never unattended (`sandboxDependencies.ts`), the environment an agent's command gets on the host — every credential-shaped variable withheld by a declared rule, a named one passed only when you list it (`hostCommandEnvironment.ts`), parallel-write placement, worktree plumbing, merge-back and the run that ties them together (`worktreeIsolation.ts`, `worktreeManager.ts`, `worktreeMerge.ts`, `worktreeRun.ts`), the live security advisory feed and the per-turn context breakdown and the producer-portal hosting guide (`advisoryFeed.ts`, `contextBudget.ts`, `producerPortalPlan.ts`), the defect register — what is broken, graded by a published table rather than asked for (`defectRegister.ts`), the approval register — who agreed, to which version, and what goes stale when it changes (`changeApprovals.ts`), the test-case register — the manual half of testing, its owners and the assets it needs (`testCaseRegister.ts`), the ambient event bus — what may wake AtlasMind up, how far it may go, and why it stayed quiet (`ambientTriggers.ts`), the six cross-cutting utility decisions with their verified vendor facts (`utilityPacks.ts`), the searchable codebase index — what may be indexed, what is stale, and what a result may be taken to mean (`codebaseIndex.ts`, `codebaseIndexStore.ts`), where the producer portal is hosted and who may read it, and what one press to publish would actually do (`portalHosting.ts`, `portalPublishPlan.ts`), golden cases for an agent and the gate on an unattended prompt rewrite (`agentEvalHarness.ts`), what each person has been asked to do against the capacity they declared, and declared absence read out of an exported calendar (`teamWorkload.ts`, `rotaImport.ts`), baselines you can name so "what changed" can be asked about a moment you chose (`baselineRegister.ts`), the project in your own words and the grounding rule for anything read out of it (`projectBrief.ts`), the chain from that brief to board, roadmap, plans and soul, planned from the files (`projectBriefChain.ts`), the roadmap dependency graph, its overlay store, the chain the finish rests on and the plan against time (`roadmapGraph.ts`, `roadmapGraphStore.ts`, `roadmapCriticalPath.ts`, `roadmapTimeline.ts`, `roadmapBoard.ts`), which backlog items may belong on a release gate, from a published rule table (`roadmapGateCandidates.ts`), whether the configured team can work and how much of it is used (`agentCapacity.ts`), and the git trailers that link a commit to the work it was for (`commitTrailers.ts`), and the evidence-triggered MCP capability offer (`capabilityOffer.ts`), release-gate destinations and urgency ordering (`releaseGateNavigation.ts`), roadmap ingestion from markdown, issues, Projects and spreadsheets (`roadmapImport.ts`, `roadmapReconcile.ts`) plus the guarded `localCiRunner.ts` executor, the governance-compliance stack — the control catalog, evidence register and readiness grader (`complianceControlCatalog.ts`, `complianceEvidenceRegister.ts`, `complianceReadiness.ts`) the per-methodology standard editions (`testingStandards.ts`), the Compliance page's view builder (`complianceDashboard.ts`), its walkthrough (`complianceSetupPlan.ts`), the shared stack-signal gatherer (`complianceStackSignals.ts`) and the mapping importer (`complianceMarkdownImport.ts`) — and project services |
 | `src/core/releaseMatrix.ts` | Pure schema, sanitization, mutation and metrics for the planned Editions feature-by-offering matrix; filesystem writes stay in the Project Dashboard host |
 | `src/core/releaseMatrixImport.ts` | Pure, bounded design-document discovery, Markdown/JSON parsing, conservative roadmap/Issue matching, and reviewed non-destructive merge planning for Editions |
+| `src/core/contextProvenance.ts` | What a task has read, and what that means for the next thing it asks to do: a provenance class for every message and tool result, the shared REPORTED CONTENT fence the content cannot close, and the published table deciding which writes and network calls need a fresh approval Autopilot cannot answer |
+| `src/core/egressDestinationPolicy.ts` | Where a model-initiated fetch may go: the URL screen, the published private and reserved address ranges judged by numeric value, and the rule that every address a name resolves to must pass |
+| `src/core/egressFetch.ts` | The connection that honours that decision: pinned to the vetted addresses so DNS cannot change the answer, redirects followed by hand and screened hop by hop, credentials dropped across origins |
+| `src/core/dryRun.ts` | Dry run: the published table grading every built-in skill as a local read, an argument-dependent one or an effect, the rules deciding execute-or-simulate, the context backstop that refuses every method able to change something, the simulated result the model gets, and the session ledger behind the output channel |
+| `src/core/dryRunHost.ts` | Dry run outside the tool loop: the host every routine, promotion, dashboard write, message, terminal send, installer and automatic write asks before acting, which records what it stopped in the same ledger and tells the person who pressed the button |
+| `src/core/quarantinedReader.ts` | The quarantined reader: a third-party tool result over 8,000 characters is read by a separate, tool-less model, and the agent gets a schema-checked extract and a handle instead of the raw text — the routing rules, the extraction prompt, the validator, the fallbacks and the approval-gated release |
 | `src/core/capabilitySearch.ts` | When `find-tool` finds no installed skill: sends the redacted, clamped query to the Agent Finders you enabled and returns up to five candidates to review and install — searching installs and grants nothing |
 | `src/runtime/` | Built-in agents and runtime composition |
-| `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), and the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` |
+| `src/bootstrap/` | `/bootstrap` and its intake (`bootstrapper.ts`), and the question asked first — the project in your own words, kept verbatim and skippable, shared with the Describe the Project command (`projectBriefOnboarding.ts`) |
+| `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` — and Unsloth Studio's native API, read from its source: identity before the key, server-side tools off, quant suggestion and its own GGUF catalogue (`unslothStudio.ts`) |
 | `src/skills/` | Built-in tools and skill handlers |
 | `src/memory/` | Project memory: retrieval, scanning, redaction, persistence |
 | `src/chat/` | The chat participant and interaction protocol |
-| `src/views/` | Settings, dashboards, editors and sidebar surfaces, including the shared reviewed-PR local-CI action allowlist and host commands (`localCiSurfaceActions.ts`, `reviewedPrLocalCiCommands.ts`) |
+| `src/views/` | Settings, dashboards, editors and sidebar surfaces, the Check Execution Sandbox report (`sandboxCheckCommand.ts`), the Connect Unsloth Studio and Manage Unsloth Models commands — the quant picker, confirmed download-and-load with cancel, unload and delete, each held by dry run (`unslothModelCommands.ts`), including the shared reviewed-PR local-CI action allowlist and host commands (`localCiSurfaceActions.ts`, `reviewedPrLocalCiCommands.ts`) and UI Studio's render host — a found surface shown as itself in a scripts-off panel or through the project's confirmed dev server (`uiSurfaceRenderHost.ts`) and its element-edit host — the page made selectable under AtlasMind's own nonce script, every edit confirmed before and after and held by dry run (`uiSurfaceEditHost.ts`) |
+| `src/utils/workspaceRoots.ts` | The one place AtlasMind asks VS Code which folders are open. Its default is exactly the first folder, as before; every other direct read is ceilinged per file by a ratchet test so the single-root tail can only shrink |
 | `src/acp/` and `src/cli/` | Subscription-agent sessions and the headless CLI |
-| `src/mcp/` and `src/ard/` | MCP servers and agentic resource discovery |
+| `src/mcp/` and `src/ard/` | MCP servers and agentic resource discovery, including tool pinning and the tool-description scan — what a tool looked like when you agreed to it, and what happens when it changes (`mcpToolPins.ts`) |
 | `src/voice/` and `src/remote/` | Voice backends and opt-in remote control |
 | `.github/workflows/` | Hosted release CI plus the separately gated trusted local-runner workflow |
 | `tests/` | Unit, integration, webview, security and regression coverage |
@@ -819,9 +394,9 @@ profile for testing AtlasMind's Copilot-provider path. See the [development guid
 
 **Using it well:** [Agents](wiki/Agents.md) · [Skills](wiki/Skills.md) · [Model Routing](wiki/Model-Routing.md) · [Memory System](wiki/Memory-System.md) · [Project Planner](wiki/Project-Planner.md) · [Ideation](wiki/Ideation.md) · [GitHub Workflow](wiki/GitHub-Workflow.md) · [Delivery](wiki/Delivery.md) · [UI Studio](wiki/Website-Studio.md) · [UI Studio builder plan](wiki/UI-Studio-Builder-Plan.md) · [CLI](wiki/CLI.md)
 
-**Trust and safety:** [Security](wiki/Security.md) · [Tool Execution](wiki/Tool-Execution.md)
+**Trust and safety:** [Security](wiki/Security.md) · [Prompt-injection threat model](wiki/Prompt-Injection-Threat-Model.md) · [Tool Execution](wiki/Tool-Execution.md)
 
-**Under the hood:** [Architecture](docs/architecture.md) · [Development](docs/development.md) · [Chat reliability and capability broker plan](docs/chat-reliability-capability-broker-plan.md) · [Local CI and safe runners](docs/local-ci-and-safe-runners.md) · [Roadmap](docs/roadmap.md) · [Contributing](CONTRIBUTING.md)
+**Under the hood:** [Architecture](docs/architecture.md) · [Development](docs/development.md) · [Prompt-injection threat model (engineering)](docs/threat-model-prompt-injection.md) · [Chat reliability and capability broker plan](docs/chat-reliability-capability-broker-plan.md) · [Local CI and safe runners](docs/local-ci-and-safe-runners.md) · [Roadmap](docs/roadmap.md) · [Contributing](CONTRIBUTING.md)
 
 ---
 

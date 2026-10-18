@@ -143,6 +143,30 @@ that scope (`fetch`, `process`, timers). `src/core/skillScanner.ts:15,23` forbid
 
 Neither surface passes through a common capability decision. That is Phase 4's subject.
 
+> **One part of the network surface now does (0.490.2).** Every fetch a *model* can start —
+> `web-fetch`, `http-request`, a drafted skill calling `SkillExecutionContext.fetchUrl`/`httpRequest`,
+> and Agentic Resource Discovery's finders, referrals and nested catalogs — goes through
+> `src/core/egressFetch.ts`, which applies `src/core/egressDestinationPolicy.ts` before connecting: `https`
+> only, no credentials in the URL, no local-by-definition name, every resolved address judged by value
+> against the declared private, link-local and reserved ranges, the connection pinned to the vetted
+> addresses, and every redirect re-screened. The extension host's and the CLI's `fetchUrl`/`httpRequest`
+> no longer call global `fetch`. The other call sites
+> above reach destinations the user or AtlasMind configured (providers, Lens endpoints from a reviewed
+> file, the tool webhook), which a model cannot choose; they are still outside any common decision.
+
+> **And what a subprocess inherits (0.500.1).** The processes a *model* starts on the host —
+> `SkillExecutionContext.runCommand` in `extension.ts` (sandbox mode `off`) and `cli/nodeSkillContext.ts`,
+> and the ACP agent process in `providers/acp.ts`, which runs its model's commands under
+> `atlasmind.acp.toolsEnabled` — inherited the extension host's whole `process.env`: provider keys,
+> `GITHUB_TOKEN`, `AWS_*`, npm tokens, whatever the user's shell exported, readable by `env`. They are now
+> started with `planHostCommandEnvironment` (`src/core/hostCommandEnvironment.ts`): every credential-shaped
+> name and every value `secretRedactor`'s detectors recognise is withheld by a named rule, a `*_PROXY` loses
+> its userinfo, and only names the user lists in the machine-scoped `atlasmind.terminal.passEnvironment`
+> (CLI: `ATLASMIND_PASS_ENVIRONMENT`) pass regardless. Processes an operator starts — routines, the
+> Delivery run plan, promotions, local CI, their own terminals — keep the operator's environment
+> (`HOST_COMMAND_ENV_UNCHANGED_PATHS`), as do two model-chosen paths it cannot reach: the managed-terminal
+> follow-up (the operator's own shell) and a debug launch (the launch configuration's environment).
+
 ---
 
 ## 5. Activation-time behaviour
@@ -191,6 +215,48 @@ others are not yet traced — see gaps below.
 | Goal evaluator (`goalEvaluator.ts:55`) | Run state | Routed provider | Either | **No** | Not verified | No | No (mission only) | Not verified |
 | Agent auto-updater (`agentAutoUpdater.ts:109`) | Agent definitions | Routed provider | Either | **No** | Not verified | Not verified | Not verified | Not verified |
 | Skill auto-assigner (`skillAutoAssigner.ts:113`) | Skill catalogue | Routed provider | Either | **No** | Not verified | No | Via MCP callback (`extension.ts:2661`) | Not verified |
+
+> **Added in v0.489.0 — what a turn has read now changes what it may do next.** The *Chat turn* row's
+> "Approval: per tool" is no longer the whole answer. Inside the tool loop, every prompt message and tool
+> result is classified by `src/core/contextProvenance.ts` (`operator` < `atlasmind` < `workspace` <
+> `third-party`), and the turn keeps the maximum. Third-party tool results — MCP, `web-fetch`,
+> `http-request`, `exa-search`, `gh` and network commands, another agent's answer, and any tool the module
+> cannot identify — are scanned and fenced before they reach the model. Once a turn has read them, a
+> write, command or network call needs a **fresh** approval through the gate's fourth argument
+> (`ToolApprovalGateMeta`), which Autopilot and bypass cannot answer, and after a suspected injection the
+> outward categories are refused by the orchestrator itself. Data still flows **in** unchanged: nothing
+> third-party is dropped. What changes is that it can no longer flow **out** again — as a write, a
+> command or a request — without a person seeing it first. (Large results: see v0.490.0 below.)
+>
+> **Added in v0.489.1 — and it lasts for the conversation.** A turn's text, and the model's account of it,
+> is in the history the next turn sends, so each chat session (panel and native) and each ACP session keeps
+> the provenance its turns have read and seeds the next turn from it. The record sits beside the transcript
+> in `workspaceState` — the same per-developer store, holding tool names and rule ids, never content — so a
+> window reload does not clear it; a stored record that cannot be read, or a session with history and no
+> record, reads as third-party. It only rises, and resets only when a conversation is cleared or a new one
+> is started. Project runs started from chat are seeded from it, and run records now keep each subtask's
+> provenance, so a resumed run no longer has to treat every finished subtask as third-party.
+>
+> **Added in v0.490.0 — a large third-party result no longer reaches the tool-using loop raw.** A
+> third-party tool result over 8,000 characters is held under a per-loop handle and read by a **second,
+> tool-less completion** (`src/core/quarantinedReader.ts`, dispatched by the orchestrator through
+> `dispatchGuardedCompletion`, routed to the cheapest fast model with the declared
+> `QUARANTINE_ROUTING_PROFILE`). New egress: the raw text — re-redacted for the reader's model, labelled
+> `tool-result`, capped below that origin's limit — plus the operator's request as `user-prompt` and the
+> extraction rules as `system-prompt`. Nothing else: no agent prompt, no memory, no tool definitions. The
+> reader's answer is untrusted output, validated against a closed schema (≤20 single-line facts of ≤300
+> characters, `https` URLs that appear in the source, ≤5 exact quotes) and withheld item by item where it
+> fails; the privileged loop gets the fenced extract and a handle, and the turn is still tainted
+> third-party (suspected if the raw text was). Any failure falls back to a 2,000-character fenced excerpt,
+> never the full text. The full text re-enters only through `quarantine-read`, which is always a fresh
+> approval. The reader's spend is recorded as `quarantined-reader`. `atlasmind.security.quarantineReader:
+> off` restores the 0.489 behaviour (fenced, whole, still tainted).
+>
+> **Fixed in v0.490.1 — the reader's spend was outside the caps.** It was recorded, but not counted toward
+> the per-task cap the loop enforces, checked against the daily limit, or included in the task's reported
+> cost (which mission and project totals sum). `decideQuarantineBudget` now checks the reader's worst case
+> against both caps before dispatch, and its spend joins the loop's cap check and the task's reported cost.
+> The written threat model is `docs/threat-model-prompt-injection.md`.
 
 ---
 

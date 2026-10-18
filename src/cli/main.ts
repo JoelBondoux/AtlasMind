@@ -16,6 +16,9 @@ import { NodeMemoryManager } from './nodeMemoryManager.js';
 import { createNodeSkillExecutionContext } from './nodeSkillContext.js';
 import { NodeCostTracker } from './nodeCostTracker.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
+import { describeEscalationSources } from '../core/contextProvenance.js';
+import { formatDryRunLedgerLine } from '../core/dryRun.js';
+import { DryRunHost, installDryRunHost, isDryRunActive } from '../core/dryRunHost.js';
 
 const AZURE_OPENAI_API_VERSION = '2024-10-21';
 const DEFAULT_SSOT_PATH = 'project_memory';
@@ -59,6 +62,7 @@ export interface ParsedCliArgs {
     model?: string;
     allowWrites: boolean;
     allowCommands: boolean;
+    allowUntrustedEscalation: boolean;
     budget: BudgetMode;
     speed: SpeedMode;
     json: boolean;
@@ -75,6 +79,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   const options: ParsedCliArgs['options'] = {
     allowWrites: false,
     allowCommands: false,
+    allowUntrustedEscalation: false,
     budget: 'balanced',
     speed: 'balanced',
     json: false,
@@ -148,6 +153,9 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
         break;
       case '--allow-commands':
         options.allowCommands = true;
+        break;
+      case '--allow-untrusted-escalation':
+        options.allowUntrustedEscalation = true;
         break;
       case '--budget':
         {
@@ -271,6 +279,14 @@ async function main(): Promise<number> {
   const costTracker = new NodeCostTracker(parsed.options.dailyLimitUsd ?? 0);
   const skillContext = createNodeSkillExecutionContext(workspaceRoot, memoryManager);
   const adapters = createCliProviderAdapters();
+  // `--dry-run` covers what the CLI does outside the tool loop too, through the
+  // same host every editor surface asks.
+  if (parsed.options.dryRun) {
+    installDryRunHost(new DryRunHost({
+      isEnabled: () => true,
+      record: record => { process.stderr.write(`[dry run] ${formatDryRunLedgerLine(record)}\n`); },
+    }));
+  }
   const runtime = createAtlasRuntime({
     memoryStore: memoryManager,
     costTracker,
@@ -279,6 +295,8 @@ async function main(): Promise<number> {
     hooks: createCliRuntimeHooks({
       allowWrites: parsed.options.allowWrites,
       allowCommands: parsed.options.allowCommands,
+      allowUntrustedEscalation: parsed.options.allowUntrustedEscalation,
+      dryRun: parsed.options.dryRun,
     }),
   });
   const cliRuntime: AtlasCliRuntime = {
@@ -433,7 +451,7 @@ async function runProvidersCommand(runtime: AtlasCliRuntime, parsed: ParsedCliAr
 }
 
 async function runBuildCommand(parsed: ParsedCliArgs, workspaceRoot: string): Promise<number> {
-  if (parsed.options.dryRun) {
+  if (parsed.options.dryRun || isDryRunActive()) {
     process.stdout.write('Dry run: would execute the project build command.\n');
     process.stdout.write('Build command: npm run build (or detected build script)\n');
     return 0;
@@ -621,14 +639,30 @@ export function createCliProviderAdapters(): ProviderAdapter[] {
   return adapters;
 }
 
+/**
+ * `--dry-run` means the same thing for `chat` and `project` that
+ * `atlasmind.dryRun.enabled` means in the editor: the orchestrator answers every
+ * tool call that would act with a description of it, and the reply ends with a
+ * summary. It is the CLI's only setting, so the hook answers that one key and
+ * leaves every other default where it was. Each simulated call is also written
+ * to stderr, which is where the CLI reports what it did rather than what it said.
+ */
 export function createCliRuntimeHooks(
-  options?: { allowWrites?: boolean; allowCommands?: boolean },
+  options?: { allowWrites?: boolean; allowCommands?: boolean; allowUntrustedEscalation?: boolean; dryRun?: boolean },
+  writeDiagnostic: (line: string) => void = line => { process.stderr.write(line); },
 ): OrchestratorHooks {
   return {
     toolApprovalGate: createCliToolApprovalGate(
       options?.allowWrites ?? false,
       options?.allowCommands ?? false,
+      options?.allowUntrustedEscalation ?? false,
     ),
+    ...(options?.dryRun
+      ? {
+        readSetting: <T>(key: string, fallback: T): T => (key === 'dryRun.enabled' ? true as T : fallback),
+        onDryRunRecord: record => writeDiagnostic(`[dry run] ${formatDryRunLedgerLine(record)}\n`),
+      } satisfies Pick<OrchestratorHooks, 'readSetting' | 'onDryRunRecord'>
+      : {}),
   };
 }
 
@@ -646,13 +680,32 @@ export function createCliRuntimeHooks(
  * made it look safe. It now needs `--allow-commands`, kept separate from
  * `--allow-writes` so running a test suite does not also grant the ability to
  * change files.
+ *
+ * A call that needs a **fresh** approval — the task has read untrusted content
+ * and this one changes something or leaves the machine — is refused before any
+ * of that: the CLI has nobody to ask, and the flags were chosen before the
+ * content was read. `--allow-untrusted-escalation` lets it fall through to the
+ * ordinary checks; it grants nothing on its own, so a write still needs
+ * `--allow-writes`.
  */
 export function createCliToolApprovalGate(
   allowWrites = false,
   allowCommands = false,
+  allowUntrustedEscalation = false,
 ): OrchestratorHooks['toolApprovalGate'] {
-  return async (_taskId, toolName, args) => {
+  return async (_taskId, toolName, args, meta) => {
     const policy = classifyToolInvocation(toolName, args);
+
+    if (meta?.escalation?.decision === 'fresh-approval' && !allowUntrustedEscalation) {
+      return {
+        approved: false,
+        reason:
+          `CLI blocked "${toolName}" (${policy.summary}) because this task has read untrusted content — `
+          + `${describeEscalationSources(meta.escalation)} — and a ${policy.category} action after that needs a `
+          + `fresh approval (${meta.escalation.rule}) that the CLI cannot ask for. Re-run with `
+          + '--allow-untrusted-escalation if you have checked the source and want the usual flags to decide.',
+      };
+    }
 
     switch (policy.category) {
       case 'read':
@@ -786,8 +839,8 @@ function printHelp(): void {
     'AtlasMind CLI',
     '',
     'Usage:',
-    '  atlasmind chat <prompt> [--provider <id>] [--model <provider/model>]',
-    '  atlasmind project <goal> [--provider <id>]',
+    '  atlasmind chat <prompt> [--provider <id>] [--model <provider/model>] [--dry-run]',
+    '  atlasmind project <goal> [--provider <id>] [--dry-run]',
     '  atlasmind memory list',
     '  atlasmind memory query <query>',
     '  atlasmind providers list',
@@ -800,11 +853,15 @@ function printHelp(): void {
     '  --ssot <relative-path>    Override the SSOT path (default: project_memory when present)',
     '  --allow-writes            Permit write-capable workspace and git tools in CLI mode',
     '  --allow-commands          Permit terminal reads (npm test, build, lint) that run repo-defined scripts',
+    '  --allow-untrusted-escalation  After a task reads third-party content, let the flags above decide',
+    '                            writes and network calls instead of refusing them (grants nothing itself)',
     '  --budget <mode>           cheap | balanced | expensive | auto',
     '  --speed <mode>            fast | balanced | considered | auto',
     '  --daily-limit-usd <n>     Block requests when the CLI budget would be exceeded',
     '  --json                    Emit machine-readable JSON for supported commands',
-    '  --dry-run                 Preview build command without executing (used with build)',
+    '  --dry-run                 chat/project: describe every tool call that would write, run a command or',
+    '                            reach the network instead of running it; only local reads run.',
+    '                            build: print the build command without running it',
     '  --fix                     Auto-fix lint issues (used with lint)',
     '  --watch                   Run tests in watch mode (used with test)',
     '  --help                    Show this help text',

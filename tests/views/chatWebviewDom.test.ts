@@ -158,6 +158,22 @@ describe('chat webview, rendered', () => {
     expect(harness.bubbles()).toEqual(['m1', 'm2', 'm3']);
   });
 
+  it('shows a conversation\'s untrusted-content note under the turn, as text, outside the work log', () => {
+    const note = 'This conversation includes third-party content — <img src=x onerror=alert(1)> (mcp:evil:tool). Writes will ask.';
+    harness.send(stateWith([USER_TURN, { ...ASSISTANT_TURN, meta: { ...ASSISTANT_TURN.meta, untrustedContentNote: note } }]));
+
+    expect(harness.errors).toEqual([]);
+    const rendered = harness.window.document.querySelector('[data-entry-id="m2"] .assistant-untrusted-note');
+    expect(rendered?.textContent).toBe(note);
+    expect(rendered?.querySelector('img')).toBeNull();
+    expect(rendered?.closest('details')).toBeNull();
+  });
+
+  it('shows no note on a clean turn', () => {
+    harness.send(stateWith([USER_TURN, ASSISTANT_TURN]));
+    expect(harness.window.document.querySelector('.assistant-untrusted-note')).toBeNull();
+  });
+
   it('highlights a fenced block without letting markup through', () => {
     harness.send(stateWith([USER_TURN, ASSISTANT_TURN]));
 

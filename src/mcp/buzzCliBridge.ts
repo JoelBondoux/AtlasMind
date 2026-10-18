@@ -7,6 +7,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { guardDryRun } from '../core/dryRunHost.js';
 
 export const SUPPORTED_BUZZ_CLI_RELEASE = 'v0.4.26';
 export const MAX_BUZZ_MESSAGE_CHARS = 16_000;
@@ -281,6 +282,16 @@ export class BuzzCliBridge {
   async postMessage(channel: string, content: string, replyTo?: string, signal?: AbortSignal): Promise<BuzzSendResult> {
     const channelId = requireUuid(channel, 'channel');
     const body = requireMessage(content);
+    // Enforced only in a process that installed a dry-run host: the ACP agent
+    // under --dry-run. The bundled MCP server installs none; in the editor its
+    // sends are refused before they reach it, at the MCP registry.
+    guardDryRun({
+      surface: 'buzz',
+      kind: 'message',
+      summary: `post a ${body.length}-character message to Buzz`,
+      details: { channel: channelId, replyTo: replyTo ?? null },
+      userInitiated: false,
+    });
     const args = ['messages', 'send', '--channel', channelId, '--content', '-'];
     if (replyTo) {
       args.push('--reply-to', requireEventId(replyTo));
@@ -308,6 +319,15 @@ export class BuzzCliBridge {
     if (!HEX_64_PATTERN.test(recipient)) {
       throw new Error('Buzz DM recipients must use a 64-character hex public key.');
     }
+    // Opening a DM creates it, so the guard comes before `dms open` as well as
+    // before the post.
+    guardDryRun({
+      surface: 'buzz',
+      kind: 'message',
+      summary: 'open a Buzz DM and send a message',
+      details: { recipient },
+      userInitiated: false,
+    });
     const opened = requireDmOpenResult(
       await this.runJson(['dms', 'open', '--pubkey', recipient], undefined, signal),
     );

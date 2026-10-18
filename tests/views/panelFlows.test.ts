@@ -1198,6 +1198,8 @@ describe('panel refresh flows', () => {
       } as never,
       {
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'Session 1', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'Ready', isActive: true }]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
           getSession: vi.fn().mockReturnValue({ id: 'chat-1', title: 'Session 1' }),
@@ -1261,6 +1263,8 @@ describe('panel refresh flows', () => {
       {
         orchestrator: { processTask: vi.fn() },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -1330,6 +1334,8 @@ describe('panel refresh flows', () => {
       {
         orchestrator: { processTask: vi.fn() },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -1454,6 +1460,8 @@ describe('panel refresh flows', () => {
           onPendingApprovalsChange: vi.fn(() => () => undefined),
         },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -1571,6 +1579,8 @@ describe('panel refresh flows', () => {
       {
         orchestrator: { processTask: vi.fn() },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -1611,6 +1621,8 @@ describe('panel refresh flows', () => {
       {
         orchestrator: { processTask: vi.fn() },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -1668,6 +1680,8 @@ describe('panel refresh flows', () => {
       {
         orchestrator: { processTask },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue('Earlier in this session Atlas explained there was a testing block in the criticality work.'),
           listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 1, preview: 'Earlier testing discussion', isActive: true }]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -1746,6 +1760,8 @@ describe('panel refresh flows', () => {
       {
         orchestrator: { processTask: vi.fn() },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -1803,6 +1819,8 @@ describe('panel refresh flows', () => {
           })),
         },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue('We already identified the broken chat panel and the next safe step is to patch it.'),
           listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -1878,6 +1896,8 @@ describe('panel refresh flows', () => {
       {
         orchestrator: { processTask: vi.fn() },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -1941,6 +1961,8 @@ describe('panel refresh flows', () => {
       {
         orchestrator: { processTask },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -2019,6 +2041,8 @@ describe('panel refresh flows', () => {
           }),
         },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -2100,6 +2124,8 @@ describe('panel refresh flows', () => {
           })),
         },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -2169,6 +2195,8 @@ describe('panel refresh flows', () => {
           })),
         },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([{ id: 'chat-1', title: 'New Chat', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 0, preview: 'No messages yet', isActive: true }]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -2230,6 +2258,8 @@ describe('panel refresh flows', () => {
         }),
       },
       sessionConversation: {
+        getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+        recordProvenance: () => undefined,
         buildContext: vi.fn().mockReturnValue(''),
         listSessions: vi.fn().mockReturnValue([
           { id: 'chat-1', title: 'Primary', createdAt: '2026-04-05T00:00:00.000Z', updatedAt: '2026-04-05T00:00:00.000Z', turnCount: 1, preview: 'Busy reply', isActive: true },
@@ -3384,6 +3414,8 @@ describe('panel refresh flows', () => {
           isEnabled: vi.fn().mockReturnValue(true),
         },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
@@ -3435,6 +3467,8 @@ describe('panel refresh flows', () => {
         memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
           recordTurn: vi.fn(),
@@ -3491,6 +3525,8 @@ describe('panel refresh flows', () => {
           isEnabled: vi.fn().mockReturnValue(true),
         },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
@@ -3584,6 +3620,8 @@ describe('panel refresh flows', () => {
         agentRegistry: { listAgents: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
         skillsRegistry: { listSkills: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
@@ -3649,6 +3687,8 @@ describe('panel refresh flows', () => {
         agentRegistry: { listAgents: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
         skillsRegistry: { listSkills: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
@@ -3707,6 +3747,8 @@ describe('panel refresh flows', () => {
         agentRegistry: { listAgents: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
         skillsRegistry: { listSkills: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
@@ -3789,6 +3831,8 @@ describe('panel refresh flows', () => {
         agentRegistry: { listAgents: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
         skillsRegistry: { listSkills: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
@@ -3842,6 +3886,8 @@ describe('panel refresh flows', () => {
         agentRegistry: { listAgents: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
         skillsRegistry: { listSkills: vi.fn().mockReturnValue([]), isEnabled: vi.fn().mockReturnValue(true) },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
@@ -3895,6 +3941,8 @@ describe('panel refresh flows', () => {
           isEnabled: vi.fn().mockReturnValue(true),
         },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
@@ -3946,6 +3994,8 @@ describe('panel refresh flows', () => {
         projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
           recordTurn: vi.fn(),
@@ -3974,6 +4024,8 @@ describe('panel refresh flows', () => {
         projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
           recordTurn: vi.fn(),
@@ -4031,6 +4083,8 @@ describe('panel refresh flows', () => {
         projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
           recordTurn: vi.fn(),
@@ -4087,6 +4141,8 @@ describe('panel refresh flows', () => {
         projectRunsRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         memoryRefresh: { event: vi.fn(() => ({ dispose: () => undefined })) },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
           recordTurn: vi.fn(),
@@ -4137,6 +4193,8 @@ describe('panel refresh flows', () => {
           isEnabled: vi.fn().mockReturnValue(true),
         },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
@@ -4243,6 +4301,8 @@ describe('panel refresh flows', () => {
           isEnabled: vi.fn().mockReturnValue(true),
         },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
@@ -4305,6 +4365,8 @@ describe('panel refresh flows', () => {
           isEnabled: vi.fn().mockReturnValue(true),
         },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
           onDidChange: vi.fn(() => ({ dispose: () => undefined })),
@@ -4525,6 +4587,8 @@ describe('chat code block actions', () => {
       {
         orchestrator: { processTask: vi.fn() },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -4633,6 +4697,8 @@ describe('editor selection and problems as chat context', () => {
       {
         orchestrator: { processTask },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -4777,6 +4843,8 @@ describe('file mention lookup', () => {
       {
         orchestrator: { processTask: vi.fn() },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -4845,6 +4913,8 @@ describe('conversation recall in the chat panel', () => {
       {
         orchestrator: { processTask },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -4894,6 +4964,8 @@ describe('model override in the chat panel', () => {
         },
         isProviderConfigured: async () => true,
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -4986,6 +5058,8 @@ describe('session rename and cross-session search', () => {
       {
         orchestrator: { processTask: vi.fn() },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue(sessions.map(session => ({
             ...session, createdAt: '', updatedAt: '', turnCount: 1, preview: '', isActive: session.id === 'chat-1',
@@ -5100,6 +5174,8 @@ describe('editing and regenerating a message', () => {
       {
         orchestrator: { processTask },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -5215,6 +5291,8 @@ describe('restoring files from before a turn', () => {
         listCheckpoints: async () => checkpoints,
         rollbackCheckpointByTaskId,
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -5296,6 +5374,8 @@ describe('opening a file a reply linked to', () => {
       {
         orchestrator: { processTask: vi.fn() },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -5374,6 +5454,8 @@ describe('streaming a reply does not rebuild everything per chunk', () => {
           listProviders: () => [{ id: 'anthropic', displayName: 'Anthropic', models: [{ id: 'anthropic/x', name: 'X' }] }],
         },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),
@@ -5449,6 +5531,8 @@ describe('editor navigation does not re-read the credential store each time', ()
           listProviders: () => [{ id: 'anthropic', displayName: 'Anthropic', models: [{ id: 'anthropic/x', name: 'X' }] }],
         },
         sessionConversation: {
+          getProvenance: () => ({ level: 'operator' as const, injectionSuspected: false, sources: [], omittedSources: 0 }),
+          recordProvenance: () => undefined,
           buildContext: vi.fn().mockReturnValue(''),
           listSessions: vi.fn().mockReturnValue([]),
           getActiveSessionId: vi.fn().mockReturnValue('chat-1'),

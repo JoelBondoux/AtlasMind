@@ -2299,6 +2299,10 @@ describe('declared composition is visible on every migrated repository surface',
     expect(pipeline).toContain('delivery.ciScopeLabel');
     expect(workflow).toContain('delta.scope');
     expect(workflow).toContain('Partial component coverage');
-    expect(HOST_PANEL).toContain('resolveWorkspaceScope(');
+    // The panel resolves through the host adapter, which is the one module that
+    // reads VS Code's folders and hands them to the pure resolver unchanged.
+    expect(HOST_PANEL).toContain('resolveScope(composition');
+    expect(readFileSync(path.join(process.cwd(), 'src', 'utils', 'workspaceRoots.ts'), 'utf8'))
+      .toContain('resolveWorkspaceScope(');
   });
 });

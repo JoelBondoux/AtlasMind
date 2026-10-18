@@ -91,6 +91,30 @@ export const BRIEF_RULES: readonly BriefRule[] = [
 
 // ── The brief itself ─────────────────────────────────────────────
 
+/**
+ * Where the brief lives, relative to the SSOT root.
+ *
+ * One name for every writer — the Ideation board, `/bootstrap` and the
+ * Describe the Project command — so "is there a brief?" has one answer
+ * whichever door somebody came through.
+ */
+export const PROJECT_BRIEF_FILENAME = 'project-brief.md';
+
+/**
+ * The brief out of its document: everything after the header's rule.
+ *
+ * The inverse of `renderBriefDocument`, kept beside it so the two cannot
+ * disagree about where the header ends. An empty body is no brief at all.
+ */
+export function readBriefDocumentBody(raw: string | undefined): string | undefined {
+  if (typeof raw !== 'string') {
+    return undefined;
+  }
+  const marker = raw.indexOf('---');
+  const body = (marker >= 0 ? raw.slice(marker + 3) : raw).trim();
+  return body.length > 0 ? body : undefined;
+}
+
 export interface BriefAssessment {
   /** The brief as written, control-stripped and clamped. Never reworded. */
   text: string;
@@ -299,7 +323,7 @@ export function parseBriefProposal(raw: string, brief: string): BriefProposal {
       title,
       body,
       question: true,
-      demotedReason: 'This claimed to quote the brief, but those words are not in it. Kept as a question rather than a finding.',
+      demotedReason: DEMOTED_PROVENANCE,
     });
   }
 
@@ -358,6 +382,59 @@ function describeProposal(cards: readonly ProposedCard[], demoted: number, unrea
 export const BRIEF_TEMPLATE_ID = 'brief-derived';
 
 /**
+ * The tag a card seeded from the brief carries, so the chain can find it
+ * again from the board file alone. Cards seeded before the tag existed are
+ * still recognised by the provenance line their body carries.
+ */
+export const BRIEF_CARD_TAG = 'from-brief';
+
+const QUOTE_PROVENANCE_PREFIX = 'From your brief: "';
+const QUESTION_PROVENANCE = 'Your brief did not say. This is here to be answered, not assumed.';
+const DEMOTED_PROVENANCE = 'This claimed to quote the brief, but those words are not in it. Kept as a question rather than a finding.';
+
+/** Whether `quote` appears in `brief`, by the one matching rule this module uses. */
+export function briefContainsQuote(brief: string, quote: string): boolean {
+  const needle = normalizeForQuote(quote);
+  return needle.length > 0 && normalizeForQuote(brief).includes(needle);
+}
+
+/**
+ * Whether a board card was read out of the brief.
+ *
+ * The tag first; failing that, the provenance line `composeCardBody` writes,
+ * because boards seeded before the tag existed carry only that.
+ */
+export function isBriefDerivedCard(card: { tags?: readonly string[]; body?: string }): boolean {
+  if ((card.tags ?? []).includes(BRIEF_CARD_TAG)) {
+    return true;
+  }
+  const body = typeof card.body === 'string' ? card.body : '';
+  return body.includes(QUOTE_PROVENANCE_PREFIX) || body.includes(QUESTION_PROVENANCE) || body.includes(DEMOTED_PROVENANCE);
+}
+
+/**
+ * The words a card says it quotes from the brief, read back off its body.
+ *
+ * Only the claim: whether those words are really in the brief is a separate
+ * question, asked against the file every time with `briefContainsQuote`,
+ * because a card body is a board file somebody can edit.
+ */
+export function readBriefCardQuote(body: string | undefined): string | undefined {
+  if (typeof body !== 'string') {
+    return undefined;
+  }
+  const lines = body.split(/\r?\n/);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = (lines[index] ?? '').trim();
+    if (line.startsWith(QUOTE_PROVENANCE_PREFIX) && line.endsWith('"') && line.length > QUOTE_PROVENANCE_PREFIX.length + 1) {
+      const quote = line.slice(QUOTE_PROVENANCE_PREFIX.length, -1).trim();
+      return quote.length > 0 ? quote : undefined;
+    }
+  }
+  return undefined;
+}
+
+/**
  * The proposal as a board template, so the board's own seeder writes it.
  *
  * No positions and no ids: layout belongs to the board, which can see what is
@@ -402,11 +479,11 @@ function asQuestion(title: string): string {
 function composeCardBody(card: ProposedCard): string {
   const lines = [card.body];
   if (card.quote) {
-    lines.push('', `From your brief: "${card.quote}"`);
+    lines.push('', `${QUOTE_PROVENANCE_PREFIX}${card.quote}"`);
   } else if (card.demotedReason) {
     lines.push('', card.demotedReason);
   } else {
-    lines.push('', 'Your brief did not say. This is here to be answered, not assumed.');
+    lines.push('', QUESTION_PROVENANCE);
   }
   return lines.join('\n');
 }

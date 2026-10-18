@@ -22,7 +22,9 @@ import {
 } from './webviewUtils.js';
 import { PANEL_NAV_JS } from './panelNav.js';
 import type { McpServerRegistry, DetectedMcpServer } from '../mcp/mcpServerRegistry.js';
-import type { McpServerConfig, McpServerState } from '../types.js';
+import type { McpHeldTool, McpServerConfig, McpServerState, McpToolVerdict } from '../types.js';
+import { HELD_TOOL_ID_PATTERN } from '../mcp/mcpToolPins.js';
+import { ssotHomeRoot } from '../utils/workspaceRoots.js';
 
 // ── Validated message types from the webview ─────────────────────
 
@@ -47,7 +49,9 @@ type PanelMessage =
   // Environment scan (config import + PATH/env discovery)
   | { type: 'rescanMcpEnvironment' }
   | { type: 'importDetectedServer'; payload: { sourcePath: string; name: string; connect: boolean } }
-  | { type: 'askAtlasConfigureMcp'; payload: { name: string } };
+  | { type: 'askAtlasConfigureMcp'; payload: { name: string } }
+  // Tool pinning: approve one held tool. Opaque ids only.
+  | { type: 'approveHeldTool'; payload: { serverId: string; heldId: string } };
 
 interface AddServerPayload {
   editServerId?: string;
@@ -126,7 +130,11 @@ export class McpPanel {
   ) {
     this.panel = panel;
     this.currentTarget = target;
-    this.envScanner = new McpEnvironmentScanner(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
+    // The scan is cached in project memory, so it is bound to the SSOT home — the
+    // folder it reads and the folder its cache is written to are the same one.
+    // An ambiguous home refuses the scan rather than caching it somewhere else.
+    const home = ssotHomeRoot();
+    this.envScanner = new McpEnvironmentScanner(home.fsPath, home.refusal);
     this.panel.webview.html = this.buildHtml();
 
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
@@ -144,7 +152,7 @@ export class McpPanel {
 
     // Auto-refresh the scan when a workspace MCP config file changes (home-dir
     // configs are picked up on the next explicit Rescan).
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = home.fsPath;
     if (workspaceRoot) {
       const watcher = vscode.workspace.createFileSystemWatcher(
         new vscode.RelativePattern(workspaceRoot, '{.vscode/mcp.json,.cursor/mcp.json,.mcp.json,mcp.json}'),
@@ -347,8 +355,53 @@ export class McpPanel {
       case 'askAtlasConfigureMcp':
         await this.handleAskAtlasConfigureMcp(message.payload.name);
         return;
+      case 'approveHeldTool':
+        await this.handleApproveHeldTool(message.payload.serverId, message.payload.heldId);
+        return;
     }
 
+    this.panel.webview.html = this.buildHtml();
+  }
+
+  // ── Tool pinning ─────────────────────────────────────────────
+
+  /**
+   * Approve a held tool. The webview names it by server id and an opaque held
+   * id; the host looks both up and the registry re-checks the live tool against
+   * the hashes the id is bound to. A flagged tool costs a modal that names what
+   * the scan found, because approving it is approving text written to steer the
+   * agent.
+   */
+  private async handleApproveHeldTool(serverId: string, heldId: string): Promise<void> {
+    const state = this.registry.listServers().find(server => server.config.id === serverId);
+    const held = state?.heldTools?.find(entry => entry.id === heldId);
+    if (!state || !held) {
+      this.currentTarget = { page: 'servers', statusKind: 'warning', statusMessage: 'That tool is no longer waiting for review. Reconnect the server to review it again.' };
+      this.panel.webview.html = this.buildHtml();
+      return;
+    }
+
+    const flags = held.findings.filter(finding => finding.severity === 'flag');
+    if (flags.length > 0) {
+      const detail = flags.slice(0, 6).map(finding => `• ${finding.rule} (${finding.location}): ${finding.message}`).join('\n');
+      const choice = await vscode.window.showWarningMessage(
+        `Approve "${held.toolName}" from ${state.config.name}? The description scan flagged it.`,
+        {
+          modal: true,
+          detail: `${detail}${flags.length > 6 ? `\n…and ${flags.length - 6} more.` : ''}\n\nApproving registers it as a skill your agents can call, and pins this exact description and schema. If either changes, it is held again.`,
+        },
+        'Approve anyway',
+      );
+      if (choice !== 'Approve anyway') {
+        return;
+      }
+    }
+
+    const result = this.registry.approveHeldTool(serverId, heldId);
+    this.currentTarget = result.ok
+      ? { page: 'servers', statusKind: 'success', statusMessage: `${result.toolName} approved, pinned, and registered as a skill.` }
+      : { page: 'servers', statusKind: 'warning', statusMessage: result.reason };
+    this.onRefresh();
     this.panel.webview.html = this.buildHtml();
   }
 
@@ -356,7 +409,13 @@ export class McpPanel {
 
   private async handleRescanEnvironment(): Promise<void> {
     await this.panel.webview.postMessage({ type: 'status', payload: { kind: 'info', text: 'Rescanning your machine and workspace for MCP setups…' } });
-    await this.envScanner.scan();
+    try {
+      await this.envScanner.scan();
+    } catch (error) {
+      // The refusal sentence when the SSOT home is ambiguous: said, not swallowed.
+      await this.panel.webview.postMessage({ type: 'status', payload: { kind: 'warning', text: error instanceof Error ? error.message : String(error) } });
+      return;
+    }
     this.panel.webview.html = this.buildHtml();
   }
 
@@ -623,6 +682,7 @@ export class McpPanel {
 function buildBody(servers: McpServerState[], atlasIconUri: string, target?: McpPanelTarget): string {
   const connectedCount = servers.filter(server => server.status === 'connected').length;
   const enabledCount = servers.filter(server => server.config.enabled).length;
+  const heldCount = servers.reduce((total, server) => total + (server.heldTools?.length ?? 0), 0);
   const serverRows = servers.length === 0
     ? '<p class="muted">No MCP servers configured yet.</p>'
     : servers.map(server => renderServerCard(server, atlasIconUri)).join('');
@@ -650,6 +710,7 @@ function buildBody(servers: McpServerState[], atlasIconUri: string, target?: Mcp
       <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="servers" data-search-query="" title="Open the configured server list.">${servers.length} configured</button>
       <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="servers" data-search-query="status:connected" title="Filter the server list to connected MCP servers.">${connectedCount} connected</button>
       <button type="button" class="hero-badge hero-badge-button" data-hero-page-target="servers" data-search-query="state:enabled" title="Filter the server list to enabled MCP servers.">${enabledCount} enabled</button>
+      ${heldCount > 0 ? `<button type="button" class="hero-badge hero-badge-button hero-badge-held" data-hero-page-target="servers" data-search-query="tools:held" title="Show the servers with tools waiting for review.">${heldCount} held for review</button>` : ''}
     </div>
   </div>
 
@@ -714,6 +775,7 @@ function buildBody(servers: McpServerState[], atlasIconUri: string, target?: Mcp
           <h2>Registered MCP endpoints</h2>
           <p>Edit parameters, reconnect, disable, or remove servers and inspect the tool set currently exposed by each connection.</p>
         </div>
+        ${renderHeldToolsCallout(heldCount)}
         <section id="server-list" class="content-card">
           ${serverRows}
         </section>
@@ -1061,7 +1123,7 @@ function renderServerCard(state: McpServerState, atlasIconUri: string): string {
         filter matched the servers it was meant to exclude, and "enabled" was
         never in the haystack at all so it matched nothing. Prefixed tokens
         cannot collide as substrings. */ ''}
-  <div class="server-card" data-server-search="${escapeHtml([config.name, status, `status:${status}`, `state:${config.enabled ? 'enabled' : 'disabled'}`, config.transport, toolSummary, config.url ?? config.command ?? ''].join(' ').toLowerCase())}">
+  <div class="server-card" data-server-search="${escapeHtml([config.name, status, `status:${status}`, `state:${config.enabled ? 'enabled' : 'disabled'}`, (state.heldTools?.length ?? 0) > 0 ? 'tools:held' : '', config.transport, toolSummary, config.url ?? config.command ?? ''].join(' ').toLowerCase())}">
     <div class="server-header">
       <span class="status-dot ${statusClass}" title="${escapeHtml(statusLabel)}"></span>
       <strong>${escapeHtml(config.name)}</strong>
@@ -1086,8 +1148,80 @@ function renderServerCard(state: McpServerState, atlasIconUri: string): string {
       })}
     </div>` : ''}
     <div class="tool-summary">${toolRows}</div>
+    ${renderHeldTools(state)}
   </div>
   `;
+}
+
+const HELD_VERDICT_LABELS: Record<McpToolVerdict, string> = {
+  'pinned-match': 'Unchanged',
+  'first-sight': 'First sight',
+  'new-tool': 'New tool',
+  'description-changed': 'Description changed',
+  'schema-changed': 'Schema changed',
+  flagged: 'Flagged by the scan',
+  unverifiable: 'Pin unreadable',
+};
+
+/**
+ * "Review changed tools": the servers page's own account of what is held and
+ * why, shown above the server list so it cannot be scrolled past.
+ */
+function renderHeldToolsCallout(heldCount: number): string {
+  if (heldCount === 0) { return ''; }
+  return `<section class="content-card held-callout" role="status" aria-label="Review changed tools">
+    <h3>Review changed tools</h3>
+    <p>${heldCount === 1 ? '1 tool is' : `${heldCount} tools are`} held: new on a server you had already approved, changed since you approved it, or flagged by the description scan. Agents cannot call a held tool. Compare what was approved with what is offered now, then approve the ones you trust — an approval pins exactly the version you reviewed.</p>
+  </section>`;
+}
+
+/**
+ * One server's held tools, each with the old and new description and schema
+ * side by side. Everything here is text a third-party server wrote, so every
+ * value is escaped; the Approve button carries the server id and an opaque held
+ * id, never a tool name or any text.
+ */
+export function renderHeldTools(state: McpServerState): string {
+  const held = state.heldTools ?? [];
+  if (held.length === 0) { return ''; }
+  return `<div class="held-tools" aria-label="Tools held for review">
+    <p class="held-title">${held.length === 1 ? '1 tool held for review' : `${held.length} tools held for review`}</p>
+    ${held.map(entry => renderHeldTool(state.config.id, entry)).join('')}
+  </div>`;
+}
+
+function renderHeldTool(serverId: string, held: McpHeldTool): string {
+  const findings = held.findings.length > 0
+    ? `<ul class="held-findings">${held.findings.map(finding => `<li class="held-finding held-finding-${finding.severity === 'flag' ? 'flag' : 'note'}"><code>${escapeHtml(finding.rule)}</code> <span class="muted">${escapeHtml(finding.location)}</span> — ${escapeHtml(finding.message)}${finding.snippet ? `<br /><q class="held-snippet">${escapeHtml(finding.snippet)}</q>` : ''}</li>`).join('')}</ul>`
+    : '';
+  const previous = held.previous
+    ? `<div class="held-side">
+        <p class="held-side-title">Approved ${escapeHtml(held.previous.pinnedAt.slice(0, 10))} (${held.previous.approvedBy === 'user' ? 'by you' : 'on first sight'})</p>
+        <pre class="held-text">${escapeHtml(held.previous.description || '(no description)')}</pre>
+        <pre class="held-text held-schema">${escapeHtml(held.previous.schemaPreview)}</pre>
+      </div>`
+    : `<div class="held-side"><p class="held-side-title">Approved</p><p class="muted">Nothing — this tool has never been approved.</p></div>`;
+  return `<div class="held-tool" data-held-verdict="${escapeHtml(held.verdict)}">
+    <div class="held-head">
+      <strong>${escapeHtml(held.toolName)}</strong>
+      <span class="held-verdict">${escapeHtml(HELD_VERDICT_LABELS[held.verdict] ?? held.verdict)}</span>
+      <code class="held-rule">${escapeHtml(held.rule)}</code>
+      <button type="button" class="btn-small held-approve" data-action="approve-held" data-id="${escapeHtml(serverId)}" data-held-id="${escapeHtml(held.id)}" title="Pin this exact version and register it as a skill">Approve and pin</button>
+    </div>
+    <p class="muted held-reason">${escapeHtml(held.reason)}</p>
+    ${findings}
+    <details class="held-diff-details"${held.previous ? ' open' : ''}>
+      <summary>Compare what was approved with what is offered now</summary>
+      <div class="held-diff">
+        ${previous}
+        <div class="held-side">
+          <p class="held-side-title">Offered now</p>
+          <pre class="held-text">${escapeHtml(held.description || '(no description)')}</pre>
+          <pre class="held-text held-schema">${escapeHtml(held.schemaPreview)}</pre>
+        </div>
+      </div>
+    </details>
+  </div>`;
 }
 
 /**
@@ -1166,7 +1300,7 @@ const MCP_EXTRA_CSS = `
   .hero-badge-button:hover::after, .hero-badge-button:focus-visible::after { opacity: 1; }
   .search-shell { display: grid; gap: 6px; margin: 0 0 18px; }
   .search-label { font-weight: 600; }
-  .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 10px 12px; border-radius: 12px; }
+  .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--atlas-boundary); padding: 10px 12px; border-radius: 12px; }
   .panel-layout { display: grid; grid-template-columns: minmax(220px, 240px) minmax(0, 1fr); gap: 18px; align-items: start; }
   .panel-nav { position: sticky; top: 20px; display: grid; gap: 8px; padding: 16px; border: 1px solid var(--atlas-border); border-radius: 18px; background: linear-gradient(180deg, var(--atlas-surface-strong), var(--atlas-surface)); }
   .nav-link { width: 100%; text-align: left; border: 1px solid transparent; border-radius: 12px; padding: 11px 12px; background: transparent; color: var(--vscode-foreground); font-weight: 600; }
@@ -1209,7 +1343,7 @@ const MCP_EXTRA_CSS = `
   .status-error      { background: #f44336; }
   .status-disconnected { background: var(--vscode-descriptionForeground, #888); }
   .server-error-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
-  .error-msg { color: var(--vscode-errorForeground, #f44336); font-size: 0.85em; flex: 1 1 320px; min-width: min(100%, 220px); }
+  .error-msg { color: color-mix(in srgb, var(--vscode-errorForeground, #f44336) var(--atlas-ink-share), var(--tint-away)); font-size: 0.85em; flex: 1 1 320px; min-width: min(100%, 220px); }
   .status-discussion-row { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
   .status-discussion-row .status-banner { flex: 1 1 320px; min-width: min(100%, 220px); }
   .mcp-status-discuss[hidden] { display: none; }
@@ -1218,6 +1352,25 @@ const MCP_EXTRA_CSS = `
   .tool-list ul { margin: 4px 0 0 16px; padding: 0; list-style: disc; }
   .tool-list li { font-size: 0.85em; margin-bottom: 2px; }
   .tool-summary { margin-top: 6px; }
+  .hero-badge-held { border-color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 60%, var(--atlas-border)); }
+  .held-callout { margin-bottom: 12px; border-color: color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 55%, var(--atlas-border)); }
+  .held-callout h3 { margin: 0 0 6px; }
+  .held-callout p { margin: 0; }
+  .held-tools { margin-top: 10px; border-top: 1px solid var(--atlas-border); padding-top: 8px; }
+  .held-title { margin: 0 0 6px; font-weight: 600; }
+  .held-tool { border: 1px solid color-mix(in srgb, var(--vscode-editorWarning-foreground, #cca700) 45%, var(--atlas-border)); border-left-width: 4px; border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; }
+  .held-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .held-verdict { font-size: 0.82em; border: 1px solid var(--atlas-border); border-radius: 999px; padding: 1px 8px; }
+  .held-rule { font-size: 0.8em; color: var(--vscode-descriptionForeground); }
+  .held-approve { margin-left: auto; }
+  .held-reason { margin: 6px 0; }
+  .held-findings { margin: 4px 0 6px 16px; padding: 0; font-size: 0.85em; }
+  .held-finding-flag code { color: color-mix(in srgb, var(--vscode-errorForeground, #f44336) var(--atlas-ink-share), var(--tint-away)); }
+  .held-snippet { font-family: var(--vscode-editor-font-family); font-size: 0.95em; }
+  .held-diff { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 6px; }
+  .held-side-title { margin: 0 0 4px; font-weight: 600; font-size: 0.85em; }
+  .held-text { white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; margin: 0 0 6px; padding: 6px 8px; border: 1px solid var(--atlas-border); border-radius: 8px; font-size: 0.82em; }
+  .held-schema { color: var(--vscode-descriptionForeground); }
   .muted { color: var(--vscode-descriptionForeground); font-size: 0.9em; }
   .field-row { display: flex; flex-direction: column; margin-bottom: 10px; gap: 4px; }
   .field-row label { font-size: 0.9em; font-weight: 500; }
@@ -1226,7 +1379,7 @@ const MCP_EXTRA_CSS = `
   .field-row select {
     background: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border, #555);
+    border: 1px solid var(--atlas-boundary);
     padding: 6px 8px;
     border-radius: 10px;
     font-size: 0.9em;
@@ -1246,10 +1399,10 @@ const MCP_EXTRA_CSS = `
     color: var(--vscode-foreground);
     background: color-mix(in srgb, var(--atlas-accent) 10%, transparent);
   }
-  .provenance-official { border-color: color-mix(in srgb, #4caf50 55%, var(--atlas-border)); }
-  .provenance-community { border-color: color-mix(in srgb, #03a9f4 55%, var(--atlas-border)); }
-  .provenance-registry { border-color: color-mix(in srgb, #ff9800 55%, var(--atlas-border)); }
-  .provenance-archived { border-color: color-mix(in srgb, #9e9e9e 65%, var(--atlas-border)); }
+  .provenance-official { border-color: color-mix(in srgb, color-mix(in srgb, #4caf50 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-border)); }
+  .provenance-community { border-color: color-mix(in srgb, color-mix(in srgb, #03a9f4 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-border)); }
+  .provenance-registry { border-color: color-mix(in srgb, color-mix(in srgb, #ff9800 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-border)); }
+  .provenance-archived { border-color: color-mix(in srgb, color-mix(in srgb, #9e9e9e var(--atlas-ink-share), var(--tint-away)) 65%, var(--atlas-border)); }
   .preset-links { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
   .preset-links a { color: var(--atlas-accent); }
   /* Guided-setup handholding: "what you'll need" + credential how-to. */
@@ -1257,7 +1410,7 @@ const MCP_EXTRA_CSS = `
     margin: 8px 0 12px; padding: 8px 12px; border-radius: 6px; font-size: 0.9em;
     color: var(--vscode-inputValidation-warningForeground, inherit);
     background: color-mix(in srgb, #ff9800 14%, transparent);
-    border: 1px solid color-mix(in srgb, #ff9800 55%, var(--atlas-border));
+    border: 1px solid color-mix(in srgb, color-mix(in srgb, #ff9800 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-border));
   }
   .wiz-guided-card {
     margin: 0 0 12px; padding: 10px 14px; border-radius: 8px;
@@ -1300,9 +1453,9 @@ const MCP_EXTRA_CSS = `
     background: color-mix(in srgb, var(--atlas-accent) 10%, transparent);
   }
   .status-info { border-color: color-mix(in srgb, var(--atlas-accent) 45%, var(--atlas-border)); }
-  .status-success { border-color: color-mix(in srgb, #4caf50 55%, var(--atlas-border)); }
-  .status-warning { border-color: color-mix(in srgb, #ff9800 55%, var(--atlas-border)); }
-  .status-error { border-color: color-mix(in srgb, #f44336 55%, var(--atlas-border)); }
+  .status-success { border-color: color-mix(in srgb, color-mix(in srgb, #4caf50 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-border)); }
+  .status-warning { border-color: color-mix(in srgb, color-mix(in srgb, #ff9800 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-border)); }
+  .status-error { border-color: color-mix(in srgb, color-mix(in srgb, #f44336 var(--atlas-ink-share), var(--tint-away)) 55%, var(--atlas-border)); }
   .radio-group { display: flex; gap: 16px; }
   .actions { margin-top: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .btn-small {
@@ -1717,6 +1870,8 @@ function buildMcpScript(target?: McpPanelTarget, servers: McpServerState[] = [],
       vscode.postMessage({ type: 'discussServerError', payload: { id } });
     } else if (action === 'discuss-status') {
       vscode.postMessage({ type: 'discussPanelStatus' });
+    } else if (action === 'approve-held') {
+      vscode.postMessage({ type: 'approveHeldTool', payload: { serverId: id, heldId: btn.dataset.heldId } });
     }
   });
 
@@ -2553,6 +2708,18 @@ export function validatePanelMessage(raw: unknown): PanelMessage | null {
       const name = (p as Record<string, unknown>)['name'];
       if (typeof name !== 'string' || !name) { return null; }
       return { type: 'askAtlasConfigureMcp', payload: { name } };
+    }
+    case 'approveHeldTool': {
+      // Two opaque ids and nothing else: the host finds the held tool, and the
+      // registry checks the live tool still hashes to what the id is bound to.
+      const p = msg['payload'];
+      if (typeof p !== 'object' || p === null) { return null; }
+      const pp = p as Record<string, unknown>;
+      const serverId = pp['serverId'];
+      const heldId = pp['heldId'];
+      if (typeof serverId !== 'string' || !/^[A-Za-z0-9._:-]{1,160}$/.test(serverId)) { return null; }
+      if (typeof heldId !== 'string' || !HELD_TOOL_ID_PATTERN.test(heldId)) { return null; }
+      return { type: 'approveHeldTool', payload: { serverId, heldId } };
     }
     default:
       return null;

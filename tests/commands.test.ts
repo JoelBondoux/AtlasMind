@@ -134,6 +134,32 @@ describe('registerCommands', () => {
     expect(commands).toContain('atlasmind.localCi.patchRepository');
     expect(commands).toContain('atlasmind.localCi.runReviewedPullRequest');
   });
+
+  it('toggles dry run in the user settings, and turns an unreadable value off', async () => {
+    const registerCommand = vi.fn().mockReturnValue({ dispose: () => undefined });
+    (vscode as unknown as { commands: { registerCommand: typeof registerCommand } }).commands = { registerCommand };
+    registerCommands({ subscriptions: [] } as never, () => undefined);
+    const toggle = registerCommand.mock.calls.find(call => call[0] === 'atlasmind.toggleDryRun')?.[1] as () => Promise<void>;
+    expect(toggle).toBeTypeOf('function');
+
+    const update = vi.fn().mockResolvedValue(undefined);
+    let stored: unknown = undefined;
+    vi.mocked(vscode.workspace.getConfiguration).mockReturnValue({
+      get: (() => stored) as never,
+      update,
+    } as never);
+    const showInformationMessage = vi.fn().mockResolvedValue(undefined);
+    (vscode as unknown as { window: { showInformationMessage: typeof showInformationMessage } }).window = { showInformationMessage };
+    (vscode as unknown as { ConfigurationTarget: { Global: number } }).ConfigurationTarget = { Global: 1 };
+
+    await toggle();
+    expect(update).toHaveBeenLastCalledWith('dryRun.enabled', true, 1);
+
+    stored = 'garbled';
+    await toggle();
+    expect(update).toHaveBeenLastCalledWith('dryRun.enabled', false, 1);
+    expect(showInformationMessage.mock.calls.at(-1)?.[0]).toContain('off from the next turn');
+  });
 });
 
 describe('RECOMMENDED_MCP_SERVERS', () => {

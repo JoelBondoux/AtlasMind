@@ -90,14 +90,14 @@ export const LENS_BASE_CSS = `
     padding: 4px 11px; font-size: .74rem; font-weight: 600; color: var(--lens-muted);
     background: var(--lens-surface);
   }
-  .lens-badge.mode { border-color: color-mix(in srgb, var(--lens-accent) 45%, transparent); color: var(--lens-accent); }
+  .lens-badge.mode { border-color: color-mix(in srgb, var(--lens-accent) 45%, var(--atlas-boundary)); color: var(--lens-accent); }
   .lens-badge.mode::before {
     content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--lens-accent); flex: none;
   }
-  .lens-badge[data-state="ready"] { color: var(--vscode-charts-green, #89d185); border-color: color-mix(in srgb, var(--vscode-charts-green, #89d185) 45%, transparent); }
-  .lens-badge[data-state="needs-setup"] { color: var(--vscode-charts-orange, #d18616); border-color: color-mix(in srgb, var(--vscode-charts-orange, #d18616) 45%, transparent); }
-  .lens-badge[data-state="needs-selection"] { color: var(--vscode-charts-blue, #75beff); border-color: color-mix(in srgb, var(--vscode-charts-blue, #75beff) 45%, transparent); }
-  .lens-badge[data-state="unavailable"] { color: var(--vscode-errorForeground); border-color: color-mix(in srgb, var(--vscode-errorForeground) 45%, transparent); }
+  .lens-badge[data-state="ready"] { color: color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)); border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-charts-green, #89d185) var(--atlas-ink-share), var(--tint-away)) 45%, var(--atlas-boundary)); }
+  .lens-badge[data-state="needs-setup"] { color: color-mix(in srgb, var(--vscode-charts-orange, #d18616) var(--atlas-ink-share), var(--tint-away)); border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-charts-orange, #d18616) var(--atlas-ink-share), var(--tint-away)) 45%, var(--atlas-boundary)); }
+  .lens-badge[data-state="needs-selection"] { color: color-mix(in srgb, var(--vscode-charts-blue, #75beff) var(--atlas-ink-share), var(--tint-away)); border-color: color-mix(in srgb, var(--vscode-charts-blue, #75beff) 45%, var(--atlas-boundary)); }
+  .lens-badge[data-state="unavailable"] { color: color-mix(in srgb, var(--vscode-errorForeground) var(--atlas-ink-share), var(--tint-away)); border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-errorForeground) var(--atlas-ink-share), var(--tint-away)) 45%, var(--atlas-boundary)); }
   .lens-badge[data-state="unknown"] { color: var(--lens-muted); border-style: dashed; }
 
   /* Notices carry the evidence caveats. They are never collapsed away: a bounded
@@ -115,7 +115,7 @@ export const LENS_BASE_CSS = `
     width: 14px; height: 14px; border-radius: 50%; font-size: .64rem; font-weight: 700;
     display: grid; place-items: center; font-style: italic;
     background: color-mix(in srgb, var(--vscode-editorInfo-foreground, var(--vscode-charts-blue, #75beff)) 22%, transparent);
-    color: var(--vscode-editorInfo-foreground, var(--vscode-charts-blue, #75beff));
+    color: color-mix(in srgb, var(--vscode-editorInfo-foreground, var(--vscode-charts-blue, #75beff)) var(--atlas-ink-share), var(--tint-away));
   }
 
   /* Sections and panels. */
@@ -398,7 +398,7 @@ export const LENS_INFO_CSS = `
     border-radius: 50%; cursor: pointer; font-size: .82rem; line-height: 1;
     font-family: Georgia, 'Times New Roman', serif; font-weight: 700;
     display: inline-grid; place-items: center; vertical-align: middle;
-    border: 1px solid color-mix(in srgb, var(--lens-muted) 85%, transparent);
+    border: 1px solid color-mix(in srgb, var(--lens-muted) 85%, var(--atlas-boundary));
     background: color-mix(in srgb, var(--lens-muted) 10%, transparent);
     color: var(--lens-muted);
     transition: color 110ms ease, border-color 110ms ease, background 110ms ease;

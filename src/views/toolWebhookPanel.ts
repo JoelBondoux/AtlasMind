@@ -320,7 +320,7 @@ export class ToolWebhookPanel {
         .hero-badge-button:hover, .hero-badge-button:focus-visible { outline: 2px solid var(--atlas-accent); outline-offset: 2px; }
         .search-shell { display: grid; gap: 6px; margin: 0 0 18px; }
         .search-label { font-weight: 600; }
-        .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--atlas-border)); padding: 10px 12px; border-radius: 12px; }
+        .search-shell input { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--atlas-boundary); padding: 10px 12px; border-radius: 12px; }
         .panel-layout { display: grid; grid-template-columns: minmax(220px, 240px) minmax(0, 1fr); gap: 18px; align-items: start; }
         .panel-nav { position: sticky; top: 20px; display: grid; gap: 8px; padding: 16px; border: 1px solid var(--atlas-border); border-radius: 18px; background: linear-gradient(180deg, var(--atlas-surface-strong), var(--atlas-surface)); }
         .nav-link { width: 100%; text-align: left; border: 1px solid transparent; border-radius: 12px; padding: 11px 12px; background: transparent; color: var(--vscode-foreground); font-weight: 600; }
@@ -347,7 +347,7 @@ export class ToolWebhookPanel {
           box-sizing: border-box;
           color: var(--vscode-input-foreground);
           background: var(--vscode-input-background);
-          border: 1px solid var(--vscode-input-border, var(--vscode-widget-border, #444));
+          border: 1px solid var(--atlas-boundary);
           padding: 8px 10px;
           border-radius: 10px;
         }
@@ -359,7 +359,7 @@ export class ToolWebhookPanel {
           color: var(--vscode-descriptionForeground);
         }
         .hint-error {
-          color: var(--vscode-errorForeground);
+          color: color-mix(in srgb, var(--vscode-errorForeground) var(--atlas-ink-share), var(--tint-away));
         }
         .event-grid {
           display: grid;
@@ -382,7 +382,7 @@ export class ToolWebhookPanel {
           gap: 8px;
           margin-top: 12px;
           padding: 12px;
-          border: 1px solid var(--atlas-border, var(--vscode-widget-border));
+          border: 1px solid var(--atlas-border, var(--atlas-boundary));
           border-radius: 8px;
           background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-editor-background)) 80%, transparent);
         }
@@ -392,12 +392,12 @@ export class ToolWebhookPanel {
           width: 100%;
           background: var(--vscode-input-background);
           color: var(--vscode-input-foreground);
-          border: 1px solid var(--vscode-input-border, var(--atlas-border));
+          border: 1px solid var(--atlas-boundary);
           padding: 6px 9px;
           border-radius: 4px;
           font-family: var(--vscode-editor-font-family, monospace);
         }
-        .token-entry-error { margin: 0; font-size: 0.84em; color: var(--vscode-errorForeground, #f48771); }
+        .token-entry-error { margin: 0; font-size: 0.84em; color: color-mix(in srgb, var(--vscode-errorForeground, #f48771) var(--atlas-ink-share), var(--tint-away)); }
         .token-entry-error[hidden] { display: none; }
         tr[data-history-search].hidden-by-search { display: none; }
         .nav-link:hover, .nav-link:focus-visible, .action-card:hover, .action-card:focus-visible, .button-row button:focus-visible { outline: 2px solid var(--atlas-accent); outline-offset: 2px; }

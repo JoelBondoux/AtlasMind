@@ -359,6 +359,57 @@ export function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${out}(?:/.*)?$`, 'i');
 }
 
+/**
+ * The strictest policy several declared policies imply together.
+ *
+ * Used for exactly one situation: a multi-root workspace whose SSOT home is
+ * ambiguous, where no single `data-privacy.json` can be called the project's.
+ * Everywhere else a refusal means "read nothing", but a redaction boundary that
+ * read nothing would be *off* — routing confidential content to any model
+ * because two folders disagree about which one owns project memory. So every
+ * candidate's policy applies at once, combined in the direction that keeps a
+ * secret:
+ *
+ * - **enabled** if any enabled policy exists; disabled policies contribute
+ *   nothing, since a policy somebody switched off declares no protection;
+ * - **rules** and **compliance packs** are the union — whatever any policy
+ *   classifies stays classified (identical rules collapse; clashing ids are
+ *   suffixed so neither is lost);
+ * - **trusted models** are the intersection — a model is trusted only if every
+ *   enabled policy trusts it, so the combination can never trust more than its
+ *   most cautious member.
+ *
+ * Returns `undefined` when no policy is enabled, which is the same answer each
+ * candidate gave alone. Pure.
+ */
+export function strictestDataPrivacyConfig(configs: readonly DataPrivacyConfig[]): DataPrivacyConfig | undefined {
+  const enabled = configs.filter(config => config.enabled);
+  if (enabled.length === 0) {
+    return undefined;
+  }
+  const rules: DataPrivacyRule[] = [];
+  const seenShapes = new Set<string>();
+  const seenIds = new Set<string>();
+  for (const rule of enabled.flatMap(config => config.rules)) {
+    const shape = JSON.stringify([rule.kind, rule.value, rule.sensitivity, rule.enabled]);
+    if (seenShapes.has(shape)) {
+      continue;
+    }
+    seenShapes.add(shape);
+    let id = rule.id;
+    for (let suffix = 2; seenIds.has(id); suffix += 1) {
+      id = `${rule.id}-${suffix}`;
+    }
+    seenIds.add(id);
+    rules.push({ ...rule, id });
+  }
+  const compliancePacks = [...new Set(enabled.flatMap(config => config.compliancePacks ?? []))];
+  const [first, ...rest] = enabled;
+  const trustedModelIds = (first?.trustedModelIds ?? [])
+    .filter(id => rest.every(config => config.trustedModelIds.includes(id)));
+  return { version: 1, enabled: true, rules, compliancePacks, trustedModelIds: [...new Set(trustedModelIds)] };
+}
+
 // ── Persistence (node fs; vscode-free) ───────────────────────────
 
 export function readDataPrivacyConfig(workspaceRoot: string): DataPrivacyConfig | undefined {

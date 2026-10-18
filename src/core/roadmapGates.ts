@@ -254,3 +254,109 @@ export function sanitizeGateSelection(value: unknown, gates: RoadmapGate[]): str
   }
   return out;
 }
+
+/**
+ * The colours a release gate's dot is drawn in, on every roadmap card.
+ *
+ * Three rules, each closing a way a colour key goes wrong:
+ *
+ * 1. **A colour belongs to a position in the declared list, never to a name.**
+ *    The declared order lives in the committed roadmap file, so every machine
+ *    and every session agrees which gate is which colour. Hashing the id would
+ *    be just as stable and would also, sooner or later, give two gates on one
+ *    plan the same colour — which is the one thing a colour key must not do.
+ *    The trade is stated rather than hidden: removing a gate moves the gates
+ *    declared after it onto the next colours, exactly as it moves them up the
+ *    list.
+ * 2. **Every colour is legible on the card it sits on, in every theme kind.**
+ *    Each value has a relative luminance between roughly 0.19 and 0.215 — dark
+ *    enough to clear WCAG 1.4.11's 3:1 against a light card, light enough to
+ *    clear it against a dark one, measured against Dark Modern, Light Modern
+ *    and both high-contrast themes by `tests/core/roadmapGateColors.test.ts`.
+ *    Equal luminance means the colours differ in hue alone, so they are spread
+ *    as far apart as hue allows and ordered so neighbours in the list are the
+ *    most different (a greedy farthest-point walk, CIE76 ΔE ≥ 30 for every
+ *    pair).
+ * 3. **Colour is never the only cue (WCAG 1.4.1).** Twelve equal-luminance hues
+ *    cannot all be told apart by everybody, so this palette is a reinforcement:
+ *    every dot is drawn with its gate's label as its accessible name and title,
+ *    and the legend beside the gate selector names every colour.
+ *
+ * Beyond the palette the colours repeat, and the repeat is drawn hollow, so no
+ * two gates ever share both colour and shape. With `MAX_ROADMAP_GATES` equal to
+ * the palette's size that cannot happen today; the rule exists so raising the
+ * cap cannot quietly reintroduce a collision.
+ */
+export interface RoadmapGateColorEntry {
+  /** `#rrggbb`, lowercase. */
+  readonly hex: string;
+  /** What the colour is called, for documentation and test messages — never shown as the gate's name. */
+  readonly name: string;
+}
+
+export const ROADMAP_GATE_PALETTE: readonly RoadmapGateColorEntry[] = [
+  { hex: '#f8022a', name: 'red' },
+  { hex: '#1571fe', name: 'blue' },
+  { hex: '#009126', name: 'green' },
+  { hex: '#e018a4', name: 'magenta' },
+  { hex: '#02859b', name: 'teal' },
+  { hex: '#9f6f3d', name: 'brown' },
+  { hex: '#9e6892', name: 'mauve' },
+  { hex: '#b041ef', name: 'purple' },
+  { hex: '#778100', name: 'olive' },
+  { hex: '#4c8559', name: 'sage' },
+  { hex: '#ca5e01', name: 'orange' },
+  { hex: '#0085d1', name: 'azure' },
+];
+
+/** The rule that coloured a gate, published with the colour so a surface can say why. */
+export const ROADMAP_GATE_COLOR_RULE = 'Gates are coloured by their position in the declared list (MVP first), so every machine agrees; past the palette the colours repeat and are drawn hollow.';
+
+export interface RoadmapGateColor {
+  /** `#rrggbb`, from {@link ROADMAP_GATE_PALETTE}. */
+  readonly color: string;
+  /** Index into {@link ROADMAP_GATE_PALETTE}. */
+  readonly colorIndex: number;
+  /** True once the palette has wrapped: the dot is drawn as a ring, not a disc. */
+  readonly hollow: boolean;
+}
+
+/**
+ * The colour for the gate at `position` in the declared list.
+ *
+ * Total: a negative, fractional or non-finite position is read as the first
+ * slot rather than throwing, because a colour is decoration on top of a label
+ * that is always present.
+ */
+export function roadmapGateColorAt(position: number): RoadmapGateColor {
+  const index = Number.isFinite(position) && position > 0 ? Math.floor(position) : 0;
+  const size = ROADMAP_GATE_PALETTE.length;
+  const colorIndex = index % size;
+  return { color: ROADMAP_GATE_PALETTE[colorIndex]!.hex, colorIndex, hollow: index >= size };
+}
+
+/**
+ * Colour every declared gate, keyed by gate id.
+ *
+ * The gates are normalised first, so the position used is the same one the
+ * roadmap file and every other surface use — `mvp` first, duplicates and
+ * unsafe ids dropped — and never the order the caller happened to pass them in.
+ */
+export function assignRoadmapGateColors(gates: RoadmapGate[] | undefined): Map<string, RoadmapGateColor> {
+  const out = new Map<string, RoadmapGateColor>();
+  // Declared order is `order`, not array order: a caller that sorted the gates
+  // by progress must not repaint them. Stable, so equal orders keep their place.
+  const declared = (gates ?? [])
+    .map((gate, index) => ({ gate, index }))
+    .sort((a, b) => orderOf(a.gate) - orderOf(b.gate) || a.index - b.index)
+    .map(entry => entry.gate);
+  normalizeGates(declared).forEach((gate, position) => {
+    out.set(gate.id, roadmapGateColorAt(position));
+  });
+  return out;
+}
+
+function orderOf(gate: RoadmapGate | undefined): number {
+  const order = gate?.order;
+  return typeof order === 'number' && Number.isFinite(order) ? order : Number.MAX_SAFE_INTEGER;
+}

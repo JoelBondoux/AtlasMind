@@ -5,6 +5,13 @@ import { execFile, spawn, type ChildProcess, type ChildProcessWithoutNullStreams
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { pipeGhStdoutOrThrow, runGhOrThrow } from './ghClient.js';
+import { guardDryRun, guardHostCommand } from './dryRunHost.js';
+import {
+  localCiActorBlocker,
+  parseLocalCiIdentity,
+  readLocalCiActorGuard,
+  type LocalCiActorGuard,
+} from './localCiActorGuard.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
 import { sanitizeTerminalOutput } from '../utils/terminalOutput.js';
 import { probeGpuDevices } from '../providers/gpuProbe.js';
@@ -298,6 +305,12 @@ export interface LocalCiWorkflowReview {
   warnings: string[];
   /** Only a genuinely absent file may be scaffolded; nothing here overwrites. */
   scaffoldable: boolean;
+  /**
+   * The actor the file authorises, when it names exactly one: the repository
+   * owner, or one pinned account in an organisation-owned repository. The start
+   * preflight holds the queued run's actor to this.
+   */
+  actorGuard?: LocalCiActorGuard;
   reviewedAt: string;
 }
 
@@ -309,6 +322,25 @@ interface DockerInfoShape {
   ServerVersion?: unknown;
   Runtimes?: unknown;
   DefaultRuntime?: unknown;
+  SecurityOptions?: unknown;
+  /** Podman's `info --format json` nests the same facts under `host`. Docker never sends it. */
+  host?: unknown;
+}
+
+/** The fields of Podman's `host` object this file reads; everything else is ignored. */
+interface PodmanHostShape {
+  os?: unknown;
+  arch?: unknown;
+  cpus?: unknown;
+  memTotal?: unknown;
+  security?: unknown;
+  ociRuntime?: unknown;
+}
+
+function podmanHost(value: DockerInfoShape): PodmanHostShape | undefined {
+  return value.host && typeof value.host === 'object' && !Array.isArray(value.host)
+    ? value.host as PodmanHostShape
+    : undefined;
 }
 
 interface QueuedRunShape {
@@ -510,13 +542,27 @@ export function localCiRunnerEnvArgs(resources: Pick<LocalCiResourcePlan, 'cpus'
   ];
 }
 
+/**
+ * The engine's own capacity, OS and architecture from `<engine> info` JSON.
+ *
+ * Docker's shape is read first. Podman's `info --format json` carries the same
+ * four facts under `host` (`os`, `arch`, `cpus`, `memTotal`), and is read only
+ * when Docker's top-level fields are absent — one parser for both engines, so
+ * the sandbox probe and the local CI runner cannot disagree about what an
+ * engine reported. A reading missing any of the four is `undefined`, never a
+ * partial capacity.
+ */
 export function parseDockerInfo(raw: string): LocalCiCapacity | undefined {
   try {
     const value = JSON.parse(raw) as DockerInfoShape;
-    const cpuCount = finitePositive(value.NCPU);
-    const memoryBytes = finitePositive(value.MemTotal);
-    const dockerOs = bounded(value.OSType, 40).toLowerCase();
-    const arch = normalizeLocalCiArch(bounded(value.Architecture, 40));
+    if (!value || typeof value !== 'object') {
+      return undefined;
+    }
+    const host = value.OSType === undefined ? podmanHost(value) : undefined;
+    const cpuCount = finitePositive(host ? host.cpus : value.NCPU);
+    const memoryBytes = finitePositive(host ? host.memTotal : value.MemTotal);
+    const dockerOs = bounded(host ? host.os : value.OSType, 40).toLowerCase();
+    const arch = normalizeLocalCiArch(bounded(host ? host.arch : value.Architecture, 40));
     if (!cpuCount || !memoryBytes || !dockerOs || arch === 'unknown') {
       return undefined;
     }
@@ -528,6 +574,48 @@ export function parseDockerInfo(raw: string): LocalCiCapacity | undefined {
     };
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * How an engine maps users, and which runtimes it offers, from the same `info`
+ * JSON `parseDockerInfo` reads.
+ *
+ * `rootless` is `undefined` when the reading does not say — never `false`. The
+ * sandbox's user mapping depends on it, and guessing would either write files
+ * the host user cannot own or run a command as host root. Docker says so in
+ * `SecurityOptions` (an entry `name=rootless`); a `SecurityOptions` list
+ * without one is a rootful daemon. Podman says so directly in
+ * `host.security.rootless`.
+ */
+export function parseContainerEngineSecurity(raw: string): { rootless?: boolean; runtimes: string[] } {
+  try {
+    const value = JSON.parse(raw) as DockerInfoShape;
+    if (!value || typeof value !== 'object') {
+      return { runtimes: [] };
+    }
+    const host = value.OSType === undefined ? podmanHost(value) : undefined;
+    if (host) {
+      const security = host.security && typeof host.security === 'object' && !Array.isArray(host.security)
+        ? host.security as { rootless?: unknown }
+        : undefined;
+      const runtime = host.ociRuntime && typeof host.ociRuntime === 'object' && !Array.isArray(host.ociRuntime)
+        ? bounded((host.ociRuntime as { name?: unknown }).name, 40).toLowerCase()
+        : '';
+      return {
+        ...(typeof security?.rootless === 'boolean' ? { rootless: security.rootless } : {}),
+        runtimes: /^[a-z0-9._-]{1,40}$/.test(runtime) ? [runtime] : [],
+      };
+    }
+    const options = Array.isArray(value.SecurityOptions)
+      ? value.SecurityOptions.filter((entry): entry is string => typeof entry === 'string').slice(0, 40)
+      : undefined;
+    return {
+      ...(options ? { rootless: options.some(entry => /(?:^|,)name=rootless(?:,|$)/.test(entry.trim())) } : {}),
+      runtimes: parseDockerGpuRuntimes(raw).dockerRuntimes,
+    };
+  } catch {
+    return { runtimes: [] };
   }
 }
 
@@ -569,8 +657,12 @@ export function assessTrustedLocalCiWorkflow(
     && !exact(`github.ref == "refs/heads/${input.branch}"`).test(normalized)) {
     blockers.push(`The job does not require refs/heads/${input.branch}.`);
   }
-  if (!/github\.actor\s*==\s*github\.repository_owner/i.test(normalized)) {
-    blockers.push('The job does not require the triggering actor to be the repository owner.');
+  // The owner in a personal repository; one pinned account id in an
+  // organisation's, where no account is the owner and the owner condition can
+  // never be true.
+  const actorGuard = readLocalCiActorGuard(normalized);
+  if (!actorGuard.ok) {
+    blockers.push(actorGuard.reason);
   }
   const routedJobs = [...normalized.matchAll(new RegExp(
     `runs-on:\\s*\\[?\\s*${escapeRegex(input.runnerLabel)}\\s*\\]?`,
@@ -621,6 +713,9 @@ async function execCommand(
   timeoutMs = 15_000,
   maxBuffer = 1024 * 1024,
 ): Promise<string> {
+  // Inspection (`docker info`, `ps`, `image inspect`, `gh auth status`, git
+  // reads) runs in a dry run; starting, pulling, stopping or removing does not.
+  guardHostCommand('local-ci', command, args);
   const { stdout } = await execFileAsync(command, [...args], {
     cwd,
     windowsHide: true,
@@ -792,12 +887,14 @@ export async function reviewTrustedLocalCiWorkflow(
     blockers.push(`The workflow directory could not be listed, so AtlasMind cannot prove no other workflow claims ${runnerLabel}: ${safeFailure(error)}`);
   }
 
+  const actorGuard = readLocalCiActorGuard(workflowText);
   return {
     ...base,
     state: blockers.length === 0 ? 'ok' : 'blocked',
     blockers: [...new Set(blockers)],
     warnings: [...new Set(warnings)],
     scaffoldable: false,
+    ...(actorGuard.ok ? { actorGuard: actorGuard.guard } : {}),
   };
 }
 
@@ -1295,11 +1392,27 @@ export class LocalCiRunnerManager {
     if (queuedRun.event !== 'push' && queuedRun.event !== 'workflow_dispatch') {
       throw new Error(`Queued event ${queuedRun.event || 'unknown'} is not trusted by the local executor.`);
     }
-    const actor = (await runGhOrThrow(this.workspaceRoot, [
-      'api', `repos/${repoSlug}/actions/runs/${queuedRun.databaseId}`, '--jq', '.actor.login',
-    ])).trim();
-    if (actor.toLowerCase() !== repoSlug.split('/')[0]!.toLowerCase()) {
-      throw new Error(`The queued run was triggered by ${actor || 'an unknown actor'}, not the repository owner.`);
+    // Held to the actor the reviewed file authorises. Comparing the login with
+    // the slug's owner, as this once did, refused every run in an
+    // organisation-owned repository: the owner there is the organisation.
+    const actorGuard = workflowReview.actorGuard;
+    if (!actorGuard) {
+      throw new Error('The trusted workflow does not name exactly one actor allowed to start its job.');
+    }
+    const actor = parseLocalCiIdentity(await runGhOrThrow(this.workspaceRoot, [
+      'api', `repos/${repoSlug}/actions/runs/${queuedRun.databaseId}`,
+      '--jq', '{login: .actor.login, id: .actor.id, ownerType: .repository.owner.type}',
+    ]));
+    if (!actor) {
+      throw new Error('GitHub did not report which account triggered the queued run.');
+    }
+    const actorBlocker = localCiActorBlocker(actorGuard, actor, {
+      repoSlug,
+      ...(actor.ownerType ? { ownerType: actor.ownerType } : {}),
+      subject: 'queued-run',
+    });
+    if (actorBlocker) {
+      throw new Error(actorBlocker);
     }
 
     const runnersRaw = await runGhOrThrow(this.workspaceRoot, [
@@ -1337,6 +1450,20 @@ export class LocalCiRunnerManager {
       const plan = await this.prepare(configuration, expectedRunId);
       if (!await authorize(plan)) {
         this.update({ lifecycle: 'ready', message: 'The local runner start was cancelled.' });
+        return;
+      }
+      // After authorization, which shows the plan. The container start below
+      // spawns docker directly, outside execCommand, so it is refused here.
+      try {
+        guardDryRun({
+          surface: 'local-ci',
+          kind: 'process',
+          summary: 'start the local CI runner container',
+          details: { image: configuration.image },
+          wouldHaveAsked: true,
+        });
+      } catch (error) {
+        this.update({ lifecycle: 'ready', message: error instanceof Error ? error.message : String(error) });
         return;
       }
       this.update({ lifecycle: 'starting', message: 'Starting the isolated one-job runner…' });

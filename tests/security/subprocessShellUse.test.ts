@@ -55,7 +55,7 @@ const SHELL_CALLERS: Readonly<Record<string, string>> = {
    * shown before anything runs (`routineExecutionPolicy.ts`), and the runner
    * executes the plan rather than re-substituting.
    */
-  'core/routineRunner.ts': 'Routine steps are user-authored shell commands; planned, shown and confirmed first.',
+  'core/routineRunner.ts': 'Routine steps are user-authored shell commands; planned, shown and confirmed first (a scheduled run: approved by fingerprint ahead of time, and anything past propose or an install is refused).',
 
   /**
    * The same shape, for the same reason: a deploy step and a rollback command

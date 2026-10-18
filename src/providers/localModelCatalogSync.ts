@@ -1,9 +1,17 @@
 /**
  * Live local-model catalog sync.
  *
- * Fetches currently trending models from two sources:
+ * Fetches currently trending models from three sources:
  *   - Ollama library via the ollamadb.dev community API (sorted by pulls)
  *   - HuggingFace Hub API for LM Studio-compatible GGUF models (sorted by downloads)
+ *   - HuggingFace Hub API for Unsloth's own GGUF builds (sorted by downloads),
+ *     filtered to chat models by `parseUnslothHubListing`'s declared tag rule,
+ *     because the same organisation publishes video, image and speech GGUFs
+ *     that rank near the top
+ *
+ * Every candidate tagged `hf:<repo>` can be installed by any of the three
+ * runtimes: Ollama pulls `hf.co/<repo>`, LM Studio's `lms get` takes the repo,
+ * and Unsloth Studio loads it by id after the quant is chosen.
  *
  * Because neither source carries hardware metadata, minRamGb / minVramGb are
  * inferred from the parameter count embedded in the model name (e.g. "14b"),
@@ -26,6 +34,7 @@ import {
   WORKLOAD_TAG_SET,
   type LocalRecommendationWorkloadTag,
 } from './localModelRecommendationRegistry.js';
+import { parseUnslothHubListing, UNSLOTH_HUB_LISTING_URL } from './unslothStudio.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -210,6 +219,39 @@ async function fetchHuggingFaceGgufCandidates(
     .filter((c): c is ReleaseAwareLocalCandidate => c !== undefined);
 }
 
+// ── Unsloth source (Unsloth's own GGUF builds on HuggingFace) ─────────────────
+
+/**
+ * Unsloth's chat-model GGUF builds, as catalogue candidates.
+ *
+ * Exported because the Unsloth model manager's Discover action asks the same
+ * question on request, and two listings of one organisation would eventually
+ * disagree about which of its repositories are chat models.
+ */
+export async function fetchUnslothCatalogCandidates(
+  signal: AbortSignal,
+): Promise<ReleaseAwareLocalCandidate[]> {
+  const response = await fetch(UNSLOTH_HUB_LISTING_URL, {
+    headers: { 'User-Agent': 'AtlasMind-VSCode-Extension', Accept: 'application/json' },
+    signal,
+  });
+  if (!response.ok) return [];
+
+  const listing = parseUnslothHubListing(await response.json() as unknown);
+  return listing.map((model, rank) => {
+    const candidate = buildCandidate(
+      extractHfModelName(model.repoId),
+      `hf:${model.repoId}`,
+      `Unsloth Studio: Install in Unsloth (AtlasMind picks a quant that fits), or \`unsloth run --model ${model.repoId}\``,
+      releaseWeightFromRank(rank, listing.length),
+    );
+    if (model.hasVision && !candidate.workloadTags.includes('vision')) {
+      return { ...candidate, workloadTags: [...candidate.workloadTags, 'vision' as const] };
+    }
+    return candidate;
+  });
+}
+
 function extractHfModelName(hfId: string): string {
   // "bartowski/Qwen3-14B-GGUF" → "Qwen3 14B"
   const repo = hfId.split('/')[1] ?? hfId;
@@ -226,13 +268,12 @@ function extractHfModelName(hfId: string): string {
 // ── Merge & deduplicate ────────────────────────────────────────────────────────
 
 function mergeAndDeduplicate(
-  ollama: ReleaseAwareLocalCandidate[],
-  hf: ReleaseAwareLocalCandidate[],
+  ...sources: ReleaseAwareLocalCandidate[][]
 ): ReleaseAwareLocalCandidate[] {
   const seen = new Set<string>();
   const result: ReleaseAwareLocalCandidate[] = [];
 
-  for (const candidate of [...ollama, ...hf]) {
+  for (const candidate of sources.flat()) {
     const key = normalizeKey(candidate.modelFamily);
     if (!seen.has(key)) {
       seen.add(key);
@@ -335,14 +376,16 @@ export async function syncLocalModelCatalog(
   const fetchSignal = signal ?? controller.signal;
 
   try {
-    const [ollama, hf] = await Promise.allSettled([
+    const [ollama, hf, unsloth] = await Promise.allSettled([
       fetchOllamaLibraryCandidates(fetchSignal),
       fetchHuggingFaceGgufCandidates(fetchSignal),
+      fetchUnslothCatalogCandidates(fetchSignal),
     ]);
 
-    const ollamaResults = ollama.status === 'fulfilled' ? ollama.value : [];
-    const hfResults     = hf.status     === 'fulfilled' ? hf.value     : [];
-    const merged        = mergeAndDeduplicate(ollamaResults, hfResults);
+    const ollamaResults  = ollama.status  === 'fulfilled' ? ollama.value  : [];
+    const hfResults      = hf.status      === 'fulfilled' ? hf.value      : [];
+    const unslothResults = unsloth.status === 'fulfilled' ? unsloth.value : [];
+    const merged         = mergeAndDeduplicate(ollamaResults, hfResults, unslothResults);
 
     if (merged.length >= 3) {
       await globalState.update(LOCAL_MODEL_CATALOG_CACHE_KEY, {

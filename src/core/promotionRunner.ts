@@ -27,6 +27,8 @@ import * as https from 'node:https';
 import * as http from 'node:http';
 import { sanitizeCiLog } from './ciFailureAnalysis.js';
 import { bumpVersion, compareSemver, type BumpLevel } from './semver.js';
+import { describeHostDryRunNotice } from './dryRun.js';
+import { interceptDryRun } from './dryRunHost.js';
 
 // Re-exported so every existing import keeps working. The implementations
 // moved to a pure module; see the header there for why.
@@ -525,6 +527,39 @@ export async function runPromotion(options: PromotionRunOptions): Promise<Promot
   const total = executable.length;
   let index = 0;
 
+  // A dry run returns the plan as the record and runs none of it: no command,
+  // no health check. Every caller reaches this, so none of them can deploy by
+  // forgetting to ask.
+  const dryRun = interceptDryRun({
+    surface: 'promotion',
+    kind: 'process',
+    summary: `promote to ${to?.name ?? plan.toStageId} (${total} step${total === 1 ? '' : 's'})`,
+    details: { pathId: plan.pathId, steps: executable.map(step => ({ kind: step.kind, label: step.label, command: step.command ?? null })) },
+    wouldHaveAsked: true,
+  });
+  if (dryRun) {
+    const healthCheckUrl = to?.hosting.healthCheckUrl?.trim();
+    return {
+      pathId: plan.pathId,
+      succeeded: false,
+      dryRun: true,
+      steps: executable.map(step => ({
+        id: step.id,
+        label: step.label,
+        ok: false,
+        skipped: true,
+        output: step.kind === 'verify'
+          ? (healthCheckUrl ? `Dry run: would have checked ${healthCheckUrl}.` : 'Dry run: no health-check URL is configured.')
+          : step.command && step.command.trim().length > 0
+            ? `Dry run: would have run ${step.command}`
+            : `Dry run: ${step.detail ?? 'nothing to run'}`,
+      })),
+      startedAt,
+      durationMs: Date.now() - start,
+      rollback: to ? { command: to.rollbackPolicy.command, runbookRef: to.rollbackPolicy.runbookRef } : undefined,
+    };
+  }
+
   for (const step of executable) {
     index += 1;
     options.onProgress?.({ stepId: step.id, label: step.label, index, total, status: 'running' });
@@ -581,7 +616,17 @@ export async function runPromotion(options: PromotionRunOptions): Promise<Promot
  * Execute a stage's rollback command (user-authored, server-sourced). The caller
  * is responsible for confirmation/authorization before invoking this.
  */
-export async function runRollback(workspaceRoot: string, command: string): Promise<{ ok: boolean; output: string }> {
+export async function runRollback(workspaceRoot: string, command: string): Promise<{ ok: boolean; output: string; dryRun?: boolean }> {
+  const dryRun = interceptDryRun({
+    surface: 'rollback',
+    kind: 'process',
+    summary: 'run the rollback command',
+    details: { command },
+    wouldHaveAsked: true,
+  });
+  if (dryRun) {
+    return { ok: false, dryRun: true, output: `${describeHostDryRunNotice(dryRun)} Would have run: ${command}` };
+  }
   try {
     const { stdout, stderr } = await execAsync(command, {
       cwd: workspaceRoot,
@@ -650,6 +695,15 @@ export async function checkHealthUrl(url: string): Promise<{ ok: boolean; status
   const trimmed = (url ?? '').trim();
   if (!/^https?:\/\//i.test(trimmed)) {
     return { ok: false, status: 0, error: 'Enter an http(s) URL first.' };
+  }
+  const dryRun = interceptDryRun({
+    surface: 'health-check',
+    kind: 'network',
+    summary: `send a health check to ${trimmed.slice(0, 120)}`,
+    details: { url: trimmed },
+  });
+  if (dryRun) {
+    return { ok: false, status: 0, error: 'Dry run is on, so the health check was not sent.' };
   }
   try {
     const status = await httpStatus(trimmed);
@@ -822,6 +876,8 @@ export interface RemediationApplyResult {
   ok: boolean;
   committed: boolean;
   output: string;
+  /** Set when a dry run stopped it: nothing was edited or committed. */
+  dryRun?: boolean;
 }
 
 /**
@@ -838,6 +894,28 @@ export async function applyPromotionRemediation(
   // refuse anything that is not a plain semver — even though it is server-computed.
   if (!SAFE_VERSION.test(remediation.targetVersion)) {
     return { ok: false, committed: false, output: `Refusing to apply an unexpected version string: "${remediation.targetVersion}".` };
+  }
+  // The remediation edits release files and commits them. In a dry run its
+  // plan is the record: what it would bump, write and commit.
+  const dryRun = interceptDryRun({
+    surface: 'promotion-remediation',
+    kind: 'git',
+    summary: `apply "${remediation.summary.slice(0, 120)}"`,
+    details: {
+      targetVersion: remediation.targetVersion,
+      bumpLevel: remediation.bumpLevel,
+      editsChangelog: remediation.editsChangelog,
+      commits: remediation.commits,
+    },
+    wouldHaveAsked: true,
+  });
+  if (dryRun) {
+    return {
+      ok: false,
+      committed: false,
+      dryRun: true,
+      output: `${describeHostDryRunNotice(dryRun)} Would have: ${remediation.summary}`,
+    };
   }
   const changedFiles: string[] = [];
   try {

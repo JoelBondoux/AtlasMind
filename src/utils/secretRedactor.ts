@@ -27,6 +27,9 @@ interface SecretPattern {
 const SECRET_PATTERNS: SecretPattern[] = [
   // Anthropic
   { name: 'anthropic-key', pattern: /sk-ant-(?:api\d{2}-)?[A-Za-z0-9_\-]{20,}/g },
+  // Unsloth Studio — `sk-unsloth-` + 32 hex. Ahead of OpenAI's pattern, which
+  // the hyphen after `unsloth` stops from matching at all.
+  { name: 'unsloth-key', pattern: /sk-unsloth-[A-Za-z0-9_\-]{16,}/g },
   // OpenAI
   { name: 'openai-key', pattern: /sk-(?:proj-)?[A-Za-z0-9]{20,}/g },
   // GitHub personal / fine-grained / OAuth tokens

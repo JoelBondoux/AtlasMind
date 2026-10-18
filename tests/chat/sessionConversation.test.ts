@@ -351,3 +351,110 @@ describe('deleteSession', () => {
     expect(conversation.getTranscript()).toHaveLength(2);
   });
 });
+
+/**
+ * What a conversation has read is kept beside its transcript, because the
+ * transcript is what comes back after a reload — restoring the fetched page's
+ * text while forgetting it was fetched would launder the taint.
+ */
+describe('SessionConversation provenance', () => {
+  const FETCHED = {
+    level: 'third-party' as const,
+    injectionSuspected: false,
+    sources: [{ origin: 'tool-result' as const, toolName: 'web-fetch', provenance: 'third-party' as const, rule: 'provenance.network-skill', injectionSuspected: false }],
+    omittedSources: 0,
+  };
+
+  function memento() {
+    let stored: unknown;
+    return {
+      get: () => stored,
+      update: (_key: string, value: unknown) => { stored = JSON.parse(JSON.stringify(value)); return Promise.resolve(); },
+      raw: () => stored as { activeSessionId: string; sessions: Array<Record<string, unknown>> },
+      set: (value: unknown) => { stored = value; },
+    };
+  }
+
+  it('starts a new conversation clean and only ever raises it', () => {
+    const conversation = new SessionConversation();
+    const sessionId = conversation.createSession();
+    expect(conversation.getProvenance(sessionId).level).toBe('operator');
+
+    conversation.recordProvenance(sessionId, FETCHED);
+    conversation.recordProvenance(sessionId, { level: 'operator', injectionSuspected: false, sources: [], omittedSources: 0 });
+    expect(conversation.getProvenance(sessionId).level).toBe('third-party');
+    expect(conversation.getProvenance(sessionId).sources[0]?.toolName).toBe('web-fetch');
+  });
+
+  it('keeps conversations apart', () => {
+    const conversation = new SessionConversation();
+    const first = conversation.createSession();
+    const second = conversation.createSession();
+    conversation.recordProvenance(first, FETCHED);
+    expect(conversation.getProvenance(second).level).toBe('operator');
+  });
+
+  it('survives a reload', () => {
+    const state = memento();
+    const before = new SessionConversation(state);
+    const sessionId = before.createSession();
+    before.recordTurn('read the page', 'it says hello', sessionId);
+    before.recordProvenance(sessionId, FETCHED);
+
+    const after = new SessionConversation(state);
+    expect(after.getProvenance(sessionId).level).toBe('third-party');
+  });
+
+  it('reads a conversation saved before provenance was kept as third-party when it has history', () => {
+    const state = memento();
+    const seed = new SessionConversation(state);
+    const withHistory = seed.createSession();
+    seed.recordTurn('hello', 'hi', withHistory);
+    const empty = seed.createSession();
+    const raw = state.raw();
+    for (const session of raw.sessions) { delete session['provenance']; }
+    state.set(raw);
+
+    const restored = new SessionConversation(state);
+    expect(restored.getProvenance(withHistory)).toMatchObject({ level: 'third-party', sources: [{ rule: 'provenance.session-unrecorded' }] });
+    expect(restored.getProvenance(empty).level).toBe('operator');
+  });
+
+  it('costs one conversation its clean state on a malformed record, never everyone their history', () => {
+    const state = memento();
+    const seed = new SessionConversation(state);
+    const bad = seed.createSession();
+    seed.recordTurn('hello', 'hi', bad);
+    const good = seed.createSession();
+    seed.recordTurn('another', 'reply', good);
+    const raw = state.raw();
+    const target = raw.sessions.find(session => session['id'] === bad)!;
+    target['provenance'] = { level: 'trust me' };
+    state.set(raw);
+
+    const restored = new SessionConversation(state);
+    expect(restored.getTranscript(good)).toHaveLength(2);
+    expect(restored.getProvenance(bad)).toMatchObject({ level: 'third-party', sources: [{ rule: 'provenance.session-unreadable' }] });
+    expect(restored.getProvenance(good).level).toBe('operator');
+  });
+
+  it('resets only when the conversation is cleared', () => {
+    const conversation = new SessionConversation();
+    const sessionId = conversation.createSession();
+    conversation.recordTurn('one', 'two', sessionId);
+    conversation.recordProvenance(sessionId, FETCHED);
+    conversation.truncateAfter(conversation.getTranscript(sessionId)[0]!.id, sessionId);
+    expect(conversation.getProvenance(sessionId).level).toBe('third-party');
+    conversation.clearSession(sessionId);
+    expect(conversation.getProvenance(sessionId).level).toBe('operator');
+  });
+
+  it('keeps the untrusted-content note on a turn through a reload', () => {
+    const state = memento();
+    const before = new SessionConversation(state);
+    const sessionId = before.createSession();
+    before.recordTurn('write it', 'done', sessionId, { modelUsed: 'local/echo-1', untrustedContentNote: 'This conversation includes third-party content.' });
+    const after = new SessionConversation(state);
+    expect(after.getTranscript(sessionId)[1]?.meta?.untrustedContentNote).toBe('This conversation includes third-party content.');
+  });
+});

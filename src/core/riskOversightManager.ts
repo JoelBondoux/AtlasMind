@@ -37,6 +37,7 @@ import type {
   RiskOversightHistoryEntry,
   RiskStatus,
 } from '../types.js';
+import { SsotHomeRefusalError } from './workspaceScope.js';
 
 export const RISK_SSOT_PATH = 'project_memory/operations/risk-oversight.json';
 export const RISK_SUMMARY_SSOT_PATH = 'project_memory/operations/risk-oversight.md';
@@ -599,7 +600,19 @@ export class RiskOversightManager {
   private preserveExisting = false;
   private notice: string | undefined;
 
-  constructor(private readonly workspaceRoot: string | undefined) {
+  /**
+   * @param workspaceRoot The SSOT home — the folder holding project memory,
+   *   from `ssotHomeRoot()`, never assumed to be the first folder.
+   * @param refusal Why project memory may not be read or written here, when
+   *   the home is ambiguous. A refused manager reads nothing and **throws** on
+   *   every write: a write that quietly did nothing would read exactly like one
+   *   that worked, and one sent to the first folder instead would land in a
+   *   repository nobody was looking at.
+   */
+  constructor(
+    private readonly workspaceRoot: string | undefined,
+    private readonly refusal?: string,
+  ) {
     this.applyRead();
   }
 
@@ -618,7 +631,7 @@ export class RiskOversightManager {
 
   /** Something worth telling the user about the file itself, if anything. */
   getNotice(): string | undefined {
-    return this.notice;
+    return this.refusal ?? this.notice;
   }
 
   getConfig(): RiskOversightConfig | undefined { return this.config; }
@@ -634,6 +647,9 @@ export class RiskOversightManager {
   }
 
   async ensureSeeded(): Promise<RiskOversightConfig> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     if (this.config) { return this.config; }
     const seeded = seedRiskOversightConfig();
     this.config = seeded;
@@ -651,6 +667,9 @@ export class RiskOversightManager {
 
   /** Persist an updated register (e.g. after an analysis run) and cache it. */
   async save(config: RiskOversightConfig): Promise<void> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     this.config = config;
     if (this.workspaceRoot) {
       await writeRiskOversightConfig(this.workspaceRoot, config);

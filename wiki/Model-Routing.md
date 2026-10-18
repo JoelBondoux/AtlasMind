@@ -32,8 +32,24 @@ The cheapest way to run AtlasMind, because it costs nothing extra.
 
 ### Local models
 
-Ollama, LM Studio, or anything speaking the OpenAI API. Free, private, and nothing leaves your machine.
+Ollama, LM Studio, Unsloth Studio, or anything speaking the OpenAI API. Free, private, and nothing leaves your machine.
 You can even aggregate several local engines together under one provider.
+
+**Unsloth Studio** needs an API key. Run **AtlasMind: Connect Unsloth Studio**: it checks the server really
+is Studio before asking for the key (its default port, 8888, is Jupyter's too), tries the key, and keeps it
+for that endpoint alone. **AtlasMind: Manage Unsloth Models** then loads a model at a quantisation you pick.
+Which of Studio's downloaded models AtlasMind can use depends on a Studio setting, **Settings → API →
+"Switch model by request"**, which Studio ships turned off. With it off, Studio serves only the model it
+has loaded and refuses the rest, so AtlasMind routes only to loaded models. With it on, Studio loads a
+model when asked, so every downloaded model is routable and AtlasMind queues the load like any other.
+Either way AtlasMind says which models it is holding back and why: in the provider summary, and beside
+each Studio model in the local model advisor. If nothing is routable, load a model with **AtlasMind:
+Manage Unsloth Models**, or turn the setting on in Studio.
+
+Studio can run Python, a shell and web search itself, inside a reply. Anything it ran that way would
+skip AtlasMind's approvals and sandbox, so every request asks Studio to keep those tools off. Start Studio
+with `--disable-tools` to make that a setting it cannot be talked out of; a Studio started with
+`--enable-tools` overrides the request, and AtlasMind cannot tell.
 
 ---
 
@@ -178,7 +194,15 @@ and returns them where Google puts them.
 
 ## How long AtlasMind waits
 
-A hosted API call gets 30 seconds. Two cases need more, and both used to fail for the wrong reason:
+A hosted API call gets 30 seconds for an ordinary answer. Three cases need more, and all of them used to fail
+for the wrong reason:
+
+- **Deep thinking on a hosted model.** Thinking is output the model writes before you see anything, and a
+  deep turn can plan for ~27,000 tokens of it. The wait now grows with how much the request may write — 20
+  seconds per extra 1,000 tokens, up to 10 minutes — so a model that is thinking hard is no longer called a
+  timeout at 30 seconds. When a reply is **streaming**, the clock restarts every time text arrives, so a long
+  answer is never cut off halfway (with a 30-minute ceiling). When something does time out, the report says
+  which rule set the deadline and how it was worked out.
 
 - **Subscription agents (ACP)** have to start a process and shake hands before they see your prompt.
   Their deadline now covers all of that plus the prompt itself. Previously the outer limit and the
@@ -219,6 +243,30 @@ In `auto`, high-reasoning tasks get the mid and premium tiers; everything else g
 
 A model is **fast** if it has no reasoning capability and a context window up to 128K, **considered** if
 it has reasoning and 200K or more, and **balanced** otherwise.
+
+## Reasoning modes
+
+The third dial, beside budget and speed: how hard the model should *think*.
+
+| Mode | What happens | Good for |
+|------|--------------|----------|
+| **auto** | Low-reasoning tasks get minimal, medium get standard, planning/architecture/root-cause/review get deep *(default)* | Mixed work |
+| **minimal** | Think as little as the model allows | Mechanical edits, quick answers |
+| **standard** | A middle level | Everyday implementation |
+| **deep** | Think hard, and prefer models that can be asked to | Architecture reviews, hard debugging |
+
+Newer Claude models (Opus 4.7 and later, Sonnet 5 and later, Fable, Haiku 5.5) refuse a `temperature`
+setting outright, so AtlasMind sends one only to the older Claude models listed as accepting it — anything
+else, including a model released after this list, gets none and simply uses Anthropic's default.
+
+A level becomes a request parameter only for models whose provider has a verified control: Anthropic
+(`output_config.effort`), OpenAI (`reasoning_effort`) and Gemini (`reasoning_effort`), each on the models
+their own docs list. Every other model is still used — it just isn't sent anything, and it isn't preferred
+for deep work on a guess.
+
+Thinking is billed as output, so deeper costs more and the estimates say so. If a task has a cost cap that
+deep thinking would break, AtlasMind steps the level down and tells you which rule did it. Every answer's
+routing summary has a line like *Reasoning: auto → deep (rule: auto-high); sent output_config.effort=high*.
 
 ---
 

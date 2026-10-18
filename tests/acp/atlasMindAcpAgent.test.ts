@@ -123,6 +123,38 @@ describe('AtlasMindAcpAgent', () => {
     ]);
   });
 
+  it('starts the next turn of a session from what the earlier turns read, and a new session clean', async () => {
+    const runtime = createRuntime();
+    const seen: Array<{ level: string; carried: boolean[] }> = [];
+    runtime.orchestrator.processTaskWithAgent = vi.fn(async (request: any) => {
+      const cell = request.context.__provenanceCell;
+      seen.push({ level: cell.current.level, carried: cell.current.sources.map((source: any) => source.carried === true) });
+      // The first turn fetches a page.
+      if (seen.length === 1) {
+        cell.current = {
+          level: 'third-party', injectionSuspected: false, omittedSources: 0,
+          sources: [{ origin: 'tool-result', toolName: 'web-fetch', provenance: 'third-party', rule: 'provenance.network-skill', injectionSuspected: false }],
+        };
+      }
+      return { id: 't', agentId: 'default', modelUsed: 'local/echo', response: 'ok', costUsd: 0, inputTokens: 1, outputTokens: 1, durationMs: 1 };
+    });
+    const { client } = createClient();
+    const workspaceRoot = path.resolve('C:/workspace');
+    const agent = new AtlasMindAcpAgent({ workspaceRoot, version: '1.0.0', runtime });
+    const first = await agent.newSession({ cwd: workspaceRoot, mcpServers: [] } as any);
+
+    await agent.prompt({ sessionId: first.sessionId, prompt: [{ type: 'text', text: 'Read the page.' }] } as any, client);
+    await agent.prompt({ sessionId: first.sessionId, prompt: [{ type: 'text', text: 'Now write it down.' }] } as any, client);
+    const second = await agent.newSession({ cwd: workspaceRoot, mcpServers: [] } as any);
+    await agent.prompt({ sessionId: second.sessionId, prompt: [{ type: 'text', text: 'Hello.' }] } as any, client);
+
+    expect(seen).toEqual([
+      { level: 'operator', carried: [] },
+      { level: 'third-party', carried: [true] },
+      { level: 'operator', carried: [] },
+    ]);
+  });
+
   it('propagates session cancellation to the in-flight orchestrator request', async () => {
     let seenSignal: AbortSignal | undefined;
     const runtime = createRuntime();
@@ -238,6 +270,30 @@ describe('AcpPermissionBroker', () => {
         ],
       }),
     );
+  });
+
+  it('asks the client for a fresh approval after untrusted content, naming the source and rule', async () => {
+    const broker = new AcpPermissionBroker();
+    const { client } = createClient();
+    broker.register('task-1', 'session-1', client);
+
+    await broker.authorize('task-1', 'file-write', { path: path.resolve('C:/workspace/file.txt'), content: 'x' }, {
+      escalation: {
+        decision: 'fresh-approval',
+        rule: 'taint.workspace-write.tainted',
+        category: 'workspace-write',
+        scope: 'third-party',
+        level: 'third-party',
+        injectionSuspected: false,
+        sources: [{ origin: 'tool-result', toolName: 'web-fetch', provenance: 'third-party', rule: 'provenance.network-skill', injectionSuspected: false }],
+      },
+    });
+
+    const [, params] = vi.mocked(client.request).mock.calls[0]!;
+    const title = (params as { toolCall: { title: string } }).toolCall.title;
+    expect(title).toContain('untrusted content');
+    expect(title).toContain('web-fetch');
+    expect(title).toContain('taint.workspace-write.tainted');
   });
 
   it('never treats allow-always or malformed outcomes as authority', async () => {

@@ -23,6 +23,7 @@ import type {
   MissionRunRecord,
 } from '../types.js';
 import { MAX_MISSION_RECORDS, MAX_MISSION_TEXT_PERSIST } from '../constants.js';
+import { SsotHomeRefusalError } from './workspaceScope.js';
 
 export const MISSIONS_SSOT_PATH = 'project_memory/operations/missions.json';
 export const MISSIONS_SUMMARY_SSOT_PATH = 'project_memory/operations/missions.md';
@@ -183,7 +184,19 @@ export class MissionRegistry {
   // Dashboard subscribe to re-render live mission cost as iterations are saved.
   private readonly listeners = new Set<() => void>();
 
-  constructor(private readonly workspaceRoot: string | undefined) {
+  /**
+   * @param workspaceRoot The SSOT home — the folder holding project memory,
+   *   from `ssotHomeRoot()`, never assumed to be the first folder.
+   * @param refusal Why project memory may not be read or written here, when
+   *   the home is ambiguous. A refused manager reads nothing and **throws** on
+   *   every write: a write that quietly did nothing would read exactly like one
+   *   that worked, and one sent to the first folder instead would land in a
+   *   repository nobody was looking at.
+   */
+  constructor(
+    private readonly workspaceRoot: string | undefined,
+    private readonly refusal?: string,
+  ) {
     this.missions = workspaceRoot ? readMissionStore(workspaceRoot).missions : [];
   }
 
@@ -221,6 +234,9 @@ export class MissionRegistry {
    * {@link MAX_MISSION_RECORDS} records are retained.
    */
   async save(record: MissionRunRecord): Promise<void> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     const persisted = toPersistedRecord({ ...record, updatedAt: new Date().toISOString() });
     const idx = this.missions.findIndex(m => m.id === persisted.id);
     if (idx >= 0) {

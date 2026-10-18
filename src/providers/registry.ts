@@ -4,10 +4,51 @@ import { lookupCatalog } from './modelCatalog.js';
 import { isConversationalModel } from './modelRole.js';
 import { inferParametersBillions } from './modelMetadataInference.js';
 import { coerceOpenAiContentText } from './openai-compatible.js';
+import {
+  isLocalEndpointRuntime,
+  resolveEndpointRuntime,
+  runtimeOrigin,
+  type FetchLike,
+  type LocalEndpointRuntime,
+} from './localRuntimeClient.js';
+import {
+  createUnslothStudioClient,
+  decideUnslothRouting,
+  UNSLOTH_OWNED_BY,
+  UNSLOTH_SERVER_TOOLS_OFF,
+  type UnslothRoutingRuleId,
+  type UnslothServingPolicy,
+  type UnslothStudioClient,
+} from './unslothStudio.js';
 import type { SecretStore } from '../runtime/secrets.js';
+
+/** A model a local endpoint lists that AtlasMind does not route to, and why. */
+export interface HeldBackLocalModel {
+  endpointId: string;
+  endpointLabel: string;
+  /** The runtime's own id, as listed. */
+  modelId: string;
+  rule: UnslothRoutingRuleId;
+}
 
 const LOCAL_OPENAI_DEFAULT_BASE_URL = 'http://127.0.0.1:11434/v1';
 const LOCAL_MODEL_ID_DELIMITER = '@@';
+
+/** The key every local endpoint shared before endpoints could hold their own. Still the fallback. */
+export const LOCAL_SHARED_API_KEY_SECRET = 'atlasmind.provider.local.apiKey';
+
+/**
+ * Where one endpoint's own API key lives in SecretStorage.
+ *
+ * An endpoint id is already reduced to `[a-z0-9-]` by the normaliser; anything
+ * else is refused here rather than cleaned, because a key name built from an
+ * unexpected id could address a different secret.
+ */
+export function localEndpointApiKeySecret(endpointId: string): string | undefined {
+  return /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/.test(endpointId)
+    ? `atlasmind.provider.local.endpoint.${endpointId}.apiKey`
+    : undefined;
+}
 
 /**
  * Sentinel prefix emitted by {@link LocalEchoAdapter} when it falls back to
@@ -23,6 +64,13 @@ export interface LocalEndpointConfig {
   id: string;
   label: string;
   baseUrl: string;
+  /**
+   * The runtime this endpoint is, when somebody declared it. Absent means
+   * inferred from the label and then the port (`resolveEndpointRuntime`).
+   * Declaring it matters most for Unsloth Studio on a non-default port, which
+   * nothing else could identify before its first model listing.
+   */
+  runtime?: LocalEndpointRuntime;
 }
 
 /**
@@ -70,6 +118,23 @@ export class ProviderRegistry {
 
 export class LocalEchoAdapter implements ProviderAdapter {
   readonly providerId = 'local';
+
+  /**
+   * Endpoints whose own model listing said they are Unsloth Studio
+   * (`owned_by: "unsloth-studio"`), keyed by id and base URL.
+   *
+   * The safety net under declaration: an Unsloth endpoint on an unusual port
+   * with an unhelpful label still identifies itself the first time its models
+   * are listed — which is always before the router can pick one of them — and
+   * from then on gets the server-side-tools guard like a declared one.
+   */
+  private readonly observedUnslothEndpoints = new Set<string>();
+
+  /** What each endpoint's last listing held back, keyed like `observedUnslothEndpoints`. */
+  private readonly heldBackModels = new Map<string, HeldBackLocalModel[]>();
+
+  /** One Studio client per endpoint, so its confirmed identity is reused within its TTL. */
+  private readonly unslothClients = new Map<string, UnslothStudioClient>();
 
   constructor(
     private readonly options?: {
@@ -175,7 +240,7 @@ export class LocalEchoAdapter implements ProviderAdapter {
       try {
         const response = await fetch(`${endpoint.baseUrl}/models`, {
           method: 'GET',
-          headers: await this.buildHeaders(),
+          headers: await this.buildHeaders(endpoint),
         });
         return response.ok;
       } catch {
@@ -212,11 +277,20 @@ export class LocalEchoAdapter implements ProviderAdapter {
   }
 
   private async sendLocalCompletion(endpoint: LocalEndpointConfig, request: CompletionRequest): Promise<CompletionResponse> {
+    const requestBody = buildPayload(request);
+    if (this.isUnslothEndpoint(endpoint)) {
+      // Studio can run Python, a shell and web search itself inside a
+      // completion, and `unsloth studio run` defaults them on. Nothing it runs
+      // that way passes AtlasMind's approval gate, sandbox or dry run, so every
+      // request asks for them off. See UNSLOTH_TOOL_POLICY_CAVEAT for the one
+      // case this cannot cover.
+      Object.assign(requestBody, UNSLOTH_SERVER_TOOLS_OFF);
+    }
     const response = await fetch(`${endpoint.baseUrl}/chat/completions`, {
       method: 'POST',
       signal: request.signal,
-      headers: await this.buildHeaders(),
-      body: JSON.stringify(buildPayload(request)),
+      headers: await this.buildHeaders(endpoint),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -247,7 +321,7 @@ export class LocalEchoAdapter implements ProviderAdapter {
   private async listEndpointModels(endpoint: LocalEndpointConfig): Promise<string[]> {
     const response = await fetch(`${endpoint.baseUrl}/models`, {
       method: 'GET',
-      headers: await this.buildHeaders(),
+      headers: await this.buildHeaders(endpoint),
     });
 
     if (!response.ok) {
@@ -259,27 +333,119 @@ export class LocalEchoAdapter implements ProviderAdapter {
       return [];
     }
 
-    const ids = payload.data
-      .map(item => item.id)
-      .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
-      .map(id => encodeLocalEndpointModelId(endpoint.id, id));
+    const entries = payload.data.filter(item => typeof item === 'object' && item !== null);
+    const key = observedEndpointKey(endpoint);
+    if (entries.some(item => item.owned_by === UNSLOTH_OWNED_BY)) {
+      this.observedUnslothEndpoints.add(key);
+    }
+    const unsloth = this.isUnslothEndpoint(endpoint);
+
+    // Unsloth lists what it has on disk beside what is in memory, and whether
+    // it will serve an unloaded one is its own setting ("Switch model by
+    // request", off by default). Read once per listing, and only when it can
+    // change the answer.
+    const policy = unsloth && entries.some(item => item.loaded === false)
+      ? await this.readUnslothServingPolicy(endpoint)
+      : undefined;
+
+    const ids: string[] = [];
+    const heldBack: HeldBackLocalModel[] = [];
+    for (const item of entries) {
+      const id = typeof item.id === 'string' ? item.id.trim() : '';
+      if (!id) { continue; }
+      if (unsloth) {
+        const decision = decideUnslothRouting({ loaded: item.loaded === false ? false : undefined }, policy);
+        if (!decision.routable) {
+          // Reported, never silently dropped: the advisor lists these as
+          // installed, and a routed list that just leaves them out reads as a
+          // bug. Non-chat models are not worth reporting — they are excluded
+          // from routing for a different reason, loaded or not.
+          if (isRoutableLocalModel(id)) {
+            heldBack.push({ endpointId: endpoint.id, endpointLabel: endpoint.label, modelId: id, rule: decision.rule });
+          }
+          continue;
+        }
+      }
+      ids.push(encodeLocalEndpointModelId(endpoint.id, id));
+    }
+    this.heldBackModels.set(key, heldBack);
 
     return ids;
   }
 
-  private async buildHeaders(): Promise<Record<string, string>> {
+  /**
+   * Models a local endpoint lists that AtlasMind will not route to, and the
+   * rule that held each back — from the most recent listing of each endpoint
+   * still configured. Empty when nothing was held back or nothing has been
+   * listed yet.
+   */
+  describeHeldBackModels(): HeldBackLocalModel[] {
+    const live = new Set(this.resolveEndpoints().map(observedEndpointKey));
+    return [...this.heldBackModels.entries()]
+      .filter(([key]) => live.has(key))
+      .flatMap(([, models]) => models);
+  }
+
+  /**
+   * Studio's "Switch model by request" setting, through the Studio client so
+   * the key is sent only after `/api/liveness` names the server as Studio.
+   * Unreadable is `undefined`, which the routing rule treats as off.
+   */
+  private async readUnslothServingPolicy(endpoint: LocalEndpointConfig): Promise<UnslothServingPolicy | undefined> {
+    const origin = runtimeOrigin(endpoint.baseUrl);
+    if (!origin) { return undefined; }
+    const key = observedEndpointKey(endpoint);
+    let client = this.unslothClients.get(key);
+    if (!client) {
+      client = createUnslothStudioClient(origin, {
+        // Read the global each call, so the transport is whatever fetch is now.
+        fetch: (input, init) => fetch(input, init) as unknown as ReturnType<FetchLike>,
+        getApiKey: () => this.endpointApiKey(endpoint),
+      });
+      this.unslothClients.set(key, client);
+    }
+    const result = await client.servingPolicy();
+    return result.ok ? result.value : undefined;
+  }
+
+  /** Declared, labelled, on Studio's port, or identified by its own listing. */
+  private isUnslothEndpoint(endpoint: LocalEndpointConfig): boolean {
+    return resolveEndpointRuntime(endpoint) === 'unsloth'
+      || this.observedUnslothEndpoints.has(observedEndpointKey(endpoint));
+  }
+
+  /**
+   * The endpoint's own key first, then the shared local key.
+   *
+   * The shared key used to be the only one, which meant a Studio key stored for
+   * local use was sent to every local endpoint, Ollama and LM Studio included.
+   * An endpoint's own key never leaves for another endpoint; the shared key
+   * stays as the fallback so nothing configured before this changes behaviour.
+   */
+  private async buildHeaders(endpoint?: LocalEndpointConfig): Promise<Record<string, string>> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
 
-    const apiKey = this.options?.secrets
-      ? await this.options.secrets.get('atlasmind.provider.local.apiKey')
-      : undefined;
-    if (apiKey && apiKey.trim().length > 0) {
-      headers['Authorization'] = `Bearer ${apiKey.trim()}`;
+    const apiKey = await this.endpointApiKey(endpoint);
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
     return headers;
+  }
+
+  private async endpointApiKey(endpoint?: LocalEndpointConfig): Promise<string | undefined> {
+    const ownKeyName = endpoint ? localEndpointApiKeySecret(endpoint.id) : undefined;
+    const ownKey = this.options?.secrets && ownKeyName
+      ? await this.options.secrets.get(ownKeyName)
+      : undefined;
+    const apiKey = ownKey && ownKey.trim().length > 0
+      ? ownKey
+      : this.options?.secrets
+        ? await this.options.secrets.get(LOCAL_SHARED_API_KEY_SECRET)
+        : undefined;
+    return apiKey && apiKey.trim().length > 0 ? apiKey.trim() : undefined;
   }
 
   private resolveBaseUrl(): string | undefined {
@@ -317,7 +483,12 @@ interface OpenAiChatResponse {
 }
 
 interface OpenAiModelListResponse {
-  data: Array<{ id: string }>;
+  /** `owned_by` and `loaded` are what Unsloth Studio adds; other runtimes may omit both. */
+  data: Array<{ id: string; owned_by?: unknown; loaded?: unknown }>;
+}
+
+function observedEndpointKey(endpoint: LocalEndpointConfig): string {
+  return `${endpoint.id}\u0000${endpoint.baseUrl}`;
 }
 
 function buildPayload(request: CompletionRequest): Record<string, unknown> {
@@ -466,6 +637,9 @@ export function inferLocalEndpointLabel(baseUrl: string): string {
     if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '1234') {
       return 'LM Studio';
     }
+    if ((parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') && parsed.port === '8888') {
+      return 'Unsloth Studio';
+    }
 
     const host = parsed.hostname === '127.0.0.1' ? 'localhost' : parsed.hostname;
     return parsed.port ? `${host}:${parsed.port}` : host;
@@ -537,7 +711,11 @@ function normalizeConfiguredLocalEndpoints(value: unknown): LocalEndpointConfig[
       usedIds.add(id);
     }
 
-    normalized.push({ id, label, baseUrl });
+    // An unrecognised runtime is dropped, not coerced: the endpoint then falls
+    // back to inference by label and port, which is what it had before
+    // declaring anything — never to a runtime somebody did not name.
+    const runtime = isLocalEndpointRuntime(record['runtime']) ? record['runtime'] : undefined;
+    normalized.push({ id, label, baseUrl, ...(runtime ? { runtime } : {}) });
   }
 
   return normalized;

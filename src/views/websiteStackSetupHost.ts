@@ -25,6 +25,7 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { execFileAsync } from '../mcp/mcpRuntime.js';
+import { guardHostCommand, interceptDryRun } from '../core/dryRunHost.js';
 import type { WebsiteWorkspaceConfig } from '../types.js';
 import {
   isWebsitePackageManager,
@@ -102,6 +103,19 @@ export async function setUpWebsiteStack(config: WebsiteWorkspaceConfig): Promise
     return;
   }
 
+  // Setup runs scaffolding commands that fetch packages, so the whole run is
+  // held in a dry run rather than half of it: a project with the files written
+  // and the install never run is a worse state than either.
+  if (interceptDryRun({
+    surface: 'website-setup',
+    kind: 'process',
+    summary: 'set up the website stack',
+    details: { framework: config.stack.frameworkId, packageManager },
+    wouldHaveAsked: true,
+  })) {
+    return;
+  }
+
   const runResult = await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: 'Setting up the website stack…', cancellable: false },
     async progress => executeWebsiteStackSetup({
@@ -157,6 +171,11 @@ export async function setUpWebsiteStack(config: WebsiteWorkspaceConfig): Promise
  * connection is not a failure.
  */
 function execFileInDirectory(command: string, args: readonly string[], cwd: string): Promise<void> {
+  try {
+    guardHostCommand('website-setup', command, args);
+  } catch (error) {
+    return Promise.reject(error);
+  }
   return new Promise((resolve, reject) => {
     execFile(
       command,

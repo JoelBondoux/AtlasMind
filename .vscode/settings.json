@@ -21,6 +21,12 @@
             "id": "endpoint-94xdvd48",
             "label": "LM Studio",
             "baseUrl": "http://localhost:1234/v1"
+        },
+        {
+            "id": "unsloth-studio",
+            "label": "Unsloth Studio",
+            "baseUrl": "http://127.0.0.1:8888/v1",
+            "runtime": "unsloth"
         }
     ],
     "atlasmind.allowTerminalWrite": true,

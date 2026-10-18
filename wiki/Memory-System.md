@@ -17,6 +17,7 @@ Project memory lives in `project_memory/` by default (change it with `atlasmind.
 ```
 project_memory/
 ├── project_soul.md    What this project is, and what it's for
+├── project-brief.md   The project in your own words, kept exactly as you wrote it
 ├── architecture/      How the system is built
 ├── roadmap/           Goals, milestones, what's planned
 ├── decisions/         Why you decided things the way you did
@@ -39,6 +40,33 @@ completion or reopen be synchronized without mistaking a local edit for upstream
 
 The `misadventures/` folder is the one people underestimate. Recording what *didn't* work saves more
 time than recording what did, because the failed approach is the one somebody will try again.
+
+A game project also keeps `domain/game.json` (and a readable `game.md`): the platforms it ships to, build
+configurations, performance budgets, content roots, who owns each discipline and which stores it targets.
+Choosing a game preset in `/bootstrap` starts one; AtlasMind never overwrites one you already have, and refuses
+to save anything that looks like a path on your machine, an SDK location or a secret.
+
+### More than one folder open?
+
+A project has **one** memory, kept in its home folder. With a single folder open, that is the folder.
+With several, AtlasMind looks for it: a folder whose own `workflow.json` declares itself the home wins;
+otherwise the one folder holding `project_memory/`; otherwise the first folder, which is where a new
+project's memory is created.
+
+If two folders both look like the home, AtlasMind **does not guess**. It loads no memory and writes none —
+every register, the roadmap, the ideation board, bootstrap and import all refuse with one sentence naming
+the folders — and the Project Dashboard shows a banner and leaves its project-memory sections empty rather
+than showing one folder's as the project's. Your data-privacy rules still apply meanwhile: AtlasMind uses
+the strictest combination of every candidate folder's policy. To fix it, declare the home: in the folder
+that should own the memory, add a composition to `project_memory/operations/workflow.json` whose home
+component has location `.` — that declaration settles it.
+
+Everything that reads or writes memory finds the home the same way, so a change can never be written to
+one folder and read back from another.
+
+While the home is unsettled, nothing that acts on its own treats the unread memory as empty: an automatic
+agent refresh is held rather than shipped unchecked, the Overview says project memory could not be read
+instead of "nothing needs you", and the release gate on your testing policy reads *unknown*, not passed.
 
 ---
 
@@ -73,6 +101,11 @@ Or explicitly:
 - Development guardrails, release history, and an import catalogue
 
 If `project_soul.md` still has placeholder text in it, import upgrades it into something usable.
+
+**`project-brief.md` is yours, word for word.** `/bootstrap` asks for it first, and **AtlasMind: Describe
+the Project in Your Own Words** asks any time after; AtlasMind never edits it. From the Ideation board you
+can optionally have it quoted in `project_soul.md` under *In the owner's words* — appended once, shown to
+you first, and never rewritten; nothing else in the soul changes.
 
 ### It keeps itself current
 

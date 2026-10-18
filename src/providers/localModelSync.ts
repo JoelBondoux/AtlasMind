@@ -1,6 +1,8 @@
 import type { ModelInfo } from '../types.js';
 import { LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW } from '../constants.js';
 import { classifyModelRole } from './modelRole.js';
+import type { LocalEndpointRuntime } from './localRuntimeClient.js';
+import { createUnslothStudioClient, decideUnslothRouting, type UnslothRoutingRuleId, type UnslothStudioClientDeps } from './unslothStudio.js';
 
 export const LOCAL_MODEL_SYNC_CACHE_KEY = 'atlasmind.localModelSync';
 export const LOCAL_MODEL_SYNC_STALE_MS = 60 * 60 * 1000; // 1 hour
@@ -8,11 +10,34 @@ export const LOCAL_MODEL_SYNC_STALE_MS = 60 * 60 * 1000; // 1 hour
 export interface LocalModelMeta {
   id: string;
   name: string;
-  runtime: 'ollama' | 'lmstudio';
+  runtime: LocalEndpointRuntime;
   contextWindow: number;
   capabilities: ModelInfo['capabilities'];
   parametersBillions?: number;
   quantisation?: string;
+  /**
+   * Whether the runtime holds it in memory right now. Only Unsloth Studio
+   * reports downloaded and loaded separately; absent means "not reported",
+   * never "not loaded".
+   */
+  loaded?: boolean;
+  /**
+   * Unsloth Studio only: whether AtlasMind routes to it, by the rule the
+   * adapter applies (`decideUnslothRouting`). Absent when not known.
+   */
+  routingRule?: UnslothRoutingRuleId;
+  /** Bytes on disk, where the runtime says. */
+  sizeBytes?: number;
+  /** A download that was interrupted: on disk, not loadable. */
+  partial?: boolean;
+}
+
+/** Where AtlasMind reaches a configured Unsloth Studio, and with which key. */
+export interface UnslothSyncTarget {
+  /** The endpoint's origin, e.g. `http://127.0.0.1:8888` — not the `/v1` base. */
+  origin: string;
+  getApiKey: UnslothStudioClientDeps['getApiKey'];
+  fetch?: UnslothStudioClientDeps['fetch'];
 }
 
 export interface LocalModelSyncResult {
@@ -234,16 +259,99 @@ async function syncLmStudio(baseUrl: string): Promise<LocalModelMeta[]> {
   }));
 }
 
+/**
+ * What Unsloth Studio has downloaded, marked with what it has loaded.
+ *
+ * "Installed" for Studio means *on disk*, which is what `/api/models/cached-gguf`
+ * lists, keyed by Hugging Face repository id — the id a load, a quant listing
+ * and a delete all take. Whether each one is loaded comes from
+ * `/api/inference/status`, matched by repository id with or without a `:quant`
+ * suffix; a status that could not be read leaves `loaded` absent rather than
+ * claiming nothing is loaded.
+ *
+ * Each row also carries `routingRule` — whether AtlasMind routes to it — from
+ * the same `decideUnslothRouting` the adapter applies to its listing, so the
+ * advisor and the routed model list cannot disagree about one model. Absent
+ * when the load state could not be read: no claim is better than a stale one.
+ *
+ * Returns `undefined` when Studio's downloads could not be read at all, which
+ * is not the same as "nothing downloaded" — a caller holding older rows must
+ * not keep presenting them as current.
+ *
+ * Studio is reached only when an Unsloth endpoint is configured with a key —
+ * unlike Ollama and LM Studio, nothing probes its default port speculatively,
+ * because the request that would answer the question needs a credential.
+ */
+export async function syncUnsloth(target: UnslothSyncTarget): Promise<LocalModelMeta[] | undefined> {
+  const studio = createUnslothStudioClient(target.origin, {
+    getApiKey: target.getApiKey,
+    ...(target.fetch ? { fetch: target.fetch } : {}),
+  });
+  const [downloaded, status, policy] = await Promise.all([
+    studio.listDownloaded(),
+    studio.status(),
+    studio.servingPolicy(),
+  ]);
+  if (!downloaded.ok) { return undefined; }
+  const loadedIds = status.ok
+    ? [...status.value.loaded, ...status.value.serving].map(id => id.toLowerCase())
+    : undefined;
+  return downloaded.value.map(model => {
+    const key = model.repoId.toLowerCase();
+    const loaded = loadedIds?.some(id => id === key || id.startsWith(`${key}:`));
+    const capabilities = inferLocalCapabilities(model.repoId);
+    if (model.hasVision && capabilities.length > 0 && !capabilities.includes('vision')) {
+      capabilities.push('vision');
+    }
+    const routingRule = loaded === undefined
+      ? undefined
+      : decideUnslothRouting({ loaded }, policy.ok ? policy.value : undefined).rule;
+    return {
+      id: model.repoId,
+      name: model.repoId.split('/').pop() ?? model.repoId,
+      runtime: 'unsloth' as const,
+      contextWindow: LOCAL_MODEL_DEFAULT_CONTEXT_WINDOW,
+      capabilities,
+      ...(loaded !== undefined ? { loaded } : {}),
+      ...(routingRule ? { routingRule } : {}),
+      ...(model.sizeBytes !== undefined ? { sizeBytes: model.sizeBytes } : {}),
+      ...(model.partial ? { partial: true } : {}),
+    };
+  });
+}
+
+/**
+ * Cached local-model rows with the Unsloth part replaced by a live reading.
+ *
+ * The rest of the sync is cached for an hour, which suits a list of pulled
+ * models; it does not suit Studio's load state, which changes whenever a model
+ * is loaded, switched or unloaded on an idle timer. A failed live read strips
+ * the load claims from the cached Unsloth rows rather than keeping them.
+ */
+export async function refreshUnslothRows(cached: LocalModelSyncResult, target: UnslothSyncTarget): Promise<LocalModelSyncResult> {
+  const live = await syncUnsloth(target);
+  const others = cached.models.filter(model => model.runtime !== 'unsloth');
+  if (live) {
+    return { ...cached, models: [...others, ...live] };
+  }
+  const unknown = cached.models
+    .filter(model => model.runtime === 'unsloth')
+    .map(({ loaded: _loaded, routingRule: _rule, ...rest }) => rest);
+  return { ...cached, models: [...others, ...unknown] };
+}
+
 export async function syncLocalModels(
   ollamaBaseUrl = 'http://localhost:11434',
   lmStudioBaseUrl = 'http://localhost:1234',
+  unsloth?: UnslothSyncTarget,
 ): Promise<LocalModelSyncResult> {
   const reachableEndpoints: string[] = [];
   const allModels: LocalModelMeta[] = [];
 
-  const [ollamaModels, lmModels] = await Promise.allSettled([
+  const [ollamaModels, lmModels, unslothModels] = await Promise.allSettled([
     syncOllama(ollamaBaseUrl),
     syncLmStudio(lmStudioBaseUrl),
+    unsloth ? syncUnsloth(unsloth) : Promise.resolve([]),
   ]);
 
   if (ollamaModels.status === 'fulfilled' && ollamaModels.value.length > 0) {
@@ -253,6 +361,10 @@ export async function syncLocalModels(
   if (lmModels.status === 'fulfilled' && lmModels.value.length > 0) {
     reachableEndpoints.push(lmStudioBaseUrl);
     allModels.push(...lmModels.value);
+  }
+  if (unsloth && unslothModels.status === 'fulfilled' && unslothModels.value && unslothModels.value.length > 0) {
+    reachableEndpoints.push(unsloth.origin);
+    allModels.push(...unslothModels.value);
   }
 
   return { models: allModels, syncedAt: new Date().toISOString(), reachableEndpoints };

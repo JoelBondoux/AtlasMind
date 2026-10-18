@@ -676,6 +676,54 @@ describe('AcpAdapter — live-session reuse without duplicate prompts', () => {
     await adapter.shutdown();
   });
 
+  it('hands the pass-through names to every launch, sorted, and nothing when the getter throws', async () => {
+    // The agent process runs the commands its model asks for, so it is started
+    // without the editor's credentials; these are the names the user chose to
+    // give it anyway. A broken getter must pass nothing, not everything.
+    const { factory } = scriptedAgent();
+    const seen: Array<readonly string[] | undefined> = [];
+    const recordingFactory: AcpProcessFactory = (agent, cwd, options) => {
+      seen.push(options?.passEnvironment);
+      return factory(agent, cwd, options);
+    };
+
+    await new AcpAdapter({ agents: [AGENT], spawnProcess: recordingFactory, passEnvironment: ['NPM_TOKEN', 'GH_TOKEN'] }).probe();
+    resetAcpProbeCache();
+    await new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: recordingFactory,
+      passEnvironment: () => { throw new Error('unreadable'); },
+    }).probe();
+
+    expect(seen).toEqual([['GH_TOKEN', 'NPM_TOKEN'], []]);
+  });
+
+  it('replaces a live process when the pass-through list changes', async () => {
+    const { factory, agents } = scriptedAgent();
+    let names: string[] = [];
+    const adapter = new AcpAdapter({
+      agents: [AGENT],
+      spawnProcess: factory,
+      keepAlive: true,
+      settingsStamp: () => 'stable',
+      passEnvironment: () => names,
+    });
+
+    const first = await adapter.complete(request());
+    names = ['OPENAI_API_KEY'];
+    await adapter.complete(request({
+      messages: [
+        { role: 'user', content: 'Say hello' },
+        { role: 'assistant', content: first.content },
+        { role: 'user', content: 'Continue' },
+      ],
+    }));
+
+    expect(agents).toHaveLength(2);
+    expect(agents[0]!.killed).toBe(true);
+    await adapter.shutdown();
+  });
+
   it('invalidates a completion-only session when delegated execution is enabled without MCP servers', async () => {
     const { factory, agents } = scriptedAgent();
     let delegated = false;

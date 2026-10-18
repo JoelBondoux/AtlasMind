@@ -42,7 +42,12 @@ Endpoint health **survives the turn**: two hard failures quarantine an endpoint 
 
 An ACP agent that stops answering mid-prompt ("did not answer", "went silent", "was still working") has its endpoint scope blocked for the rest of the turn: every model behind that agent is the same process, and the observed failure was four Codex models in a row, each waiting out the full timeout.
 
-**Deadlines are sized to what the attempt has to do.** The generic 30-second provider deadline is written for a hosted HTTP call, where the weights are resident and somebody else owns the GPU. Two provider shapes need more:
+**Deadlines are sized to what the attempt has to do, and the rule that sized one is named when it expires.** `planProviderTimeout` (`src/core/orchestrator.ts`) returns the budget *and* the declared rule behind it (`PROVIDER_TIMEOUT_RULES`); a timeout raises a `ProviderTimeoutError` whose message still says "timed out" — so circuit-breaking, struggle memory and failover read it exactly as before — and whose rule is copied onto the attempt record (`TaskModelAttempt.timeoutBudget`), so the failure report says *why that long*, e.g. ``- `anthropic/claude-opus-5-5` — timed out after 488s (budget rule hosted-output-allowance: …; 30000ms base + 457600ms for 26,976 planned output tokens = 487600ms)``.
+
+- **Hosted** calls get the configured base (`atlasmind.providerTimeoutMs`, 30 s) for a planned output up to `HOSTED_TIMEOUT_COVERED_OUTPUT_TOKENS` (4,096), plus `HOSTED_TIMEOUT_MS_PER_1K_OUTPUT_TOKENS` (20 s, a declared 50 tokens/s planning floor — no vendor publishes a throughput guarantee) per 1,000 planned output tokens above that, clamped to `HOSTED_PROVIDER_MAX_TIMEOUT_MS` (10 minutes, the Anthropic SDKs' own default request timeout) and never below the configured base. The planned output is the request's `max_tokens`, which a reasoning directive has already raised to cover the thinking (`reasoningMaxTokens`) — and thinking is output generated *before* anything visible arrives, so a flat 30 s declared a deep turn (~27k planned tokens, now ~8 minutes) stalled while it was thinking and spent a failover on the next model at the same depth. Rules: `hosted-flat`, `hosted-output-allowance`, `hosted-output-capped`. An unknown planned output leaves the base alone.
+- **Streamed hosted calls** use that budget as an **inactivity** budget that every streamed chunk restarts (`withInactivityTimeout`), so a long answer that keeps arriving is never cut off mid-delivery, bounded by `HOSTED_STREAM_CEILING_MS` (30 minutes) in total. The first chunk still gets the whole planned budget, because thinking streams nothing visible before it. ACP keeps its own inactivity timer in the adapter, and local streams stay on their total budget, which GPU admission is sized against.
+
+Two other provider shapes:
 
 - **ACP** encloses a process spawn, `initialize`, `session/new` and then the prompt itself, so its deadline is the adapter's prompt ceiling **plus handshake headroom** (`ACP_PROMPT_CEILING_MS + ACP_HANDSHAKE_HEADROOM_MS`), derived from the inner budget rather than restated. Inside it, `session/prompt` runs on an **inactivity** timeout (`ACP_REQUEST_TIMEOUT_MS`, 180 s) that every `session/update` or agent request restarts, bounded by `ACP_PROMPT_CEILING_MS` (30 minutes): a fixed 180 s declared a Codex agent hung while it ran a commit hook, the tests and a push, streaming progress the whole time. When a prompt times out the adapter sends `session/cancel`, so the agent does not carry on in the background. When the two numbers were independently both 180 seconds, the enclosing timer always fired first on a cold start: a slow handshake surfaced as a bare "Provider timed out after 180000ms" naming no phase, and the adapter's own message — which names the method that stalled — was never the one the user saw.
 - **Local** does the model loading and the prompt evaluation on this machine, so the budget scales with the parameter count read from the model id, the measured prompt size, and whether the weights are already resident (the first attempt against a model in a session pays a cold-start allowance; later ones do not). Unknown inputs widen the budget or leave it alone and never narrow it — a prompt nobody measured must not shrink a deadline. The result is clamped to five minutes. A 14B model on a five-thousand-token cold prompt was previously recorded as a timeout at 30 seconds, which quarantined a working endpoint and spent a failover.
@@ -53,7 +58,18 @@ The transcript records only endpoints that were really invoked, with their statu
 
 AtlasMind also includes workstation context in routed prompts so response formatting can default to the active environment, such as preferring PowerShell command examples on Windows inside VS Code unless the user asks for another shell or platform.
 
-The Local provider now aggregates multiple labeled OpenAI-compatible endpoints under one routed provider identity. AtlasMind encodes the endpoint identity into each discovered local model id, which lets one workspace keep engines such as Ollama and LM Studio available together while still routing follow-up requests back to the correct engine.
+The Local provider now aggregates multiple labeled OpenAI-compatible endpoints under one routed provider identity. AtlasMind encodes the endpoint identity into each discovered local model id, which lets one workspace keep engines such as Ollama, LM Studio and Unsloth Studio available together while still routing follow-up requests back to the correct engine.
+
+**Which runtime an endpoint is** is decided by one rule, `resolveEndpointRuntime` in `src/providers/localRuntimeClient.ts`: a declared `runtime` (`ollama` | `lmstudio` | `unsloth`), then the label, then the port (11434, 1234, 8888). The Settings panel, the GPU arbiter and the adapter all ask it, so a model is never managed through one runtime's API and admitted through another's.
+
+**Unsloth Studio** (`src/providers/unslothStudio.ts`, read from Studio's source at v0.1.908-beta) changes three things on the routed path, all in `LocalEchoAdapter`:
+
+- **Every completion carries `enable_tools: false, mcp_enabled: false`.** Studio can run Python, a shell and web search itself inside a completion, and `unsloth run` / `unsloth studio run` default them on for loopback; anything run that way bypasses AtlasMind's approval gate, sandbox and dry run. A process started with `--enable-tools` overrides the request and Studio does not publish its policy, so the connect surfaces name `--disable-tools`.
+- **Whether an unloaded model is routable is Studio's setting, read rather than assumed.** Studio's `/v1/models` lists every download beside the loaded models, each with a `loaded` flag. Whether Studio will serve an unloaded one is decided by **Settings → API → "Switch model by request"** (`GET /api/settings/openai-auto-switch`), which Studio ships **off**: with it off Studio answers `404 model_not_found`, and routing there would record a model failure against a model that works. `decideUnslothRouting` (`UNSLOTH_ROUTING_RULES`) therefore routes a loaded model always, an unloaded one only while that setting reads **on** (`loads-on-request`, where the GPU arbiter queues Studio's load like any other cold load), and treats an unreadable setting as off. The setting is read only when the listing has an unloaded model, through the Studio client, after the identity check.
+- **A held-back model is reported, never silently dropped.** `LocalEchoAdapter.describeHeldBackModels()` keeps what each endpoint's last listing held back and the rule that did it. The provider summary prints it under *Listed but not routable*, and the local model advisor marks each Studio row with the same rule (`syncUnsloth` → `routingRule`, refreshed live on every scan, because the hour-long sync cache is far slower than Studio's load state). Before 0.504.2 the advisor called such a model installed while the routed list simply left it out. A cross-surface test asserts the two agree for every combination of loaded and setting.
+- **An undeclared Studio is recognised by its own listing** (`owned_by: "unsloth-studio"` on every entry), which always precedes routing to one of its models.
+
+Every local endpoint can now hold its **own key** (`atlasmind.provider.local.endpoint.<id>.apiKey`), tried before the shared `atlasmind.provider.local.apiKey`; Studio's key is stored that way by **Connect Unsloth Studio**, so it is never sent to Ollama or LM Studio. For the GPU arbiter Studio reports presence only (`/api/inference/status` `loaded` + `serving`, no VRAM figure), like LM Studio, and a Studio it cannot confirm reads as no information.
 
 For responses viewed in the shared AtlasMind chat workspace, assistant bubbles now expose thumbs up and thumbs down controls. AtlasMind persists those votes per assistant turn, aggregates them by `modelUsed`, and folds them back into future routing as a small bounded preference bias rather than a hard provider or model lock.
 
@@ -146,6 +162,35 @@ Specialist routing has **no override setting**. `atlasmind.specialistRoutingOver
 | **Balanced** | Default trade-off between speed and quality |
 | **Considered** | Prefer models with strong reasoning, even if slower |
 | **Auto** | Assess whether the task needs deep reasoning or a quick answer |
+
+## Reasoning Modes
+
+The third axis (`atlasmind.reasoningMode`): how hard the model should **think**, as opposed to which model or how fast. Implemented in `src/core/reasoningBudget.ts`.
+
+| Mode | Behaviour |
+|---|---|
+| **Auto** *(default)* | Resolve a level from the task profile through `AUTO_REASONING_RULES`: `low` → minimal, `medium` → standard, `high` → deep. No profile → standard, never deep |
+| **Minimal** | Ask a declared model to think as little as it allows |
+| **Standard** | A middle level |
+| **Deep** | Ask for the most thinking, and prefer models that declare a reasoning control |
+
+Every resolution names its rule (`auto-low`, `auto-medium`, `auto-high`, `auto-unprofiled`, `explicit-preference`, `budget-cap-step-down`), and the routing summary on each answer states the level, the rule and what was sent (`Reasoning: auto → deep (rule: auto-high); sent output_config.effort=high to anthropic/claude-opus-5-5.`).
+
+**Which models get a parameter.** Only a model whose provider declares a verified control in `REASONING_CONTROL_CATALOG` (`src/providers/modelCatalog.ts`, provider-scoped with no cross-provider fallback), and only when that control belongs to the model's provider (`REASONING_CONTROLS`). Verified 2026-10-08 against each vendor's docs:
+
+| Control | Providers | Wire field | minimal / standard / deep | Source |
+|---|---|---|---|---|
+| `anthropic-effort` | `anthropic` | `output_config.effort` | `low` / `medium` / `high` | platform.claude.com effort page — Opus 4.5–5.5, Sonnet 4.6–5.5, Haiku 5.5, Fable/Mythos. Haiku 4.5 and Sonnet 4.5 are not declared (they reject effort) |
+| `openai-reasoning-effort` | `openai` | `reasoning_effort` | `low` / `medium` / `high` | OpenAI reasoning guide — GPT-5.4, 5.5, 5.6 Terra/Luna, GPT-6 Astra, GPT-6.1 Sol |
+| `gemini-reasoning-effort` | `google` | `reasoning_effort` | `low` / `medium` / `high` | Gemini OpenAI-compatibility page — Gemini 2.5, 3 Flash, 3.1 Pro / Flash-Lite. Never combined with `thinking_config` |
+
+Only `low`/`medium`/`high` are used because they are the only values every declared model of each vendor accepts. Anthropic's `thinking` field is never touched: effort shapes every output token with or without thinking, and enabling thinking would oblige the tool loop to round-trip thinking blocks it does not keep. Everything else — Copilot, Bedrock, OpenRouter, ACP, local, DeepSeek and the rest — is **routable and sent nothing**; unknown capability is never preferred and never guessed.
+
+**Routing.** The axis changes nothing unless `RoutingConstraints.reasoning` is set (the orchestrator's main turn sets it; helper calls do not). When set: a declared model earns `DEEP_REASONING_CAPABLE_BONUS` only at `deep`, and its projected output price is multiplied by the level's `outputMultiplier` (1.25 / 2 / 4) because thinking is billed as output on every vendor wired here. Budget gates still use listed prices, so `deep` cannot unlock a tier the budget excludes.
+
+**Cost and budget.** The pre-flight daily-limit estimate adds the level's `projectedThinkingTokens` (1,024 / 8,192 / 24,576 — Gemini 2.5's published budgets, the only vendor that publishes numbers). When a per-task cap (`maxCostUsd` or an agent's `costLimitUsd`) cannot afford the requested level's projection, the level steps **down** under `budget-cap-step-down`; if even minimal does not fit, minimal is kept and the existing cap stops the loop. A directive raises `max_tokens` to at least the projected thinking plus 2,400 tokens of reply, bounded by the context window. Gemini's OpenAI-compatible layer omits thinking from `completion_tokens`, so its billed output is read as the larger of that and `total_tokens − prompt_tokens`.
+
+**Failover.** The directive is planned per model call, so a failover to a model with no declared control sends nothing rather than inheriting the previous model's parameter.
 
 ## Selection Algorithm
 
@@ -288,7 +333,7 @@ current budget/speed settings and inferred task profile.
 | Perplexity | `perplexity` | Static model catalog via adapter config because the upstream chat endpoint does not expose a standard `/models` inventory | Seeded with Sonar and refreshed from the adapter's static catalog |
 | Hugging Face Inference | `huggingface` | Runtime discovery via the Hugging Face router OpenAI-compatible `/models` endpoint | Seeded with one fallback router model until refresh completes |
 | NVIDIA NIM | `nvidia` | Runtime discovery via NVIDIA's OpenAI-compatible `/models` endpoint, enriched by a provider-scoped Nemotron catalog | Seeded with Nemotron Super 49B, Nemotron Nano, and a Llama 3.1 70B fallback until refresh completes |
-| Local LLM | `local` | Static fallback adapter or runtime discovery via a configured local OpenAI-compatible `/models` endpoint | Falls back to `local/echo-1` until a local endpoint is configured, and remains health-checkable via the built-in echo fallback |
+| Local LLM | `local` | Static fallback adapter or runtime discovery via a configured local OpenAI-compatible `/models` endpoint (Ollama, LM Studio, Unsloth Studio, or any other) | Falls back to `local/echo-1` until a local endpoint is configured, and remains health-checkable via the built-in echo fallback. Unsloth endpoints get the server-side-tools-off guard and route only loaded models |
 | VS Code Copilot | `copilot` | Runtime discovery from VS Code Language Model API | Seeded with `copilot/default`; live discovery is deferred until the user explicitly activates Copilot so AtlasMind does not trigger a permission prompt during startup |
 
 The provider table above describes **where Atlas gets the live catalog**, not an exhaustive static list of models. For API-backed providers, the visible catalog is refreshed at startup and when the user clicks **Refresh Model Metadata** in the Model Providers panel.
@@ -798,6 +843,14 @@ Current behavior:
 - Orchestrator computes per-request cost from model pricing and token usage reported by the provider adapter.
 - Local fallback models use deterministic estimates because no upstream provider usage API exists.
 - If a model is unknown to the router, cost is treated as `0` for safety.
+
+### Sampling parameters on Claude
+
+Every Claude model from Opus 4.7 on — Fable 5/5.1, Mythos 5/5.1/Preview, Opus 5.5/5/4.8/4.7, Sonnet 5.5/5, Haiku 5.5 — rejects a non-default `temperature`, `top_p` or `top_k` with a 400 on every request, whether or not thinking is used; older models restrict them only while thinking is on (Anthropic's Thinking page, *Sampling parameters*, read 2026-10-08 — `ANTHROPIC_SAMPLING_VERIFIED_AT`). The Anthropic adapter used to send `temperature: 0.2` everywhere, so every direct request to those models failed. `ANTHROPIC_SAMPLING_ACCEPTING_MODELS` (`anthropic.ts`) is an **allowlist** of the models known to accept `temperature` — Opus/Sonnet 4.6, the 4.5 family, Opus 4.1, Opus/Sonnet 4, Claude 3.x — anchored so `claude-opus-4` never matches `claude-opus-4-7`. Every other model, including any unknown or future one, is sent **no** sampling parameter: omitting it is valid on every model, so the cost of a stale allowlist is a request sampled at the API default, never a 400. `top_p` and `top_k` are never sent. AtlasMind never sends `thinking`, and on every allowlisted model omitting it means thinking is off — the condition under which those models accept `temperature` — so `output_config.effort` does not interact. Bedrock applies the same table to Claude model ids (`bedrockSamplingFields`; Converse maps `inferenceConfig.temperature` onto the model's own field) and leaves non-Anthropic Bedrock models alone. Copilot-hosted and OpenRouter-hosted Claude are not changed: what those gateways forward was not verified.
+
+### Reasoning directives
+
+`CompletionRequest.reasoning` carries a `ReasoningDirective` (`control`, `level`, vendor `value`, `rule`) built by `planReasoningRequest`. An adapter applies it only when `control` is one it implements — `anthropicReasoningFields` in `anthropic.ts`, `openAiCompatibleReasoningEffort` in `openai-compatible.ts` (keyed by provider id, so DeepSeek, Mistral and the other providers on the shared adapter are sent nothing) — and ignores it otherwise. Wiring a new vendor means verifying its request shape from published docs, adding a control to `REASONING_CONTROLS`, rows to `REASONING_CONTROL_CATALOG` with their source URL, and a request-shape test in `tests/providers/reasoningRequestShape.test.ts`.
 
 ## Adding a New Provider
 

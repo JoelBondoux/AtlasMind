@@ -19,9 +19,16 @@ import type {
   ToolKind,
 } from '@agentclientprotocol/sdk' with { 'resolution-mode': 'import' };
 import type { AtlasRuntime } from '../runtime/core.js';
-import type { AgentDefinition, TaskRequest, ToolInvocationPolicy } from '../types.js';
+import type { AgentDefinition, TaskRequest, ToolApprovalGateMeta, ToolInvocationPolicy, TurnProvenance } from '../types.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
+import {
+  describeEscalationSources,
+  emptyTurnProvenance,
+  raiseProvenance,
+  seedTurnFromConversation,
+} from '../core/contextProvenance.js';
 import type { AcpReplyPublisher } from './buzzReplyPublisher.js';
+import { interceptDryRun } from '../core/dryRunHost.js';
 
 export const ATLASMIND_ACP_PROTOCOL_VERSION = 1;
 export const MAX_ACP_PROMPT_CHARS = 1_000_000;
@@ -37,6 +44,12 @@ export interface AtlasMindAcpClient {
 interface AtlasMindAcpSession {
   cwd: string;
   history: string;
+  /**
+   * What this session's turns have read. `history` carries their text into
+   * the next turn, so the next turn starts from this; it only rises, and lasts
+   * exactly as long as the session.
+   */
+  provenance: TurnProvenance;
   pendingPrompt?: AbortController;
 }
 
@@ -61,6 +74,11 @@ interface ActivePermissionContext {
  * network, audio, or unknown action needs a one-turn grant. `allow_always` is
  * never offered or accepted because it would persist authority outside
  * AtlasMind's revocation model.
+ *
+ * Every grant here is already a fresh, per-call approval from the person at
+ * the client, so a call the orchestrator marks as needing one after the task
+ * read untrusted content is simply asked — never answered from the read-only
+ * shortcut — with the reason and the rule in the request title.
  */
 export class AcpPermissionBroker {
   private readonly active = new Map<string, ActivePermissionContext>();
@@ -77,6 +95,7 @@ export class AcpPermissionBroker {
     taskId: string,
     toolName: string,
     args: Record<string, unknown>,
+    meta?: ToolApprovalGateMeta,
   ): Promise<{ approved: boolean; reason?: string }> {
     const context = this.active.get(taskId);
     if (!context) {
@@ -87,14 +106,18 @@ export class AcpPermissionBroker {
     }
 
     const policy = classifyToolInvocation(toolName, args);
-    if (READ_ONLY_CATEGORIES.has(policy.category)) {
+    const freshApproval = meta?.escalation?.decision === 'fresh-approval';
+    if (!freshApproval && READ_ONLY_CATEGORIES.has(policy.category)) {
       return { approved: true };
     }
 
     const toolCallId = `atlasmind-${randomUUID()}`;
+    const title = freshApproval && meta
+      ? `${policy.summary} — after this task read untrusted content: ${describeEscalationSources(meta.escalation)} (${meta.escalation.rule})`
+      : policy.summary;
     const toolCall = {
       toolCallId,
-      title: policy.summary.slice(0, 300),
+      title: title.slice(0, 300),
       name: toolName.slice(0, 200),
       kind: toAcpToolKind(policy, toolName),
       status: 'pending' as const,
@@ -152,8 +175,9 @@ export class AtlasMindAcpAgent {
     taskId: string,
     toolName: string,
     args: Record<string, unknown>,
+    meta?: ToolApprovalGateMeta,
   ) => Promise<{ approved: boolean; reason?: string }> {
-    return (taskId, toolName, args) => this.permissionBroker.authorize(taskId, toolName, args);
+    return (taskId, toolName, args, meta) => this.permissionBroker.authorize(taskId, toolName, args, meta);
   }
 
   async initialize(_params: InitializeRequest): Promise<InitializeResponse> {
@@ -183,7 +207,7 @@ export class AtlasMindAcpAgent {
     // Client-provided MCP commands are intentionally not spawned. Launching a
     // command supplied by an untrusted ACP peer would be remote code execution.
     const sessionId = randomUUID();
-    this.sessions.set(sessionId, { cwd, history: '' });
+    this.sessions.set(sessionId, { cwd, history: '', provenance: emptyTurnProvenance() });
     return { sessionId };
   }
 
@@ -205,6 +229,7 @@ export class AtlasMindAcpAgent {
     session.pendingPrompt = abortController;
 
     const taskId = `acp-${randomUUID()}`;
+    const provenanceCell = seedTurnFromConversation(session.provenance);
     const request: TaskRequest = {
       id: taskId,
       userMessage: prompt,
@@ -213,6 +238,7 @@ export class AtlasMindAcpAgent {
         interface: 'acp',
         acpSessionId: params.sessionId,
         ...(session.history ? { sessionContext: session.history } : {}),
+        __provenanceCell: provenanceCell,
       },
       constraints: { budget: 'balanced', speed: 'balanced' },
       timestamp: new Date().toISOString(),
@@ -253,7 +279,20 @@ export class AtlasMindAcpAgent {
       }
 
       session.history = appendSessionHistory(session.history, prompt, result.response);
-      if (this.options.replyPublisher) {
+      // A dry run answers the client and posts nothing to Buzz: the reply is a
+      // message to people, and the whole point of the run was not to act.
+      const dryRunReply = this.options.replyPublisher
+        ? interceptDryRun({
+          surface: 'acp-buzz-reply',
+          kind: 'message',
+          summary: 'publish the reply to Buzz',
+          details: { characters: result.response.length },
+          userInitiated: false,
+        })
+        : undefined;
+      if (dryRunReply) {
+        this.options.log?.('Dry run: the Buzz reply was not published.');
+      } else if (this.options.replyPublisher) {
         try {
           await this.options.replyPublisher.publish(prompt, result.response, abortController.signal);
         } catch (error) {
@@ -264,6 +303,7 @@ export class AtlasMindAcpAgent {
       }
       return { stopReason: 'end_turn' };
     } finally {
+      session.provenance = raiseProvenance(session.provenance, provenanceCell.current);
       this.permissionBroker.unregister(taskId);
       if (session.pendingPrompt === abortController) {
         session.pendingPrompt = undefined;

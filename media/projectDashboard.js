@@ -479,6 +479,14 @@
     roadmapEmphasisGate: '',
     roadmapEmphasisPerson: '',
     /**
+     * The gate the AtlasMind candidate scan is showing, and what has been
+     * picked from it. The scan itself arrives with the snapshot, so opening it
+     * is a way of looking; only "Add to gate" posts, and only ids.
+     */
+    roadmapGateScan: '',
+    roadmapGateScanPicks: [],
+    roadmapGateScanRules: false,
+    /**
      * Emphasise the chain the finish date rests on.
      *
      * A lens rather than a filter, like the other two: the items *not* on the
@@ -507,6 +515,17 @@
      * orientation, which everybody opening the plan should see the same way.
      */
     roadmapSnapToGrid: persistedWebviewState.roadmapSnapToGrid === true,
+    /**
+     * Whether delivered work is drawn on the roadmap views that otherwise leave
+     * it off.
+     *
+     * A viewing preference, remembered per editor like snap-to-grid: it changes
+     * what *you* are looking at and nothing the roadmap says, so it lives in
+     * webview state and never reaches the host. Off by default, so the plan
+     * opens as the plan — but every view states how much it is hiding, because
+     * work that is hidden without a count reads as work that does not exist.
+     */
+    roadmapShowCompleted: persistedWebviewState.roadmapShowCompleted === true,
     /**
      * Node ids the canvas has already drawn, so an *arrival* can be told from a
      * redraw. Deliberately session-only: it answers "is this new to what is on
@@ -1187,6 +1206,16 @@
       if (state.roadmapEditingNodeId && !roadmapNodeIds.has(state.roadmapEditingNodeId)) {
         state.roadmapEditingNodeId = '';
       }
+      // A pick that is no longer a candidate — tagged since, delivered, or the
+      // gate was removed — is dropped rather than carried into the next post.
+      const scanReport = roadmapGateScanReport();
+      if (!scanReport) {
+        state.roadmapGateScan = '';
+        state.roadmapGateScanPicks = [];
+      } else {
+        const offered = new Set((scanReport.candidates || []).map(candidate => candidate.id));
+        state.roadmapGateScanPicks = state.roadmapGateScanPicks.filter(id => offered.has(id));
+      }
       const liveIds = new Set(((message.payload && message.payload.branches && message.payload.branches.items) || []).map(branch => branch.id));
       state.branchCompareIds = state.branchCompareIds.filter(id => liveIds.has(id)).slice(0, 2);
       state.branchExpandedIds = state.branchExpandedIds.filter(id => liveIds.has(id));
@@ -1429,7 +1458,8 @@
         state.promotion.result = message.payload;
       }
       const succeeded = !!(message.payload && message.payload.succeeded);
-      announce(succeeded ? 'Promotion completed.' : 'Promotion failed.');
+      const dryRun = !!(message.payload && message.payload.dryRun);
+      announce(dryRun ? 'Dry run: the promotion was not run.' : succeeded ? 'Promotion completed.' : 'Promotion failed.');
       render();
       return;
     }
@@ -1955,6 +1985,18 @@
       vscode.postMessage({ type: 'dismissCapabilityOffer', payload: payload });
       return;
     }
+    if (action === 'roadmap-gate-dot') {
+      // A gate's dot or its legend key: the same lens the Gate picker sets, so
+      // the two can never disagree about which gate is highlighted. Pressing
+      // the highlighted gate again turns the lens off. A way of looking —
+      // nothing is posted, and the id is only compared against declared gates.
+      const known = getRoadmapGates().some(gate => gate.id === payload);
+      state.roadmapEmphasisGate = !known || state.roadmapEmphasisGate === payload ? '' : payload;
+      state.roadmapFitAfterRender = true;
+      state.roadmapFitScope = 'emphasis';
+      render();
+      return;
+    }
     if (action === 'roadmap-emphasis-clear') {
       // Clears every lens at once. Three separate clears is three clicks to get
       // back to a plan you can read, and the state people want is "show me
@@ -2044,6 +2086,27 @@
     }
     if (action === 'roadmap-snap-toggle') {
       state.roadmapSnapToGrid = !state.roadmapSnapToGrid;
+      persistRoadmapCanvasPreferences();
+      render();
+      return;
+    }
+    /*
+     * Show or hide delivered work. Pure viewing: no message to the host, no
+     * write, and nothing derived is recomputed — the critical path, routes and
+     * schedules were worked out from the whole graph before the snapshot left
+     * the host, and finished work only changes which cards are drawn.
+     *
+     * Both canvases re-fit. The by-person view does because including
+     * finished work re-lays its lanes and every card moves. The dependency
+     * canvas moves nothing already on screen, but delivered work is laid out
+     * in its own blocks *beside* the plan rather than in gaps inside it — the
+     * plan is no longer drawn with a hole for every finished card — so it
+     * appears past the edge of a viewport fitted to the plan, and keeping that
+     * viewport would make the toggle read as a button that did nothing.
+     */
+    if (action === 'roadmap-completed-toggle') {
+      state.roadmapShowCompleted = !state.roadmapShowCompleted;
+      state.roadmapFitAfterRender = true;
       persistRoadmapCanvasPreferences();
       render();
       return;
@@ -2232,6 +2295,49 @@
     }
     if (action === 'roadmap-gate-delete') {
       vscode.postMessage({ type: 'deleteRoadmapGate', payload: payload });
+      return;
+    }
+    // ── Gate candidate scan ──────────────────────────────────────
+    // Opening, picking and closing are ways of looking: the scan arrived with
+    // the snapshot. Only "Add to gate" posts — a gate id and the picked ids,
+    // which the host checks against a fresh scan before it asks to write.
+    if (action === 'roadmap-gate-scan') {
+      const known = getRoadmapGates().some(gate => gate.id === payload);
+      state.roadmapGateScan = known && state.roadmapGateScan !== payload ? payload : '';
+      state.roadmapGateScanPicks = [];
+      render();
+      return;
+    }
+    if (action === 'roadmap-gate-scan-close') {
+      state.roadmapGateScan = '';
+      state.roadmapGateScanPicks = [];
+      render();
+      return;
+    }
+    if (action === 'roadmap-gate-scan-rules') {
+      state.roadmapGateScanRules = !state.roadmapGateScanRules;
+      render();
+      return;
+    }
+    if (action === 'roadmap-gate-candidate-pick') {
+      const report = roadmapGateScanReport();
+      const offered = report ? (report.candidates || []).some(candidate => candidate.id === payload) : false;
+      if (offered) {
+        state.roadmapGateScanPicks = state.roadmapGateScanPicks.indexOf(payload) >= 0
+          ? state.roadmapGateScanPicks.filter(id => id !== payload)
+          : [...state.roadmapGateScanPicks, payload];
+        render();
+      }
+      return;
+    }
+    if (action === 'roadmap-gate-candidates-include') {
+      const report = roadmapGateScanReport();
+      if (report && state.roadmapGateScanPicks.length > 0) {
+        vscode.postMessage({
+          type: 'includeRoadmapGateCandidates',
+          payload: { gateId: report.gateId, itemIds: state.roadmapGateScanPicks.slice() },
+        });
+      }
       return;
     }
     // ── Issues ────────────────────────────────────────────────────
@@ -5104,6 +5210,7 @@
         </section>
 
         ${renderHostConnectionBanner()}
+        ${renderSsotHomeNotice(snapshot)}
         ${renderOverview(snapshot)}
         ${renderScore(snapshot)}
         ${renderGapAnalysis(snapshot)}
@@ -5413,6 +5520,28 @@
           <p class="stat-detail">Close this tab and reopen it — <strong>AtlasMind: Open Project Dashboard</strong> from the Command Palette — or reload the window.</p>
         </div>
         <button type="button" class="action-link primary" data-action="host-retry">Try again</button>
+      </div>`;
+  }
+
+  /**
+   * Project memory with no single home, in a multi-root workspace.
+   *
+   * On every page rather than one, because every page reads project memory and
+   * none of them may silently be reading the wrong folder's. The sentence is
+   * composed by the host — the same one the chat and the workflow file refusal
+   * use — and only the candidate names are added here.
+   */
+  function renderSsotHomeNotice(snapshot) {
+    const home = snapshot && snapshot.ssotHome;
+    if (!home || !home.notice) {
+      return '';
+    }
+    const candidates = Array.isArray(home.candidates) ? home.candidates : [];
+    return `
+      <div class="inline-notice warning ssot-home-notice" role="alert">
+        <strong>Project memory has no single home in this workspace</strong>
+        <p class="stat-detail">${escapeHtml(home.notice)}</p>
+        ${candidates.length ? `<ul class="branch-notices">${candidates.map(name => `<li>${escapeHtml(name)}</li>`).join('')}</ul>` : ''}
       </div>`;
   }
 
@@ -13861,6 +13990,7 @@
       return `
         ${pageSectionOpen('roadmap')}
           ${renderRoadmapViewBar(roadmap)}
+          ${renderGateCandidatePanel()}
           ${renderRoadmapTimeline()}
         </section>`;
     }
@@ -13868,6 +13998,7 @@
       return `
         ${pageSectionOpen('roadmap')}
           ${renderRoadmapViewBar(roadmap)}
+          ${renderGateCandidatePanel()}
           ${renderRoadmapBoard()}
         </section>`;
     }
@@ -13875,6 +14006,7 @@
       return `
         ${pageSectionOpen('roadmap')}
           ${renderRoadmapViewBar(roadmap)}
+          ${state.roadmapView === 'completed' ? '' : renderGateCandidatePanel()}
           ${renderRoadmapCanvas()}
         </section>`;
     }
@@ -13887,14 +14019,20 @@
     // so the same rule would show items that do not match for no visible reason.
     const queueQuery = String(state.roadmapSearch || '').trim();
     const queueNeedle = queueQuery.toLowerCase();
-    const queueItems = queueNeedle
-      ? roadmap.items.filter(item => String(item.text || '').toLowerCase().indexOf(queueNeedle) >= 0)
-      : roadmap.items;
+    // Ticked items leave the queue unless asked for, like every other roadmap
+    // view — and the count of what left is stated beside it, so a short list
+    // never reads as a short roadmap. Reordering resolves by item id, so a drag
+    // still means the same thing with finished work hidden.
+    const hiddenCompleted = state.roadmapShowCompleted ? 0 : roadmap.items.filter(item => item.completed).length;
+    const queueItems = roadmap.items
+      .filter(item => state.roadmapShowCompleted || !item.completed)
+      .filter(item => !queueNeedle || String(item.text || '').toLowerCase().indexOf(queueNeedle) >= 0);
 
     return `
       ${pageSectionOpen('roadmap')}
         ${renderRoadmapViewBar(roadmap)}
         ${renderMvpSection(roadmap)}
+        ${renderGateCandidatePanel()}
         <div class="panel-grid">
           <article class="panel-card">
             <p class="section-kicker">Developer roadmap</p>
@@ -13946,6 +14084,7 @@
             ${queueQuery ? `<button type="button" class="rm-chip-clear" data-action="roadmap-search-clear" aria-label="Clear the search">×</button>` : ''}
           </span>
           ${queueQuery ? `<div class="list-meta rm-queue-filter-note">${escapeHtml(`Showing ${queueItems.length} of ${roadmap.items.length} — filtered by “${queueQuery}”.`)} Dragging still reorders against the whole plan, not just what is on screen.</div>` : ''}
+          ${hiddenCompleted > 0 ? `<div class="list-meta rm-completed-hidden-note" role="status">${escapeHtml(`${hiddenCompleted} completed item${hiddenCompleted === 1 ? ' is' : 's are'} hidden — turn on Show completed above to list ${hiddenCompleted === 1 ? 'it' : 'them'}.`)}</div>` : ''}
           ${state.roadmapOwnerNotice ? `<div class="rm-banner rm-banner-owner" role="status">${escapeHtml(state.roadmapOwnerNotice)}<button type="button" class="rm-chip-clear" data-action="roadmap-owner-notice-dismiss" aria-label="Dismiss">×</button></div>` : ''}
           <div class="stack-list roadmap-list">
             ${state.editingRoadmapId === 'new' ? renderRoadmapEditor('new') : ''}
@@ -13953,7 +14092,9 @@
               ? '<div class="dashboard-empty">No roadmap items yet. Add the first one above.</div>'
               : queueItems.length > 0
                 ? queueItems.map(item => renderRoadmapItem(item)).join('')
-                : `<div class="dashboard-empty">${escapeHtml(`Nothing in the backlog matches “${queueQuery}”.`)} <button type="button" class="action-link" data-action="roadmap-search-clear">Clear the search</button></div>`}
+                : queueQuery
+                  ? `<div class="dashboard-empty">${escapeHtml(`Nothing in the backlog matches “${queueQuery}”.`)} <button type="button" class="action-link" data-action="roadmap-search-clear">Clear the search</button></div>`
+                  : `<div class="dashboard-empty">${escapeHtml('Everything on the backlog is completed.')}</div>`}
           </div>
         </article>
       </section>
@@ -13987,7 +14128,7 @@
           <strong>${escapeHtml(item.text)}</strong>
           <span class="tag-group">
             ${gates.filter(gate => itemGates.indexOf(gate.id) >= 0).map(gate => `<span class="tag tag-mvp" title="${escapeAttr(`This item is on the ${gate.label} path`)}">${escapeHtml(gate.label)}</span>`).join('')}
-            <span class="tag ${item.completed ? 'tag-good' : item.focus === 'security' ? 'tag-critical' : item.focus === 'architecture' ? 'tag-warn' : ''}">${escapeHtml(item.completed ? 'done' : item.focus)}</span>
+            <span class="tag ${item.completed ? 'tag-good' : item.focus === 'security' ? 'tag-critical' : item.focus === 'architecture' ? 'tag-warn' : ''}">${item.completed ? '<span aria-hidden="true">✓ </span>' : ''}${escapeHtml(item.completed ? 'done' : item.focus)}</span>
           </span>
         </div>
         <div class="list-meta">${escapeHtml(item.priorityReason)}</div>
@@ -14029,6 +14170,7 @@
             <span class="gate-chip-count">${escapeHtml(`${gate.completedCount}/${gate.totalCount}`)}</span>
           </button>`).join('')}
         <button type="button" class="gate-chip gate-chip--add" data-action="roadmap-gate-new" title="Declare another release gate, e.g. a public beta or v2">+ New gate</button>
+        ${renderGateScanButton(active)}
         ${!active.builtIn ? `<button type="button" class="action-link danger" data-action="roadmap-gate-delete" data-payload="${escapeAttr(active.id)}" title="Remove this gate. No backlog item is deleted.">Remove ${escapeHtml(active.label)}</button>` : ''}
       </div>
     `;
@@ -14322,7 +14464,16 @@
 
   const RM_NODE_WIDTH = 250;
   const RM_NODE_HEIGHT = 132;
-  const RM_MIN_ZOOM = 0.35;
+  /**
+   * How far out the canvas zooms, and so the floor under Fit all.
+   *
+   * Was 35%, which is where Fit all stopped fitting: at that floor a 620px
+   * frame shows about 1,500px of plan, and this repository's 46 outstanding
+   * items need roughly a quarter-size view even packed as tightly as the
+   * layout's pitch allows. A floor above the zoom the plan needs makes the
+   * button leave half the plan off screen while saying it fitted it.
+   */
+  const RM_MIN_ZOOM = 0.2;
   const RM_MAX_ZOOM = 1.6;
   /**
    * The canvas grid, mirroring `ROADMAP_GRID_SIZE` in `roadmapGraph.ts`.
@@ -14349,6 +14500,7 @@
     if (!graph || typeof graph !== 'object') {
       return {
         active: [], completed: [], completedColumns: [], retainedIds: [], edges: [], suggested: [],
+        completedOverlay: { planPositions: {}, byPersonPositions: {}, byPersonLanes: [] },
         layers: [], cycles: [], notes: [], rules: [], suggestLinks: true, anchored: true, routes: {},
         orientation: 'horizontal',
         people: [], filePath: 'project_memory/roadmap/improvement-plan.md',
@@ -14361,11 +14513,72 @@
   function roadmapCanvasNodes() {
     const graph = roadmapGraph();
     if (state.roadmapView === 'completed') { return graph.completed; }
-    // The by-person view is the same outstanding work in a different
-    // arrangement, laid out host-side into lanes. Falling back to `active` keeps
-    // the canvas drawing on a snapshot from a build that has no lanes yet.
-    if (state.roadmapView === 'people') { return graph.byPerson || graph.active; }
-    return graph.active;
+    if (!state.roadmapShowCompleted) {
+      // The by-person view is the same outstanding work in a different
+      // arrangement, laid out host-side into lanes. Falling back to `active` keeps
+      // the canvas drawing on a snapshot from a build that has no lanes yet.
+      if (state.roadmapView === 'people') { return graph.byPerson || graph.active; }
+      return graph.active;
+    }
+    return roadmapCanvasNodesWithDelivered(graph);
+  }
+
+  /**
+   * The canvas with delivered work included — *Show completed* on.
+   *
+   * The dependency canvas keeps every outstanding card exactly where it was and
+   * adds finished work at the positions the tree layout already gave it, in its
+   * own blocks beside the plan. The by-person view cannot do that: finished work
+   * changes how deep its person's band is, so the whole arrangement comes from
+   * the overlay's own lane layout, and a snapshot without one keeps the
+   * outstanding lanes rather than drawing a mixture of two arrangements.
+   */
+  function roadmapCanvasNodesWithDelivered(graph) {
+    const overlay = graph.completedOverlay || {};
+    if (state.roadmapView === 'people') {
+      const base = graph.byPerson || graph.active;
+      return overlay.byPersonPositions
+        ? rmPlaceAt(base.concat(rmDeliveredOffPlan(graph)), overlay.byPersonPositions)
+        : base;
+    }
+    return graph.active.concat(rmPlaceAt(rmDeliveredOffPlan(graph), overlay.planPositions || {}));
+  }
+
+  /**
+   * Delivered work the plan leaves off: everything finished, minus what is
+   * retained because something outstanding still waits on it (already drawn).
+   */
+  function rmDeliveredOffPlan(graph) {
+    const retained = new Set(graph.retainedIds || []);
+    return (graph.completed || []).filter(node => !retained.has(node.id));
+  }
+
+  /**
+   * The same nodes at the coordinates a layout gave them. A node the layout did
+   * not place is left off rather than drawn at a guessed position — and each is
+   * a copy, so the shipped snapshot (which the Delivered view also reads, at its
+   * own chronological positions) is never edited in place.
+   */
+  function rmPlaceAt(nodes, positions) {
+    return nodes
+      .filter(node => positions && positions[node.id])
+      .map(node => Object.assign({}, node, { position: { x: positions[node.id].x, y: positions[node.id].y } }));
+  }
+
+  /**
+   * How many finished items the current view would add if shown — the number
+   * the toggle carries, so hiding work always says how much it is hiding.
+   * Retained work is not counted on the canvases: it is drawn either way.
+   */
+  function rmCompletedToggleCount(roadmap) {
+    const graph = roadmapGraph();
+    if (state.roadmapView === 'list') {
+      return ((roadmap && roadmap.items) || []).filter(item => item.completed).length;
+    }
+    if (state.roadmapView === 'canvas' || state.roadmapView === 'people') {
+      return rmDeliveredOffPlan(graph).length;
+    }
+    return (graph.completed || []).length;
   }
 
   function roadmapPersonName(contactId) {
@@ -14532,7 +14745,13 @@
       ? `<span class="list-meta rm-emphasis-count">${escapeHtml(`${emphasis.matches} of ${totalCount} match ${roadmapEmphasisLabels(emphasis)}`)}</span>`
         + `<button type="button" class="rm-chip-clear" data-action="roadmap-emphasis-clear" aria-label="Show the whole plan at full strength">×</button>`
       : '';
-    return `${gateSelect}${personSelect}${criticalToggle}${count}`;
+    // The scan for the gate being looked at, beside the picker that chose it.
+    // Not on the delivered record: nothing is added to a record of what shipped.
+    const emphasisedGate = state.roadmapEmphasisGate && !delivered
+      ? gates.find(gate => gate.id === state.roadmapEmphasisGate)
+      : null;
+    const scanButton = emphasisedGate ? renderGateScanButton(emphasisedGate) : '';
+    return `${gateSelect}${renderRoadmapGateLegend(true)}${scanButton}${personSelect}${criticalToggle}${count}`;
   }
 
   /** What the active lenses are called, for a message that names them. */
@@ -14551,6 +14770,215 @@
     }
     if (emphasis.critical) { parts.push('the critical path'); }
     return parts.join(' + ');
+  }
+
+  // ── Release-gate dots ──────────────────────────────────────────
+  //
+  // Which releases an item is on, as a row of coloured dots on its card. The
+  // colour is chosen host-side from the gate's declared position
+  // (`assignRoadmapGateColors`) and only drawn here, so the dot on a card and
+  // the key in the legend cannot disagree. Colour is never the only cue: every
+  // dot carries its gate's label as its name, the row names all of them, and
+  // the legend says which colour is which.
+
+  /** Dots a card draws before the rest are counted as "+N". */
+  const RM_GATE_DOTS_MAX = 4;
+  /** A colour is drawn only if it is exactly what the host sends; anything else is no colour. */
+  const RM_GATE_HEX = /^#[0-9a-f]{6}$/;
+
+  function rmGateColor(gate) {
+    return gate && typeof gate.color === 'string' && RM_GATE_HEX.test(gate.color) ? gate.color : '';
+  }
+
+  /** The dot itself: class and colour, without its element or name. */
+  function rmGateDotAttrs(gate) {
+    const color = rmGateColor(gate);
+    const classes = ['rm-gate-dot', gate.hollow === true ? 'is-hollow' : '', color ? '' : 'is-uncoloured'].filter(Boolean).join(' ');
+    return `class="${classes}"${color ? ` style="--rm-gate-color:${color}"` : ''}`;
+  }
+
+  /** The declared gates an item is on, in declared order. An undeclared id is dropped. */
+  function rmItemGates(gateIds) {
+    const on = new Set(Array.isArray(gateIds) ? gateIds : []);
+    return getRoadmapGates().filter(gate => on.has(gate.id));
+  }
+
+  /** What a card's gate row is called — every gate, never the capped few. */
+  function rmGateRowLabel(gates) {
+    return `Release gate${gates.length === 1 ? '' : 's'}: ${gates.map(gate => gate.label).join(', ')}`;
+  }
+
+  /**
+   * One card's row of gate dots, in declared order, capped with "+N".
+   *
+   * `interactive` dots are buttons that switch the gate lens on — the canvases,
+   * where the lens exists. On the board they are images: that card has no lens
+   * to switch, and a board card carries no actions at all by its own rule.
+   * `id` is what the card points its accessible description at, so the card is
+   * described by every gate it is on, not by however many dots fitted.
+   */
+  function renderRoadmapGateDots(gateIds, options) {
+    const gates = rmItemGates(gateIds);
+    if (gates.length === 0) { return ''; }
+    const interactive = !!(options && options.interactive);
+    const id = options && options.id ? ` id="${escapeAttr(options.id)}"` : '';
+    const shown = gates.slice(0, RM_GATE_DOTS_MAX);
+    const rest = gates.slice(RM_GATE_DOTS_MAX);
+    const dots = shown.map(gate => interactive
+      ? `<button type="button" ${rmGateDotAttrs(gate)} data-action="roadmap-gate-dot" data-payload="${escapeAttr(gate.id)}"
+          aria-pressed="${state.roadmapEmphasisGate === gate.id ? 'true' : 'false'}" aria-label="${escapeAttr(gate.label)}"
+          title="${escapeAttr(gate.label + ' — highlight every item on this release')}"></button>`
+      : `<span ${rmGateDotAttrs(gate)} role="img" aria-label="${escapeAttr(gate.label)}" title="${escapeAttr(gate.label)}"></span>`);
+    const more = rest.length === 0 ? '' : `<span class="rm-gate-more" role="img"
+      aria-label="${escapeAttr(`and ${rest.length} more: ${rest.map(gate => gate.label).join(', ')}`)}"
+      title="${escapeAttr(`Also on ${rest.map(gate => gate.label).join(', ')}`)}">+${rest.length}</span>`;
+    return `<span class="rm-gate-dots"${id} role="group" aria-label="${escapeAttr(rmGateRowLabel(gates))}">${dots.join('')}${more}</span>`;
+  }
+
+  /** The id a card's gate row carries, for the card's `aria-describedby`. */
+  function rmGateRowId(prefix, nodeId) {
+    return `${prefix}-${String(nodeId || '').replace(/[^A-Za-z0-9_-]/g, '_')}`;
+  }
+
+  /**
+   * The colour key, beside the Gate picker.
+   *
+   * Every declared gate, in declared order, with its dot and its name — so a
+   * colour on a card can always be looked up where the selector already is.
+   * On the canvases each key is also a button for that gate's lens, which keeps
+   * the gate selector buttons on the canvas itself; on the board, which has no
+   * lens, it is a plain key.
+   */
+  function renderRoadmapGateLegend(interactive) {
+    const gates = getRoadmapGates();
+    if (gates.length === 0) { return ''; }
+    const keys = gates.map(gate => interactive
+      ? `<button type="button" class="rm-gate-key${state.roadmapEmphasisGate === gate.id ? ' is-on' : ''}" data-action="roadmap-gate-dot"
+          data-payload="${escapeAttr(gate.id)}" aria-pressed="${state.roadmapEmphasisGate === gate.id ? 'true' : 'false'}"
+          title="${escapeAttr('Highlight every item on ' + gate.label + '. The rest of the plan stays drawn and dimmed.')}"><span ${rmGateDotAttrs(gate)} aria-hidden="true"></span>${escapeHtml(gate.label)}</button>`
+      : `<span class="rm-gate-key"><span ${rmGateDotAttrs(gate)} aria-hidden="true"></span>${escapeHtml(gate.label)}</span>`);
+    return `<span class="rm-gate-legend" role="group" aria-label="Release gate colours">${keys.join('')}</span>`;
+  }
+
+  /** The scan report for the gate the candidate panel is showing, or null. */
+  function roadmapGateScanReport() {
+    const gateId = String(state.roadmapGateScan || '');
+    const view = state.snapshot && state.snapshot.roadmap ? state.snapshot.roadmap.gateCandidates : null;
+    const reports = view && view.reports && typeof view.reports === 'object' ? view.reports : null;
+    if (!gateId || !reports || !Object.prototype.hasOwnProperty.call(reports, gateId)) {
+      return null;
+    }
+    return reports[gateId] || null;
+  }
+
+  /**
+   * “Find candidates” for one gate.
+   *
+   * Carries the AtlasMind mark, like Calculate tree: it is AtlasMind reading
+   * the backlog and reaching a conclusion, not a filter you set. Pressing it
+   * again closes the list.
+   */
+  function renderGateScanButton(gate) {
+    if (!gate || !gate.id) { return ''; }
+    const open = state.roadmapGateScan === gate.id;
+    const title = `Scan the backlog for items that may belong on ${gate.label}. Every candidate names the rule that matched it; nothing is tagged until you pick items and confirm.`;
+    return `<button type="button" class="atlas-discuss-action rm-gate-scan-action${open ? ' is-on' : ''}" data-action="roadmap-gate-scan"
+      data-payload="${escapeAttr(gate.id)}" aria-pressed="${open ? 'true' : 'false'}" title="${escapeAttr(title)}"
+      aria-label="${escapeAttr(`Find candidates for ${gate.label} with AtlasMind`)}"><img src="${escapeAttr(atlasDiscussIconUri)}" alt="" aria-hidden="true" /><span class="atlas-discuss-glyph" aria-hidden="true">⌘</span><span class="atlas-discuss-label">Find candidates</span></button>`;
+  }
+
+  /**
+   * The AtlasMind gate scan: what may belong on one gate, and why.
+   *
+   * Four properties, each a way this list could mislead:
+   * - every candidate shows the rule that matched and what it matched on, and
+   *   the rule table is one click away, so a candidate can be argued with;
+   * - "could not assess" and "nothing matched" read differently, and every
+   *   rule that was not applied says why;
+   * - the remainder past the cap is stated;
+   * - nothing is tagged from here. Picking is local; "Add to gate" posts the
+   *   gate id and the picked ids, and the host names every item in a modal.
+   */
+  function renderGateCandidatePanel() {
+    const report = roadmapGateScanReport();
+    if (!report) { return ''; }
+    const view = state.snapshot.roadmap.gateCandidates;
+    const rules = Array.isArray(view.rules) ? view.rules : [];
+    const ruleLabel = id => {
+      const rule = rules.find(entry => entry.id === id);
+      return rule ? rule.label : id;
+    };
+    const gates = getRoadmapGates();
+    const gateName = id => {
+      const gate = gates.find(entry => entry.id === id);
+      return gate ? gate.label : id;
+    };
+    const candidates = Array.isArray(report.candidates) ? report.candidates : [];
+    const skipped = Array.isArray(report.skipped) ? report.skipped : [];
+    const picks = state.roadmapGateScanPicks;
+    // "Could not assess" is the warning, not "nothing matched": a gate nobody
+    // could scan must not look as settled as one that was scanned and is clear.
+    const toneClass = report.status === 'unassessable' ? ' tag-warn' : report.status === 'candidates' ? '' : ' tag-muted';
+    const statusLabel = {
+      candidates: 'Candidates found',
+      none: 'Nothing matched',
+      'nothing-eligible': 'Nothing to scan',
+      unassessable: 'Could not assess',
+    }[report.status] || 'Not assessed';
+    const rows = candidates.map(candidate => {
+      const picked = picks.indexOf(candidate.id) >= 0;
+      const matches = Array.isArray(candidate.matches) ? candidate.matches : [];
+      const others = Array.isArray(candidate.otherGates) ? candidate.otherGates : [];
+      return `
+        <div class="recent-item rm-gate-candidate${picked ? ' is-picked' : ''}">
+          <div class="row-head">
+            <button type="button" class="gate-toggle${picked ? ' is-on' : ''}" data-action="roadmap-gate-candidate-pick"
+              data-payload="${escapeAttr(candidate.id)}" aria-pressed="${picked ? 'true' : 'false'}"
+              aria-label="${escapeAttr((picked ? 'Unpick “' : 'Pick “') + candidate.text + '” for ' + report.gateLabel)}">${picked ? '✓ Picked' : 'Pick'}</button>
+            <strong>${escapeHtml(candidate.text)}</strong>
+            <span class="tag-group">
+              <span class="tag" title="${escapeAttr('The most consequential rule that matched. It decides the ranking; the score only breaks ties.')}">${escapeHtml(ruleLabel(candidate.leadingRule))}</span>
+              <span class="tag" title="${escapeAttr('Sum of the matched rules’ weights, from the published table.')}">${escapeHtml(`score ${candidate.score}`)}</span>
+            </span>
+          </div>
+          <ul class="rm-gate-candidate-matches">
+            ${matches.map(match => `<li><span class="rm-gate-rule">${escapeHtml(ruleLabel(match.rule))}</span> — ${escapeHtml(match.evidence)}</li>`).join('')}
+          </ul>
+          ${others.length > 0 ? `<div class="list-meta">${escapeHtml(`Already on ${others.map(gateName).join(', ')}. Adding it here keeps those.`)}</div>` : ''}
+        </div>`;
+    }).join('');
+    return `
+      <section class="panel-card rm-gate-scan" aria-label="${escapeAttr(`AtlasMind candidates for ${report.gateLabel}`)}">
+        <div class="row-head">
+          <div>
+            <p class="section-kicker">AtlasMind gate scan</p>
+            <h3>${escapeHtml(`Candidates for ${report.gateLabel}`)}</h3>
+          </div>
+          <span class="tag-group">
+            <span class="tag${toneClass}">${escapeHtml(statusLabel)}</span>
+            <button type="button" class="rm-chip-clear" data-action="roadmap-gate-scan-close" aria-label="Close the candidate scan">×</button>
+          </span>
+        </div>
+        <div class="stat-detail">${escapeHtml(report.summary || '')}</div>
+        <div class="list-meta">${escapeHtml(`Read ${report.scannedCount} outstanding item${report.scannedCount === 1 ? '' : 's'}; left out ${report.excluded.onGate} already on the gate and ${report.excluded.completed} delivered.`)}</div>
+        ${rows ? `<div class="stack-list">${rows}</div>` : ''}
+        ${report.remainder > 0 ? `<div class="list-meta">${escapeHtml(`${report.remainder} more candidate${report.remainder === 1 ? '' : 's'} not shown. Tag some of these and scan again to see them.`)}</div>` : ''}
+        ${skipped.length > 0 ? `
+          <p class="section-kicker">Not assessed</p>
+          <ul class="rm-gate-candidate-matches">
+            ${skipped.map(skip => `<li><span class="rm-gate-rule">${escapeHtml(ruleLabel(skip.rule))}</span> — ${escapeHtml(skip.reason)}</li>`).join('')}
+          </ul>` : ''}
+        <div class="tag-row">
+          ${candidates.length > 0 ? `<button type="button" class="dashboard-button dashboard-button-primary" data-action="roadmap-gate-candidates-include"${picks.length === 0 ? ' disabled' : ''}
+            title="${escapeAttr('Asks before writing: the confirmation lists every item and the tag it gains.')}">${escapeHtml(picks.length === 0 ? `Pick items to add to ${report.gateLabel}` : `Add ${picks.length} to ${report.gateLabel}…`)}</button>` : ''}
+          <button type="button" class="action-link" data-action="roadmap-gate-scan-rules" aria-expanded="${state.roadmapGateScanRules ? 'true' : 'false'}">${state.roadmapGateScanRules ? 'Hide the rules' : 'How candidates are found'}</button>
+        </div>
+        ${state.roadmapGateScanRules ? `
+          <ol class="rm-gate-rule-table">
+            ${rules.map(rule => `<li><strong>${escapeHtml(rule.label)}</strong>${rule.standalone ? '' : ' <span class="list-meta">(corroborates only)</span>'} — ${escapeHtml(rule.detail)}</li>`).join('')}
+          </ol>
+          <div class="list-meta">${escapeHtml('Ranked by the most consequential rule that matched, then by score, then by backlog order. Delivered items and items already on the gate are never proposed.')}</div>` : ''}
+      </section>`;
   }
 
   function renderRoadmapViewBar(roadmap) {
@@ -14597,6 +15025,7 @@
             </button>`).join('')}
         </div>
         <div class="rm-view-actions">
+          ${renderRoadmapCompletedToggle(roadmap)}
           ${state.roadmapView === 'completed' ? '' : `
             <button type="button" class="rm-add-item" data-action="roadmap-add" data-payload="new"
               title="${escapeAttr('Add an item to the prioritised backlog. Opens the entry form with the caret already in it.')}">
@@ -14608,6 +15037,39 @@
           </button>
         </div>
       </div>`;
+  }
+
+  /**
+   * *Show completed*, on every roadmap view that can hide finished work.
+   *
+   * A native button with `aria-pressed`, so it is reachable by Tab and toggled
+   * by Enter or Space with nothing custom, and its name stays the same in both
+   * states — a toggle whose label flips between "show" and "hide" contradicts
+   * its own pressed state for a screen reader. The count is what the view would
+   * add, so a hidden pile of finished work is always stated, never silent.
+   *
+   * Absent on Delivered, for the reason *Add roadmap item* is: everything there
+   * is finished, so the control could only empty the view or do nothing, and a
+   * button whose one honest effect is a blank page is not worth offering.
+   */
+  function renderRoadmapCompletedToggle(roadmap) {
+    if (state.roadmapView === 'completed') { return ''; }
+    const on = state.roadmapShowCompleted === true;
+    const count = rmCompletedToggleCount(roadmap);
+    const hint = {
+      canvas: 'Draw delivered work on the canvas too, where the tree put it, marked with a tick. Finished work still holding something up is drawn either way. A way of looking: the critical path, routes and dates do not change.',
+      people: 'Include delivered work in each person’s band, marked with a tick. Lane totals still count outstanding days only.',
+      timeline: 'List delivered work under the chart. It takes no time, so it is listed rather than drawn as a bar.',
+      board: 'Show the cards in the Delivered column. Hidden, the column still says how many it holds.',
+      list: 'Include ticked items in the backlog. Dragging still reorders against the whole plan, shown or hidden.',
+    }[state.roadmapView] || 'Show delivered work.';
+    return `
+      <button type="button" class="rm-add-item rm-completed-toggle${on ? ' is-on' : ''}" data-action="roadmap-completed-toggle"
+        aria-pressed="${on ? 'true' : 'false'}" title="${escapeAttr(hint + ' Remembered for this editor; nothing is saved to the roadmap.')}">
+        <span class="rm-completed-toggle-mark" aria-hidden="true">✓</span><span>Show completed</span>
+        <span class="rm-view-count" aria-hidden="true">${count}</span>
+        <span class="sr-only">${escapeHtml(`(${count} completed item${count === 1 ? '' : 's'})`)}</span>
+      </button>`;
   }
 
   /* ── Timeline ──────────────────────────────────────────────────────────────
@@ -14676,6 +15138,7 @@
           <div class="rm-banner${timeline.state === 'circular' ? ' rm-banner-bad' : ''}" role="status">
             ${escapeHtml(String(timeline.note || 'Nothing to lay out on a time axis yet.'))}
           </div>
+          ${renderRoadmapTimelineDelivered(graph)}
         </article>`;
     }
 
@@ -14694,8 +15157,37 @@
         <ol class="rm-tl-rows">
           ${timeline.bars.map(bar => renderRoadmapTimelineRow(bar, horizon)).join('')}
         </ol>
+        ${renderRoadmapTimelineDelivered(graph)}
         ${renderRoadmapTimelineRules(timeline)}
       </article>`;
+  }
+
+  /**
+   * Delivered work, listed under the chart when asked for.
+   *
+   * Not drawn as bars: the axis is days of work from today, and finished work
+   * has none left, so any bar would be a length invented for it. Listed with
+   * the date it landed instead, which is the one time fact it does have — and
+   * the chart above is unchanged, because showing finished work is a way of
+   * looking, not a reason to schedule anything again.
+   */
+  function renderRoadmapTimelineDelivered(graph) {
+    if (!state.roadmapShowCompleted) { return ''; }
+    const delivered = graph.completed || [];
+    if (delivered.length === 0) { return ''; }
+    return `
+      <div class="rm-tl-delivered">
+        <p class="section-kicker">Delivered</p>
+        <p class="list-meta">${escapeHtml('Finished work takes no time on this axis, so it is listed rather than drawn.')}</p>
+        <ol class="rm-tl-delivered-list">
+          ${delivered.map(node => `
+            <li class="rm-tl-delivered-item">
+              <span class="rm-done-mark" aria-hidden="true">✓</span>
+              <span class="rm-tl-title" title="${escapeAttr(node.text)}">${escapeHtml(node.text)}</span>
+              <span class="list-meta">${escapeHtml(node.completedAt ? 'delivered ' + String(node.completedAt).slice(0, 10) : 'delivered, no date recorded')}</span>
+            </li>`).join('')}
+        </ol>
+      </div>`;
   }
 
   function renderRoadmapTimelineHead(timeline, summary) {
@@ -14812,6 +15304,7 @@
             ${summary ? `<p class="section-copy">${escapeHtml(summary)}</p>` : ''}
           </div>
           <div class="rm-chip-row">
+            ${renderRoadmapGateLegend(false)}
             <span class="tag${board.branchEvidence === 'gathered' ? '' : ' tag-warn'}">branches ${escapeHtml(board.branchEvidence === 'gathered' ? 'read' : 'not read')}</span>
             <span class="tag${board.pullRequestEvidence === 'gathered' ? '' : ' tag-warn'}">pull requests ${escapeHtml(board.pullRequestEvidence === 'gathered' ? 'read' : 'not read')}</span>
           </div>
@@ -14826,26 +15319,35 @@
 
   function renderRoadmapBoardColumn(column) {
     const cards = column.cards || [];
+    // The Delivered column keeps its header and its count when finished work is
+    // hidden: the column is a fact about the plan, and dropping it would make a
+    // board with forty shipped items look like one that has shipped nothing.
+    const hidden = column.id === 'delivered' && !state.roadmapShowCompleted && cards.length > 0;
     return `
-      <section class="rm-board-column" aria-label="${escapeAttr(column.label)}">
+      <section class="rm-board-column${column.id === 'delivered' ? ' is-delivered' : ''}" aria-label="${escapeAttr(column.label)}">
         <header class="rm-board-column-head" title="${escapeAttr(String(column.description || ''))}">
-          <span class="rm-board-column-name">${escapeHtml(column.label)}</span>
+          <span class="rm-board-column-name">${column.id === 'delivered' ? '<span aria-hidden="true">✓ </span>' : ''}${escapeHtml(column.label)}</span>
           <span class="rm-view-count">${escapeHtml(String(cards.length))}</span>
         </header>
-        ${cards.length === 0
+        ${hidden
+    ? `<p class="rm-board-empty">${escapeHtml(`${cards.length} delivered, hidden — turn on Show completed above to list ${cards.length === 1 ? 'it' : 'them'}.`)}</p>`
+    : cards.length === 0
     // Said rather than left blank: an empty column is a fact about the plan,
     // and a bare gap reads as something that failed to load.
-    ? '<p class="rm-board-empty">Nothing here.</p>'
-    : `<ul class="rm-board-cards">${cards.map(card => renderRoadmapBoardCard(card)).join('')}</ul>`}
+      ? '<p class="rm-board-empty">Nothing here.</p>'
+      : `<ul class="rm-board-cards">${cards.map(card => renderRoadmapBoardCard(card, column.id === 'delivered')).join('')}</ul>`}
       </section>`;
   }
 
-  function renderRoadmapBoardCard(card) {
+  function renderRoadmapBoardCard(card, delivered) {
     const person = roadmapPersonName(card.assigneeId);
+    const gateRowId = rmGateRowId('rm-board-gates', card.nodeId);
+    const gateDots = renderRoadmapGateDots(card.gates, { interactive: false, id: gateRowId });
     return `
-      <li class="rm-board-cardlet rm-focus-${escapeAttr(card.focus)}">
-        <p class="rm-board-cardlet-text" title="${escapeAttr(card.text)}">${escapeHtml(card.text)}</p>
+      <li class="rm-board-cardlet rm-focus-${escapeAttr(card.focus)}${delivered ? ' is-done' : ''}"${gateDots ? ` aria-describedby="${escapeAttr(gateRowId)}"` : ''}>
+        <p class="rm-board-cardlet-text" title="${escapeAttr(card.text)}">${delivered ? '<span class="rm-done-mark" aria-hidden="true">✓</span><span class="sr-only">Delivered: </span>' : ''}${escapeHtml(card.text)}</p>
         <div class="rm-board-cardlet-meta">
+          ${gateDots}
           ${card.waitingOnCount > 0
     // Carried in every column, not only Blocked: an item can be started and
     // still waiting, and dropping either half misreports one of them.
@@ -15125,6 +15627,7 @@
     vscode.setState({
       ...(vscode.getState() || {}),
       roadmapSnapToGrid: state.roadmapSnapToGrid,
+      roadmapShowCompleted: state.roadmapShowCompleted,
     });
   }
 
@@ -15209,7 +15712,10 @@
    */
   function renderRoadmapLaneBands(graph) {
     if (state.roadmapView !== 'people') { return ''; }
-    const lanes = graph.lanes || [];
+    const overlay = graph.completedOverlay || {};
+    const lanes = state.roadmapShowCompleted && overlay.byPersonPositions
+      ? (overlay.byPersonLanes || [])
+      : (graph.lanes || []);
     if (lanes.length === 0) { return ''; }
     const vertical = graph.orientation === 'vertical';
     return lanes.map(lane => {
@@ -15374,13 +15880,17 @@
       search && !search.matchIds.has(node.id) ? 'is-search-dim' : '',
       state.roadmapSelection.indexOf(node.id) >= 0 ? 'is-selected' : '',
     ].filter(Boolean).join(' ');
+    // Which releases this item is on — on outstanding and delivered cards
+    // alike, since "which of the MVP has landed" is asked of the record too.
+    const gateRowId = rmGateRowId('rm-gates', node.id);
+    const gateDots = renderRoadmapGateDots(node.gates, { interactive: true, id: gateRowId });
 
     return `
       <div class="${classes}" data-rm-node="${escapeAttr(node.id)}" data-rm-drag="${escapeAttr(node.id)}"
         style="left:${position.x}px;top:${position.y}px;width:${RM_NODE_WIDTH}px;"
-        data-dashboard-focus-kind="roadmap" data-dashboard-focus-id="${escapeAttr(node.itemId)}">
+        data-dashboard-focus-kind="roadmap" data-dashboard-focus-id="${escapeAttr(node.itemId)}"${gateDots ? ` aria-describedby="${escapeAttr(gateRowId)}"` : ''}>
         <div class="rm-node-head" title="Drag to reposition. Position is saved.">
-          <span class="rm-node-title">${escapeHtml(node.text)}</span>
+          ${node.completed ? '<span class="rm-done-mark" aria-hidden="true">✓</span><span class="sr-only">Delivered: </span>' : ''}<span class="rm-node-title">${escapeHtml(node.text)}</span>${gateDots}
         </div>
         <div class="rm-node-meta">
           ${node.branch ? `<span class="rm-branch" title="${escapeAttr(node.branchSource === 'declared' ? 'Branch name set by hand.' : 'Branch name derived from the item. Edit the node to override it.')}">${escapeHtml(node.branch)}</span>` : '<span class="rm-branch rm-branch-none" title="No branch name could be derived from this item’s wording. Edit the node to set one.">no branch name</span>'}
@@ -15442,7 +15952,7 @@
         : schedule.daysLeft < 0
           ? Math.abs(schedule.daysLeft) + 'd over'
           : schedule.daysLeft + 'd left';
-    return `<span class="rm-chip rm-chip-${escapeAttr(schedule.state)}">${escapeHtml(label)}</span>`;
+    return `<span class="rm-chip rm-chip-${escapeAttr(schedule.state)}">${schedule.state === 'done' ? '<span aria-hidden="true">✓ </span>' : ''}${escapeHtml(label)}</span>`;
   }
 
   /**
@@ -17534,8 +18044,9 @@
     const route = `${p.plan.fromName} → ${p.plan.toName}`;
     if (p.result) {
       const ok = p.result.succeeded;
-      return `<div class="promo-detached ${ok ? 'good' : 'bad'}">
-        <span>${ok ? '✓' : '✗'} Promotion ${ok ? 'completed' : 'failed'} — ${escapeHtml(route)}.</span>
+      const dry = !!p.result.dryRun;
+      return `<div class="promo-detached ${dry ? 'running' : ok ? 'good' : 'bad'}">
+        <span>${dry ? '•' : ok ? '✓' : '✗'} ${dry ? 'Dry run — promotion not run' : `Promotion ${ok ? 'completed' : 'failed'}`} — ${escapeHtml(route)}.</span>
         <span class="promo-detached-actions">
           <button type="button" class="action-link" data-action="promotion-reopen" data-payload="">View details</button>
           <button type="button" class="action-link" data-action="promotion-dismiss-notice" data-payload="">Dismiss</button>
@@ -17662,8 +18173,8 @@
           </div>` : ''}
           ${(runbook && manualChecks.length) ? `<div class="promo-section"><h4>Manual confirmations</h4><ul class="promo-check-list">${confirmationsHtml}</ul></div>` : ''}
           ${p.progress && p.progress.length ? `<div class="promo-section"><h4>Progress</h4><ul class="promo-progress-list">${p.progress.map(s => `<li class="promo-step ${escapeAttr(s.status)}">${promoStatusIcon(s.status)} ${escapeHtml(s.label)}${s.output ? `<div class="promo-step-out">${escapeHtml(s.output)}</div>` : ''}</li>`).join('')}</ul></div>` : ''}
-          ${done ? `<div class="promo-section promo-result ${p.result.succeeded ? 'good' : 'bad'}">
-            <h4>${p.result.succeeded ? '✓ Promotion completed' : '✗ Promotion failed'}</h4>
+          ${done ? `<div class="promo-section promo-result ${p.result.dryRun ? '' : p.result.succeeded ? 'good' : 'bad'}">
+            <h4>${p.result.dryRun ? 'Dry run — nothing was run. This is what the promotion would have done.' : p.result.succeeded ? '✓ Promotion completed' : '✗ Promotion failed'}</h4>
             <ul class="promo-progress-list">${p.result.steps.map(s => `<li class="promo-step ${s.skipped ? 'skipped' : (s.ok ? 'done' : 'failed')}">${s.skipped ? '•' : (s.ok ? '✓' : '✗')} ${escapeHtml(s.label)}${s.output ? `<div class="promo-step-out">${escapeHtml(s.output)}</div>` : ''}${(!s.ok && !s.skipped) ? `<div class="promo-step-fix"><button type="button" class="action-link" data-action="fix-promotion-step" data-payload="${escapeAttr(s.id)}">Ask Atlas to fix this</button></div>` : ''}</li>`).join('')}</ul>
             ${(p.result.rollback && (p.result.rollback.command || p.result.rollback.runbookRef)) ? `<p class="promotion-last">Recovery: ${escapeHtml(p.result.rollback.command || p.result.rollback.runbookRef)}</p>` : ''}
           </div>` : ''}
@@ -18421,7 +18932,7 @@
     const stk = cfg.stakeholders.find(s => s.contactId === contact.id);
     const team = cfg.teamMembers.find(t => t.contactId === contact.id);
     const badges = [];
-    if (isSelf) { badges.push('<span class="tag" style="background:var(--vscode-badge-background)">you</span>'); }
+    if (isSelf) { badges.push('<span class="tag" style="background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)">you</span>'); }
     if (stk) { badges.push('<span class="tag">' + escapeHtml(stk.category) + ' · ' + escapeHtml(stk.influence) + '/' + escapeHtml(stk.interest) + '</span>'); }
     if (team) { badges.push('<span class="tag mono">' + escapeHtml(team.discipline) + '</span>'); }
     const buzzLink = (contact.links || []).find(l => l.kind === 'buzz');
@@ -19212,7 +19723,7 @@
     });
 
     const gdprBanner = (d.storesRawPii && !d.piiAcknowledged) ? `
-      <article class="panel-card" style="border-color:var(--vscode-inputValidation-warningBorder,#c90)">
+      <article class="panel-card" style="border-color:color-mix(in srgb, var(--vscode-inputValidation-warningBorder,#c90) var(--atlas-ink-share), var(--tint-away))">
         <p class="section-kicker">Personal data</p>
         <h3>This roster holds personal data (GDPR)</h3>
         <p class="section-copy">Names and contact details are personal data. AtlasMind will classify them as confidential so they never reach an un-trusted model. Prefer referencing people in Microsoft 365 / Slack over storing raw details. Acknowledge to persist the roster to disk.</p>

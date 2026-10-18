@@ -395,14 +395,60 @@ export function getWebviewHtmlShell(options: WebviewShellOptions): string {
        "vscode-dark" / "vscode-high-contrast" on the webview body, so mixing
        toward "var(--tint-away)" instead of a literal moves the colour *away*
        from the page background in whichever theme is active.
-       "--tint-toward" is the opposite direction, for tinting surfaces. */
+       "--tint-toward" is the opposite direction, for tinting surfaces.
+
+       The theme branches are written against the *document*
+       (":root:has(> body.vscode-light)"), not against body. VS Code puts the
+       theme class on the body element but the --vscode-* colours on the html
+       element, and a custom property is resolved on the element that declares
+       it: a token declared on :root that reads var(--tint-toward) substitutes
+       the :root value, so a branch declared on body never reaches it and the
+       light theme quietly renders the dark branch. Declaring the branch on :root is what lets the
+       shared tokens in dashboardTheme.ts compose these.
+
+       High-contrast light carries both "vscode-high-contrast" and
+       "vscode-high-contrast-light"; it is a light page, so it tints like one.
+
+       "--atlas-boundary" is the edge of a raised surface — a card, a chip, a
+       chat bubble, a badge. WCAG 1.4.11 asks 3:1 between a component's
+       boundary and what surrounds it, and the theme's own hairlines are not
+       built for that (Dark Modern's widget border is 1.2:1 against its editor,
+       Light Modern's 1.3:1), which is why cards on every dashboard read as
+       the same colour as the page. Mixing the editor foreground into the
+       editor background derives an edge that clears 3:1 in Dark Modern and
+       Light Modern (light needs a larger share: sRGB mixing is not linear in
+       luminance), and high contrast uses the theme's own contrastBorder,
+       which exists for exactly this. tests/views/surfaceBoundaries.test.ts
+       measures it in all four built-in theme kinds. A tone (good, warning, an
+       accent) *tints* a boundary by mixing into it, never thins it by mixing
+       into transparent.
+
+       "--atlas-ink-share" is how much of a status colour survives when it is
+       used as text. VS Code's light themes ship pastel status colours —
+       Light Modern's error foreground is 3.4:1 on white, its passed-test green
+       1.9:1 — so "color-mix(in srgb, <status> var(--atlas-ink-share),
+       var(--tint-away))" leaves a dark theme untouched (100%) and deepens the
+       colour toward black on a light one until it reads as text. */
     :root {
       --tint-away: white;
       --tint-toward: black;
+      --atlas-boundary: color-mix(in srgb, var(--vscode-editor-foreground, var(--vscode-foreground)) 52%, var(--vscode-editor-background));
+      --atlas-ink-share: 100%;
+      /* The accent as an *edge*. High contrast paints buttons black and draws
+         them with contrastBorder, so the button colour is black on black there;
+         every accent-tinted border takes the contrast border instead. */
+      --atlas-edge-accent: var(--vscode-button-background);
     }
-    body.vscode-light {
+    :root:has(> body.vscode-light),
+    :root:has(> body.vscode-high-contrast-light) {
       --tint-away: black;
       --tint-toward: white;
+      --atlas-boundary: color-mix(in srgb, var(--vscode-editor-foreground, var(--vscode-foreground)) 62%, var(--vscode-editor-background));
+      --atlas-ink-share: 55%;
+    }
+    :root:has(> body.vscode-high-contrast) {
+      --atlas-boundary: var(--vscode-contrastBorder, var(--vscode-editor-foreground, var(--vscode-foreground)));
+      --atlas-edge-accent: var(--vscode-contrastBorder, var(--vscode-button-background));
     }
     body {
       margin: 0;
@@ -518,14 +564,14 @@ export const QUICK_REPLY_CSS = `
           line-height: 1.35;
           cursor: pointer;
           font-weight: 600;
-          border: 1px solid color-mix(in srgb, var(--vscode-button-background) 70%, var(--vscode-widget-border, #444));
+          border: 1px solid color-mix(in srgb, var(--atlas-edge-accent) 70%, var(--atlas-boundary));
           background: color-mix(in srgb, var(--vscode-button-background) 14%, transparent);
           color: var(--vscode-foreground);
           transition: background 100ms ease, border-color 100ms ease, transform 80ms ease;
         }
         .quick-reply-btn:hover {
           background: color-mix(in srgb, var(--vscode-button-background) 28%, transparent);
-          border-color: var(--vscode-button-background);
+          border-color: var(--atlas-edge-accent);
         }
         .quick-reply-btn:active {
           transform: scale(0.96);
@@ -549,7 +595,7 @@ export const ATLAS_DISCUSS_ACTION_CSS = `
     min-height: 30px;
     max-width: 100%;
     padding: 4px 9px;
-    border: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground) 52%, var(--vscode-widget-border, rgba(127, 127, 127, 0.4)));
+    border: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground) 52%, var(--atlas-boundary));
     border-radius: 999px;
     background: color-mix(in srgb, var(--vscode-textLink-foreground) 12%, transparent);
     color: var(--vscode-textLink-foreground);
@@ -577,6 +623,11 @@ export const ATLAS_DISCUSS_ACTION_CSS = `
   body.vscode-dark .atlas-discuss-action img,
   body.vscode-high-contrast .atlas-discuss-action img {
     filter: invert(1);
+  }
+  /* High-contrast light also carries "vscode-high-contrast", and inverting the
+     mark there paints it white on a white page. */
+  body.vscode-high-contrast-light .atlas-discuss-action img {
+    filter: none;
   }
   /*
    * The compact Atlas action: a pill carrying two symbols — the Atlas mark on

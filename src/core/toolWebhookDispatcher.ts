@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { interceptDryRun } from './dryRunHost.js';
 
 export { toJsonPreview, toTextPreview } from './toolPreview.js';
 
@@ -73,6 +74,20 @@ export class ToolWebhookDispatcher {
   private async deliver(payload: ToolWebhookEventPayload, bypassEventFilter: boolean): Promise<void> {
     const config = this.getSettings();
     if (!config.enabled || config.url.length === 0) {
+      return;
+    }
+
+    // A webhook is a message sent off the machine. In a dry run it is recorded
+    // and not sent; the test button says so, an event that fired on its own
+    // does not raise a notice of its own.
+    if (interceptDryRun({
+      surface: 'webhook',
+      kind: 'message',
+      summary: `send the ${payload.event} webhook`,
+      details: { event: payload.event, toolName: payload.toolName ?? null },
+      userInitiated: bypassEventFilter,
+    })) {
+      this.outputChannel?.appendLine(`[webhook] ${payload.event} not sent: dry run is on.`);
       return;
     }
 

@@ -31,11 +31,12 @@ import { dispatchGuardedCompletion } from '../core/modelEgress.js';
 import { isLocalProviderId } from '../core/backgroundMemoryPolicy.js';
 import {
   compareWithBaseline,
+  countDeclaredCases,
   definitionFingerprint,
   gradeCase,
   judgeChecks,
   readEvalBaseline,
-  readGoldenCases,
+  readGoldenCaseFile,
   writeEvalBaseline,
   type CaseResult,
   type EvalRun,
@@ -64,7 +65,15 @@ export interface AgentEvalDeps {
    * running at all than about running on the ideal model.
    */
   profiler?: TaskProfiler;
-  workspaceRoot: () => string | undefined;
+  /**
+   * Where project memory lives right now — the SSOT home, read on every call.
+   *
+   * Both halves, not just the path: an absent path means *no folder open*
+   * (no cases can exist) **or** *the home is ambiguous* (the cases exist
+   * somewhere and cannot be read), and the gate must hold on the second and
+   * not on the first. A bare `fsPath` cannot tell them apart.
+   */
+  ssotHome: () => { fsPath?: string; refusal?: string };
 }
 
 /** Run one case against one definition. Never throws. */
@@ -138,29 +147,39 @@ async function replayGoldenCases(
 /**
  * The seam the auto-updater consults.
  *
- * Returns `undefined` whenever the check genuinely could not be made — no
- * workspace, no cases — which the gate treats as *unverified* and therefore
- * holds. That is the intended reading: the alternative is a rewrite shipping
- * unattended on the strength of a check that did not happen.
+ * `declaredCaseCount` says *unreadable* — never `0` — when the SSOT home is
+ * ambiguous or the cases file exists and cannot be read, so the gate holds the
+ * rewrite rather than releasing it as an agent nobody wrote cases for.
+ * `verify` returns `undefined` whenever the check genuinely could not be made,
+ * which the gate treats as *unverified* and therefore holds. That is the
+ * intended reading: the alternative is a rewrite shipping unattended on the
+ * strength of a check that did not happen.
  */
 export function createAgentUpdateVerifier(deps: AgentEvalDeps): AgentUpdateVerifier {
   return {
     declaredCaseCount: agentId => {
-      const root = deps.workspaceRoot();
-      return root ? readGoldenCases(root).filter(entry => entry.agentId === agentId).length : 0;
+      const home = deps.ssotHome();
+      return countDeclaredCases(agentId, {
+        ...(home.refusal ? { refusal: home.refusal } : {}),
+        ...(home.fsPath ? { read: readGoldenCaseFile(home.fsPath) } : {}),
+      });
     },
     verify: async (agent, candidate): Promise<RegressionVerdict | undefined> => {
-      const root = deps.workspaceRoot();
-      if (!root) {
+      const home = deps.ssotHome();
+      if (home.refusal || !home.fsPath) {
         return undefined;
       }
-      const cases = readGoldenCases(root).filter(entry => entry.agentId === agent.id);
+      const read = readGoldenCaseFile(home.fsPath);
+      if (read.state !== 'read') {
+        return undefined;
+      }
+      const cases = read.cases.filter(entry => entry.agentId === agent.id);
       if (cases.length === 0) {
         return undefined;
       }
       // Against the candidate, never the live definition.
       const run = await replayGoldenCases(deps, candidate, cases, new Date().toISOString());
-      return compareWithBaseline(agent.id, run, cases, readEvalBaseline(root));
+      return compareWithBaseline(agent.id, run, cases, readEvalBaseline(home.fsPath));
     },
   };
 }
@@ -174,12 +193,24 @@ export function createAgentUpdateVerifier(deps: AgentEvalDeps): AgentUpdateVerif
  * becomes the new normal — and the dialog says what it is about to accept.
  */
 export async function runAgentEvalSuite(deps: AgentEvalDeps): Promise<void> {
-  const root = deps.workspaceRoot();
+  const home = deps.ssotHome();
+  if (home.refusal) {
+    // The same sentence every project-memory surface shows, rather than
+    // "no cases" — which would be a claim about a file nobody could read.
+    void vscode.window.showWarningMessage(home.refusal);
+    return;
+  }
+  const root = home.fsPath;
   if (!root) {
     void vscode.window.showWarningMessage('Open a workspace folder before running the agent evals.');
     return;
   }
-  const cases = readGoldenCases(root);
+  const read = readGoldenCaseFile(root);
+  if (read.state === 'unreadable') {
+    void vscode.window.showWarningMessage(`The golden cases could not be read: ${read.reason}`);
+    return;
+  }
+  const cases = read.state === 'read' ? read.cases : [];
   if (cases.length === 0) {
     void vscode.window.showInformationMessage(
       'No golden cases are declared. Add them to project_memory/agents/eval-cases.json — each needs a prompt, at least one check, and the reason it exists.',

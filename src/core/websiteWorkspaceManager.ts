@@ -56,6 +56,7 @@ import {
   UI_REPOSITORY_MAPPING_MAX_REVISION,
   UI_REPOSITORY_ADAPTERS,
 } from './uiRepositoryMapping.js';
+import { SsotHomeRefusalError } from './workspaceScope.js';
 
 export const WEBSITE_WORKSPACE_SSOT_PATH = 'project_memory/domain/website.json';
 export const WEBSITE_WORKSPACE_SUMMARY_SSOT_PATH = 'project_memory/domain/website.md';
@@ -602,7 +603,16 @@ export interface WebsiteWorkspaceRead {
 }
 
 export class WebsiteWorkspaceManager {
-  public constructor(private readonly workspaceRoot?: string) {}
+  /**
+   * @param workspaceRoot The SSOT home — `website.json` is project memory, so
+   *   it lives wherever `ssotHomeRoot()` says, never assumed to be folder 0.
+   * @param refusal Why project memory may not be written here, when the home
+   *   is ambiguous. Reads return the default; `save` throws this sentence.
+   */
+  public constructor(
+    private readonly workspaceRoot?: string,
+    private readonly refusal?: string,
+  ) {}
 
   public exists(): boolean {
     return Boolean(this.workspaceRoot && existsSync(path.join(this.workspaceRoot, WEBSITE_WORKSPACE_SSOT_PATH)));
@@ -657,6 +667,9 @@ export class WebsiteWorkspaceManager {
   }
 
   public async save(input: unknown): Promise<WebsiteWorkspaceConfig> {
+    if (this.refusal) {
+      throw new SsotHomeRefusalError(this.refusal);
+    }
     if (!this.workspaceRoot) {
       throw new Error('Open a workspace folder before saving UI Studio.');
     }

@@ -26,15 +26,38 @@
  */
 export const DASHBOARD_TOKENS_CSS = `
   :root {
-    --dash-bg: radial-gradient(circle at top left, color-mix(in srgb, var(--vscode-button-background) 18%, transparent), transparent 40%), linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 86%, black 14%), var(--vscode-editor-background));
+    /* Surfaces shade toward the page (--tint-toward) and accents lift away
+       from it (--tint-away), never toward a literal black or white. Literal
+       black was right on a dark theme and greyed a light one: the page top
+       went to #dbdbdb and the card surface to #dadada, so on Light Modern a
+       card was the colour of the page it sat on. Both tokens come from the
+       shell and resolve to exactly the old literals on a dark theme. */
+    --dash-bg: radial-gradient(circle at top left, color-mix(in srgb, var(--vscode-button-background) 18%, transparent), transparent 40%), linear-gradient(180deg, color-mix(in srgb, var(--vscode-editor-background) 86%, var(--tint-toward) 14%), var(--vscode-editor-background));
     --dash-panel: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-editor-background)) 78%, transparent);
-    --dash-panel-strong: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 88%, black 12%);
-    --dash-border: color-mix(in srgb, var(--vscode-widget-border, var(--vscode-panel-border)) 70%, transparent);
+    --dash-panel-strong: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 88%, var(--tint-toward) 12%);
+    /* The edge of every raised surface. It used to be the theme's widget
+       border at 70% — 1.1:1 against the page on Dark Modern — so a card was
+       distinguishable only by a fill a few percent off the background. It is
+       now the shell's --atlas-boundary, which clears WCAG 1.4.11's 3:1 in
+       every built-in theme kind. Dividers inside a card dilute it on purpose
+       ("color-mix(var(--dash-border) 70%, transparent)"): a row rule is not a
+       component boundary and should not compete with one. */
+    --dash-border: var(--atlas-boundary);
     --dash-accent: var(--vscode-button-background);
-    --dash-accent-strong: color-mix(in srgb, var(--vscode-button-background) 78%, white 22%);
-    --dash-good: var(--vscode-testing-iconPassed, #4bb878);
-    --dash-warn: var(--vscode-testing-iconQueued, #d7a34b);
-    --dash-critical: var(--vscode-testing-iconFailed, #d05f5f);
+    /* Accent *ink* — text, edges, rings. Lifted further from the page than it
+       used to be (35%, was 22%), because it sits on accent-tinted chips as
+       often as on the page, and at 22% it measured 3.7–4.4:1 on its own chip
+       in Dark Modern. High contrast overrides it below. */
+    --dash-accent-strong: color-mix(in srgb, var(--vscode-button-background) 65%, var(--tint-away) 35%);
+    /* Status tones go through the shell's --atlas-ink-share: unchanged on a
+       dark theme, deepened on a light one, where VS Code's own testing icons
+       are pastel (Light Modern's passed green is 1.9:1 on white). */
+    --dash-good: color-mix(in srgb, var(--vscode-testing-iconPassed, #4bb878) var(--atlas-ink-share), var(--tint-away));
+    --dash-warn: color-mix(in srgb, var(--vscode-testing-iconQueued, #d7a34b) var(--atlas-ink-share), var(--tint-away));
+    /* High contrast leaves testing.iconFailed unset, so the error foreground —
+       which every high-contrast theme does define — is the fallback rather than
+       a hand-picked red tuned for Dark Modern. */
+    --dash-critical: color-mix(in srgb, var(--vscode-testing-iconFailed, var(--vscode-errorForeground, #d05f5f)) var(--atlas-ink-share), var(--tint-away));
     --dash-muted: var(--vscode-descriptionForeground);
     --dash-heading: "Segoe UI Variable Display", "Aptos Display", "Trebuchet MS", sans-serif;
     --dash-body: "Segoe UI Variable Text", "Aptos", "Segoe UI", sans-serif;
@@ -74,6 +97,19 @@ export const DASHBOARD_TOKENS_CSS = `
     --dash-dur-value: 420ms;
     --dash-dur-entry: 520ms;
     --dash-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+  /* High contrast paints buttons black on black and draws them with
+     contrastBorder, so an accent derived from the button background is black
+     too: every active chip, link and selected tab vanished. VS Code's own
+     high-contrast "this one is active" colour is contrastActiveBorder. */
+  :root:has(> body.vscode-high-contrast) {
+    --dash-accent-strong: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
+  }
+  /* High-contrast light's active border (#006bbd) clears 4.5:1 on white but
+     not on the accent-tinted chips it labels; the theme's link colour is its
+     own strong blue. */
+  :root:has(> body.vscode-high-contrast-light) {
+    --dash-accent-strong: var(--vscode-textLink-foreground, var(--vscode-contrastActiveBorder));
   }
 `;
 
@@ -184,7 +220,7 @@ export const SHARED_CONTROL_CSS = `
   .is-actionable:hover,
   .is-actionable:focus-visible {
     transform: translateY(-1px);
-    border-color: color-mix(in srgb, var(--dash-accent) 60%, var(--dash-border));
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 60%, var(--dash-border));
   }
 
   .static {
@@ -578,7 +614,7 @@ export const DASHBOARD_PANEL_SKIN_CSS = `
   .lens-button.primary {
     background: var(--vscode-button-background);
     color: var(--vscode-button-foreground);
-    border: 1px solid var(--vscode-button-background);
+    border: 1px solid var(--atlas-edge-accent);
   }
 
   .dashboard-button-primary:hover,
@@ -598,7 +634,7 @@ export const DASHBOARD_PANEL_SKIN_CSS = `
   .dashboard-button-secondary:hover,
   .dashboard-button-ghost:hover,
   .lens-button:hover {
-    border-color: color-mix(in srgb, var(--dash-accent) 60%, var(--dash-border));
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 60%, var(--dash-border));
     background: color-mix(in srgb, var(--dash-panel) 96%, transparent);
   }
 
@@ -626,7 +662,7 @@ export const DASHBOARD_PANEL_SKIN_CSS = `
   }
 
   ${NAV_LINK_SELECTOR.split(',\n  ').map(selector => `${selector}:hover`).join(',\n  ')} {
-    border-color: color-mix(in srgb, var(--dash-accent) 60%, var(--dash-border));
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 60%, var(--dash-border));
     background: color-mix(in srgb, var(--dash-panel) 96%, transparent);
   }
 
@@ -637,7 +673,7 @@ export const DASHBOARD_PANEL_SKIN_CSS = `
   .nav-tab[aria-selected="true"],
   .page-nav button[aria-selected="true"] {
     background: color-mix(in srgb, var(--dash-accent) 84%, transparent);
-    border-color: color-mix(in srgb, var(--dash-accent) 80%, white 20%);
+    border-color: color-mix(in srgb, var(--atlas-edge-accent) 80%, var(--tint-away) 20%);
     color: var(--vscode-button-foreground, var(--vscode-foreground));
     font-weight: 700;
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--dash-accent-strong) 55%, transparent), 0 6px 16px color-mix(in srgb, var(--dash-accent) 26%, transparent);
@@ -648,7 +684,7 @@ export const DASHBOARD_PANEL_SKIN_CSS = `
     font-weight: 700;
     letter-spacing: 0.11em;
     text-transform: uppercase;
-    color: color-mix(in srgb, var(--dash-muted) 88%, transparent);
+    color: var(--dash-muted);
     padding-left: 4px;
   }
 
@@ -690,7 +726,7 @@ export const DASHBOARD_PANEL_SKIN_CSS = `
   input:where(:not([type="radio"], [type="checkbox"], [type="range"])),
   select,
   textarea {
-    border: 1px solid var(--vscode-input-border, var(--dash-border));
+    border: 1px solid var(--atlas-boundary);
     border-radius: var(--dash-radius-xs);
     padding: 7px 10px;
     font-family: inherit;
