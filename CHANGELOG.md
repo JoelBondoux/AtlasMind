@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.504.3] - 2026-10-18
+
+### Security
+
+- **CI's secret scan no longer fails on three synthetic test values.** `271de8a9` (0.503.0) wrote a sandbox
+  dependency volume's content key as `'0123456789abcdef'.repeat(4)` in `sandboxPlan.test.ts`,
+  `sandboxRunner.test.ts` and `sandboxApprovalRelaxation.test.ts`, which gitleaks' `generic-api-key` rule reads as
+  a key. Each was read and judged synthetic: it is the 64-hex-character digest a Docker volume is named by, and it
+  authorises nothing. The release pull request's scan covers every commit since the last release, so it would
+  have shown red, where #238's was green.
+- A new **`.gitleaksignore`** pins exactly those three findings by fingerprint (`<commit>:<file>:<rule>:<line>`).
+  This is narrower than `.gitleaks.toml`'s path allowlist: a real key added to the same files later produces a
+  different fingerprint and is still caught. Each entry carries what it was. `docs/development.md`,
+  `docs/local-ci-and-safe-runners.md` and `wiki/Contributing.md` say when to pin a finding and when to allowlist
+  a file, and that a pattern is never allowlisted.
+- The 19 other findings a full-history scan reports are all in commits already on `main`, outside any pull
+  request's range, and are left for a separate review rather than pinned unread.
+
 ## [0.504.2] - 2026-10-18
 
 ### Fixed
