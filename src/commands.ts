@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { pathToFileURL } from 'node:url';
 import type { AtlasMindContext } from './extension.js';
-import { describeLocalModel, getConfiguredLocalEndpoints, resetAcpProbeCache } from './providers/index.js';
+import { describeLocalModel, getConfiguredLocalEndpoints, resetAcpProbeCache, type LocalEchoAdapter } from './providers/index.js';
+import { describeUnslothHeldBack } from './providers/unslothStudio.js';
 import type { AgentDefinition, McpServerConfig, ProviderId, SkillDefinition, SkillScanResult } from './types.js';
 import type { SettingsPageId, SettingsPanelTarget } from './views/settingsPanel.js';
 import { TaskProfiler } from './core/taskProfiler.js';
@@ -2562,6 +2563,14 @@ export async function buildModelSummary(
     );
   }
 
+  // Read after the live list, which is the listing that records them.
+  const heldBack = item.providerId === 'local' && configured
+    ? describeHeldBackLocalModels(atlas)
+    : [];
+  if (heldBack.length > 0) {
+    sections.push(`**Listed but not routable:** ${heldBack.join(' ')}`);
+  }
+
   if (item.partiallyEnabled) {
     sections.push('**Mixed state:** Some child models are disabled');
   }
@@ -2587,6 +2596,20 @@ export async function buildModelSummary(
   }
 
   return sections.join('\n');
+}
+
+/**
+ * What the local adapter's last listing held back, and why — models a runtime
+ * lists that AtlasMind does not route to. Without this line the provider
+ * summary and the local model advisor disagree with nothing to explain it: the
+ * advisor calls a model installed and the routed list simply leaves it out.
+ */
+function describeHeldBackLocalModels(atlas: AtlasMindContext): string[] {
+  const adapter = atlas.providerRegistry.get('local') as Partial<Pick<LocalEchoAdapter, 'describeHeldBackModels'>> | undefined;
+  if (!adapter || typeof adapter.describeHeldBackModels !== 'function') {
+    return [];
+  }
+  return describeUnslothHeldBack(adapter.describeHeldBackModels());
 }
 
 async function getLiveLocalEngineModels(atlas: AtlasMindContext): Promise<string[] | undefined> {

@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.504.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.504.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,15 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.504.2
+
+**Unsloth Studio models no longer vanish from the routed list without a reason.** Studio lists every model you
+have downloaded, but with its default settings it serves only the one it has loaded. AtlasMind now reads Studio's
+**Switch model by request** setting. With it on, every downloaded model is routable and Studio loads it when asked.
+With it off, only loaded models are, and the others are listed with the reason: under *Listed but not routable* in
+the provider summary, and beside each Studio model in the local model advisor, which now reads Studio's load state
+live.
+
 ## What's new in 0.504.1
 
 **Every open Dependabot alert is fixed, and `npm audit` reports zero.** The critical one was `proxy-addr`, which
@@ -194,13 +203,6 @@ own chat-model GGUF builds, and offers every quantisation with its size and whet
 loads, unloads or deletes, each step confirmed and held by dry run; a download can be cancelled. AtlasMind asks
 Studio to keep its own Python, shell and web-search tools off on every request, because anything Studio runs itself
 would bypass AtlasMind's approvals and sandbox. Start Studio with `--disable-tools` to make that a setting it cannot be talked out of.
-
-## What's new in 0.503.2
-
-A turn that says it is about to edit a file now edits it. A reply that only announces a change is sent
-back once to make it, and if it still only announces, the reply and its summary say it was not done
-instead of "Completed". "Continue" after such a reply finishes that step rather than planning a project
-around it, and **Approve and run** now starts the run it approves.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.482.1**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in

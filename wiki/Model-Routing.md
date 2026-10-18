@@ -38,8 +38,13 @@ You can even aggregate several local engines together under one provider.
 **Unsloth Studio** needs an API key. Run **AtlasMind: Connect Unsloth Studio**: it checks the server really
 is Studio before asking for the key (its default port, 8888, is Jupyter's too), tries the key, and keeps it
 for that endpoint alone. **AtlasMind: Manage Unsloth Models** then loads a model at a quantisation you pick.
-AtlasMind routes only to models Studio has *loaded*, never to one that is only downloaded, because
-routing to it would make Studio load gigabytes on its own say-so.
+Which of Studio's downloaded models AtlasMind can use depends on a Studio setting, **Settings → API →
+"Switch model by request"**, which Studio ships turned off. With it off, Studio serves only the model it
+has loaded and refuses the rest, so AtlasMind routes only to loaded models. With it on, Studio loads a
+model when asked, so every downloaded model is routable and AtlasMind queues the load like any other.
+Either way AtlasMind says which models it is holding back and why: in the provider summary, and beside
+each Studio model in the local model advisor. If nothing is routable, load a model with **AtlasMind:
+Manage Unsloth Models**, or turn the setting on in Studio.
 
 Studio can run Python, a shell and web search itself, inside a reply. Anything it ran that way would
 skip AtlasMind's approvals and sandbox, so every request asks Studio to keep those tools off. Start Studio

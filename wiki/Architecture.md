@@ -521,8 +521,10 @@ popular.
 **Unsloth Studio** is the third runtime, and the only one with a key. Which runtime an endpoint is gets
 decided by one rule every surface shares: what you declared, then the label, then the port. Studio's port,
 8888, is Jupyter's too, so AtlasMind sends its key only after Studio has said who it is. For the arbiter,
-Studio reports what is loaded but not how much memory it uses, like LM Studio. AtlasMind routes only to
-models Studio has *loaded*. Every request asks Studio not to run its own tools, because AtlasMind would
+Studio reports what is loaded but not how much memory it uses, like LM Studio. AtlasMind routes to a
+model Studio has loaded, and to one it has only downloaded only when Studio's "Switch model by request"
+setting is on. Whatever it holds back it reports, with the reason, on every surface that lists Studio's
+models. Every request asks Studio not to run its own tools, because AtlasMind would
 never see them. Its management API — downloads, quantisations, load, unload, delete — is in
 `src/providers/unslothStudio.ts`, read from Studio's source and pinned to the release it was read from.
 

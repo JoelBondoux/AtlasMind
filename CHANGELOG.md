@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.504.2] - 2026-10-18
+
+### Fixed
+
+- **Unsloth Studio models the local model advisor called installed were missing from the routed model list,
+  with no reason given.** Studio's `/v1/models` lists every downloaded model beside the loaded ones, each with a
+  `loaded` flag. 0.504.0 dropped every `loaded: false` entry, so a Studio with twelve models downloaded and none
+  loaded routed nothing, while the advisor (which reads Studio's downloads) listed all twelve. Whether Studio
+  serves an unloaded model is its own setting: **Settings → API → "Switch model by request"**, read from Studio's
+  source and shipped **off**. With it off Studio answers `404 model_not_found`. With it on, Studio loads the model
+  it was asked for.
+  - AtlasMind now reads that setting (`GET /api/settings/openai-auto-switch`, through the Studio client, after the
+    identity check, and only when a listing has an unloaded model). One rule, `decideUnslothRouting`
+    (`UNSLOTH_ROUTING_RULES`), decides each model: loaded is always routable. An unloaded model is routable only
+    while the setting reads on, and the GPU arbiter then queues Studio's load like any other cold load. An
+    unreadable setting counts as off, because routing to a model Studio refuses would record a failure against a
+    model that works.
+  - **A held-back model is reported, never silently dropped.** `LocalEchoAdapter.describeHeldBackModels()` keeps
+    what each endpoint's last listing held back and why. The provider summary prints it as *Listed but not
+    routable*, naming the models and the rule's own explanation. Non-chat models such as Llama Guard are not
+    reported; they are excluded for a different reason.
+  - The local model advisor marks every Studio row with the same rule (*loaded · AtlasMind routes to it*, *on disk ·
+    Studio loads it when AtlasMind asks*, *on disk, not loaded · not routable until loaded*), and shows a note naming
+    the setting when any are held back. Studio's rows are re-read live on every scan, because the hour-long sync
+    cache is far slower than Studio's load state; a failed live read drops their load claims rather than keeping
+    stale ones. `syncUnsloth` returns `undefined`, not `[]`, when Studio cannot be read.
+  - **Manage Unsloth Models** says, on its *Nothing is loaded* row and beside each download, whether AtlasMind can
+    route to an unloaded model.
+  - A cross-surface test asserts the routed list and the advisor agree for every combination of load state and
+    setting.
+
 ## [0.504.1] - 2026-10-18
 
 ### Security

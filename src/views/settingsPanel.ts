@@ -32,7 +32,7 @@ import { readProjectTestingConfig, TESTING_CONFIG_SSOT_PATH } from '../core/test
 import { IMMUTABLE_GUARDRAILS } from '../core/orchestrator.js';
 import type { ArdDiscoveredResource, ArdDiscoveryEndpoint, ProjectTestingConfig, TestingMethodologyId } from '../types.js';
 import { getDisplayCurrency, getExchangeRate } from '../core/currencyFormatter.js';
-import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, syncLocalModels, type LocalModelSyncResult, type UnslothSyncTarget } from '../providers/localModelSync.js';
+import { isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, refreshUnslothRows, syncLocalModels, type LocalModelSyncResult, type UnslothSyncTarget } from '../providers/localModelSync.js';
 import {
   isLocalEndpointRuntime,
   LOCAL_RUNTIME_LABELS,
@@ -40,7 +40,7 @@ import {
   runtimeOrigin,
   type LocalEndpointRuntime,
 } from '../providers/localRuntimeClient.js';
-import { isValidHfRepoId, repoIdFromCatalogTag } from '../providers/unslothStudio.js';
+import { isValidHfRepoId, repoIdFromCatalogTag, UNSLOTH_ROUTING_RULES } from '../providers/unslothStudio.js';
 import { TESTING_METHODOLOGY_DEFINITIONS } from '../types.js';
 import { deriveTestingPolicyCoverage, parseJUnitReport, type TestingPolicyCoverage, type TestingPolicyTestFile } from '../core/testingPolicyCoverage.js';
 import { complianceCatalogFor } from '../core/complianceControlCatalog.js';
@@ -383,6 +383,8 @@ interface LocalModelRecommendationPayload {
   recentlyUsedFamilies: Array<{ family: string; requests: number }>;
   recommendations: LocalModelRecommendationItem[];
   installedModels: InstalledLocalModelItem[];
+  /** Why some Unsloth Studio models are listed here and not routable, when any are. */
+  unslothNote?: string;
 }
 
 /**
@@ -6068,9 +6070,13 @@ export class SettingsPanel {
             : '<p class="local-model-empty">No recommendation could be generated from the available data.</p>';
 
           const installedModels = Array.isArray(payload?.installedModels) ? payload.installedModels : [];
+          const unslothNoteHtml = typeof payload?.unslothNote === 'string' && payload.unslothNote
+            ? '<p class="info-note">' + escapeForHtml(payload.unslothNote) + '</p>'
+            : '';
           const installedHtml = installedModels.length > 0
             ? '<div class="local-model-installed">'
               + '<h4>Installed local models</h4>'
+              + unslothNoteHtml
               + installedModels.map(item => {
                 const runtimeKey = String(item.runtime ?? '').toLowerCase();
                 const runtimeLabel = runtimeKey === 'lmstudio'
@@ -8711,7 +8717,10 @@ async function buildLocalModelRecommendationPayload(
       const facts: string[] = [];
       if (model.runtime === 'unsloth') {
         if (model.sizeBytes !== undefined) { facts.push(`${(model.sizeBytes / (1024 ** 3)).toFixed(1)} GB on disk`); }
-        if (model.loaded === true) { facts.push('loaded'); }
+        // The rule's own words, the same rule the routed model list applies,
+        // so "installed" here never silently means "not routable" there.
+        const rule = UNSLOTH_ROUTING_RULES.find(candidate => candidate.id === model.routingRule);
+        facts.push(rule ? rule.short : 'load state unknown');
         if (model.partial) { facts.push('interrupted download'); }
       }
       return {
@@ -8726,6 +8735,17 @@ async function buildLocalModelRecommendationPayload(
     })
     .sort((left, right) => left.runtime.localeCompare(right.runtime) || left.displayName.localeCompare(right.displayName));
 
+  // One sentence above the list when any Studio model is held back, naming the
+  // rule that did it, so the reason is on the page that shows the model.
+  const heldBackRules = [...new Set((localSync?.models ?? [])
+    .filter(model => model.runtime === 'unsloth' && model.routingRule !== undefined)
+    .map(model => model.routingRule))]
+    .map(id => UNSLOTH_ROUTING_RULES.find(rule => rule.id === id))
+    .filter((rule): rule is (typeof UNSLOTH_ROUTING_RULES)[number] => rule !== undefined && !rule.routable);
+  const unslothNote = heldBackRules.length > 0
+    ? heldBackRules.map(rule => rule.description).join(' ')
+    : undefined;
+
   return {
     generatedAt: new Date().toISOString(),
     hardware,
@@ -8733,6 +8753,7 @@ async function buildLocalModelRecommendationPayload(
     recentlyUsedFamilies,
     recommendations,
     installedModels,
+    ...(unslothNote ? { unslothNote } : {}),
   };
 }
 
@@ -8744,7 +8765,9 @@ async function loadOrRefreshLocalModelSync(
 ): Promise<LocalModelSyncResult | undefined> {
   const cached = globalState.get<LocalModelSyncResult>(LOCAL_MODEL_SYNC_CACHE_KEY);
   if (cached && !isLocalSyncStale(cached)) {
-    return cached;
+    // Studio's load state changes far faster than the hour this cache keeps,
+    // and "loaded" is exactly what decides whether a row is routable.
+    return unsloth ? refreshUnslothRows(cached, unsloth) : cached;
   }
 
   try {
