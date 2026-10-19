@@ -1,5 +1,10 @@
 # Model Routing
 
+Auto approval reviews use the synthesis-model override and normal synthesis routing in a separate,
+tool-free call capped at 300 output tokens. They retain privacy and daily-budget checks; unavailable
+models or unknown prices ask instead. Usage is recorded as `approval-reviewer`, separately from the
+working agent. The session approval mode does not change provider configuration or ACP delegation.
+
 **AtlasMind picks the right model for each task, so you don't have to.**
 
 Connect whatever you have — a cloud API key, a subscription you already pay for, a local model, or all

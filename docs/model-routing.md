@@ -1,5 +1,10 @@
 # Model Routing
 
+Auto approval reviews use the existing synthesis-model override and balanced/fast synthesis routing.
+They are separate, tool-free calls with a 300-token output cap. Normal egress/privacy and daily-budget
+checks apply; unknown pricing or unavailable models fall back to asking. Reviewer usage is recorded
+under `approval-reviewer`. Selecting Auto does not reconfigure providers or select an ACP permission mode.
+
 ## Overview
 
 The Model Router selects the best LLM for each request based on user preferences, agent constraints, inferred task profile, model capabilities, and cost.

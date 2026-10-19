@@ -2799,6 +2799,25 @@ async function bootstrapAtlasMind(
         return { approved: true };
       }
 
+      if (toolApprovalManager.getApprovalMode() === 'auto') {
+        const revision = toolApprovalManager.getApprovalRevision();
+        const { reviewApprovalRequest } = await import('./core/approvalModes.js');
+        const review = await reviewApprovalRequest('auto', {
+          kind: 'tool', name: toolName, args, policy, intent: toolApprovalManager.getTaskIntent(taskId),
+          freshApproval: meta?.escalation?.decision === 'fresh-approval',
+        }, (systemPrompt, payload) => orchestrator.reviewApproval(taskId, systemPrompt, payload));
+        // A permission revoked during model review is revoked before execution.
+        const stillEnabled = toolApprovalManager.getApprovalMode() === 'auto'
+          && toolApprovalManager.getApprovalRevision() === revision;
+        const terminalEnabled = policy.category !== 'terminal-write'
+          || vscode.workspace.getConfiguration('atlasmind').get<boolean>('allowTerminalWrite', false);
+        outputChannel.appendLine(`[AtlasMind approvals] ${review.rule}: ${review.decision}; mode still active: ${stillEnabled}.`);
+        if (review.decision === 'allow' && stillEnabled && terminalEnabled) {
+          return { approved: true };
+        }
+        if (!terminalEnabled) { return { approved: false, reason: 'Terminal writes were disabled during approval review.' }; }
+      }
+
       const bypassCeilingReason = startupModules.toolBypassCeiling(policy);
       void import('./views/chatPanel.js').then(({ revealPreferredChatSurface }) => revealPreferredChatSurface({ preserveFocus: true }));
       const choice = await toolApprovalManager.requestApproval({
@@ -2812,7 +2831,7 @@ async function bootstrapAtlasMind(
             detail: `This action always requires explicit approval, even when Bypass Approvals or Autopilot is enabled. ${bypassCeilingReason}`,
           }
           : {}),
-      });
+      }, { kind: 'tool', name: toolName, args, policy, intent: toolApprovalManager.getTaskIntent(taskId) });
 
       if (choice === 'allow-once') {
         return { approved: true };
@@ -2915,6 +2934,7 @@ async function bootstrapAtlasMind(
         // source" — end with the task. They were per task in name and lived
         // until the window closed in fact.
         onTaskSettled: taskId => toolApprovalManager.clearTask(taskId),
+        onToolApprovalIntent: (taskId, intent) => toolApprovalManager.setTaskIntent(taskId, intent),
         onDryRunRecord: record => dryRunLedger.record(record),
         generatedSkillApprovalGate,
         writeCheckpointHook,
@@ -3106,6 +3126,17 @@ async function bootstrapAtlasMind(
     }
 
     const orchestrator = runtime.orchestrator;
+    toolApprovalManager.setAutomaticReviewer(async (request, input) => {
+      const { reviewApprovalRequest } = await import('./core/approvalModes.js');
+      const review = await reviewApprovalRequest('auto', input,
+        (systemPrompt, payload) => orchestrator.reviewApproval(request.taskId, systemPrompt, payload));
+      outputChannel.appendLine(`[AtlasMind approvals] Pending request review: ${review.rule}; ${review.decision}.`);
+      if (input.policy.category === 'terminal-write'
+        && !vscode.workspace.getConfiguration('atlasmind').get<boolean>('allowTerminalWrite', false)) {
+        return { decision: 'ask', rule: 'approval/terminal-writes-disabled' };
+      }
+      return review;
+    });
 
     // The arbiter is the single source of truth for what is loaded. The router
     // uses it to prefer a resident model over an equally suitable cold one, and
@@ -3937,7 +3968,7 @@ async function bootstrapAtlasMind(
     providerStatusBar.text = '$(loading~spin) Atlas';
     providerStatusBar.show();
     context.subscriptions.push(providerStatusBar);
-    autopilotStatusBar.command = 'atlasmind.toggleAutopilot';
+    autopilotStatusBar.command = 'atlasmind.setApprovalMode';
     updateAutopilotStatusBar(autopilotStatusBar, toolApprovalManager);
     context.subscriptions.push(autopilotStatusBar);
     const dryRunStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 48);
@@ -5284,14 +5315,10 @@ function updateAutopilotStatusBar(
   statusBar: vscode.StatusBarItem,
   toolApprovalManager: ToolApprovalManager,
 ): void {
-  if (!toolApprovalManager.isAutopilot()) {
-    statusBar.hide();
-    return;
-  }
-
-  statusBar.text = '$(rocket) Atlas Autopilot';
-  statusBar.tooltip = 'AtlasMind Autopilot is enabled for this session. Click to disable it.';
-  statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+  const mode = toolApprovalManager.getApprovalMode();
+  statusBar.text = `$(shield) Approvals: ${mode === 'auto' ? 'Auto' : mode === 'bypass' ? 'Bypass' : 'Ask'}`;
+  statusBar.tooltip = 'Choose Ask, Auto (model-reviewed), or Bypass for this extension session.';
+  statusBar.backgroundColor = mode === 'ask' ? undefined : new vscode.ThemeColor('statusBarItem.warningBackground');
   statusBar.show();
 }
 

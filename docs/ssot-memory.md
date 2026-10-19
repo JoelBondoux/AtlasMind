@@ -433,3 +433,19 @@ Scanning runs on every `loadFromDisk()` pass and on every `upsert()` call that p
 - Regex patterns for API keys, tokens, and passwords are enforced by the memory scanner before context inclusion.
 - Blocked entries are never sent to providers.
 - Warning-level entries are explicitly marked in the system prompt so the model treats them skeptically.
+
+### Roadmap display metadata and saved observations (0.506.0)
+
+The roadmap graph overlay may store each node's `completionPosition` separately from its plan
+`position`, with a document-level `completionLayout` for month columns or either tree direction.
+Absent layout metadata preserves the existing chronological default. These display fields do not
+change backlog completion or dependencies. Named baseline snapshots remain per developer in VS Code
+workspace state; selecting a saved comparison target stores an id and never edits either snapshot.
+
+### Game debt policy and evidence (0.508.0)
+
+The existing game-profile v1 document may declare `forkDebtThresholds`; absence means not declared,
+not zero. The JSON remains team-authored and its markdown mirror is regenerated. The technical-debt
+v1 overlay may store sanitised measured `evidenceDetail` and `lastGameScanNotes`. Entries retain manual
+status, detection date and transitions while measured counts change. Game scans use explicit assessed
+ids to obsolete only known findings; a missing/partial read never substitutes for evidence of removal.

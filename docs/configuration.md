@@ -1,5 +1,10 @@
 # Configuration Reference
 
+Ask/Auto/Bypass are temporary session modes selected with **AtlasMind: Set Approval Mode**, not a
+persisted setting. Ask uses `toolApprovalMode`; Auto reviews eligible requests through synthesis
+routing; Bypass grants eligible prompts. Workflow and terminal-write settings still constrain action.
+A repository cannot select a more permissive session mode for the operator.
+
 All AtlasMind settings live under the `atlasmind.*` namespace in VS Code.
 You can change them through the searchable, page-based Settings workspace (**AtlasMind: Open Settings Panel**) or directly in `.vscode/settings.json`.
 

@@ -748,6 +748,29 @@ describe('layoutRoadmapCompletion', () => {
     now: NOW,
   });
 
+  it('keeps delivered positions after refresh without moving the plan', () => {
+    const before = JSON.stringify(graph.nodes);
+    const records = [{ id: 'jan', normalizedText: 'jan', position: { x: 96, y: 96 }, completionPosition: { x: 800, y: 400 } }];
+    const laid = layoutRoadmapCompletion(graph.nodes, { records });
+    expect(laid.nodes.find(node => node.id === 'jan')?.position).toEqual({ x: 800, y: 400 });
+    expect(laid.nodes.find(node => node.id === 'jan')?.positionSource).toBe('declared');
+    expect(JSON.stringify(graph.nodes)).toBe(before);
+  });
+
+  it('offers both tree directions independently of chronological history', () => {
+    const tree = resolveRoadmapGraph({
+      items: [item({ id: 'one', completed: true }), item({ id: 'two', completed: true })],
+      records: [], declaredEdges: [{ from: 'one', to: 'two', origin: 'declared' }],
+      deriveSuggestions: false, now: NOW,
+    });
+    const horizontal = layoutRoadmapCompletion(tree.nodes, { layout: 'horizontal' });
+    const vertical = layoutRoadmapCompletion(tree.nodes, { layout: 'vertical' });
+    expect(horizontal.columns).toEqual([]);
+    expect(horizontal.nodes[1]!.position.x).toBeGreaterThan(horizontal.nodes[0]!.position.x);
+    expect(vertical.nodes[1]!.position.y).toBeGreaterThan(vertical.nodes[0]!.position.y);
+    expect(tree.nodes.every(node => node.completed)).toBe(true);
+  });
+
   it('columns by month, in order', () => {
     const laid = layoutRoadmapCompletion(graph.nodes);
     expect(laid.columns.map(column => column.label)).toEqual(['January 2026', 'March 2026', 'No date recorded']);

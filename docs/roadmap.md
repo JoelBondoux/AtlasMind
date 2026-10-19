@@ -2,6 +2,14 @@
 
 This roadmap provides a clear, user-friendly overview of upcoming features, improvements, and compliance initiatives for AtlasMind. It is updated in sync with the developer backlog and highlights priorities relevant to users, contributors, and stakeholders.
 
+## Delivered MVP refinements
+
+Delivered-roadmap node management and saved-baseline comparisons are implemented in 0.506.0.
+Delivered nodes have independent persistent pins, group movement, snapping, both tree directions
+and a completion-month reset. Workflow can compare two captured moments with before/after readings
+and exact endpoints. See the [MVP worklist](../project_memory/operations/mvp-worklist.md) for evidence
+and remaining scope; the canonical backlog remains authoritative.
+
 ## Upcoming Features & Improvements
 
 ### AtlasMind Lens — Queryable Project Visualisations
@@ -33,7 +41,7 @@ AtlasMind will deliver fast-start, opinionated project templates for:
       new Remix-style apps); Laravel; Django; Static Website; and Blog/CMS through Astro Content.
     - **Frontend (delivered):** Next.js; SvelteKit; Nuxt 4; React with Vite; and Vue.
     - **Mobile (delivered):** React Native; Expo; and Flutter.
-    - **Game Dev (Phase 1 delivered; Phase 2 in progress):** Unity, Unreal, Godot, Web-based — schemas and fixtures are joined by the pure component model, derived topology, workflow persistence, component-scoped Git/CI/debt/issues/observed-delta evidence with explicit `not-visible` coverage, the Shopify theme + app + extension validation case, four non-governing game architecture seeds, generic read-only upstream-divergence evidence, file-evidence-only engine/version identity, explicit bounded asset/LFS inventory, a version-pinned engine-fork reading over the generic Git facts, hostile-input build-log interpretation with conservative verdicts, and a declared game profile seeded by the game presets. Performance-report coverage evidence is next. Specified in [project-composition.md](project-composition.md), with the phased plan in [`project_memory/roadmap/game-engine-integration.md`](../project_memory/roadmap/game-engine-integration.md).
+    - **Game Dev (Phase 1 delivered; Phase 2 in progress):** Unity, Unreal, Godot, Web-based — schemas and fixtures are joined by the pure component model, derived topology, workflow persistence, component-scoped Git/CI/debt/issues/observed-delta evidence with explicit `not-visible` coverage, the Shopify theme + app + extension validation case, four non-governing game architecture seeds, generic read-only upstream-divergence evidence, file-evidence-only engine/version identity, explicit bounded asset/LFS inventory, a version-pinned engine-fork reading over the generic Git facts, hostile-input build-log interpretation with conservative verdicts, and a declared game profile seeded by the game presets. Bounded project-produced performance-report coverage now shows reported measurements without a budget verdict; game-shaped debt signals now join the confirmed debt scan; decisive-file archetype detection is next. Specified in [project-composition.md](project-composition.md), with the phased plan in [`project_memory/roadmap/game-engine-integration.md`](../project_memory/roadmap/game-engine-integration.md).
     - **AI/Automation:** AI SaaS, RAG, Agentic, Local Model, Orchestrator
     - **DevOps:** Docker, Kubernetes, Serverless, Terraform
     - **Testing:** Full, Playwright, API

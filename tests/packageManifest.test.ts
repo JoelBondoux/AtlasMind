@@ -773,9 +773,10 @@ describe('package manifest', () => {
     expect(new Set(chatPair.map(entry => entry.group)).size).toBe(1);
   });
 
-  it('relies on generated command and view activation events instead of duplicating them', () => {
+  it('uses explicit panel restoration activation without duplicating generated command and view events', () => {
     expect(manifest.activationEvents).toEqual([
       'onStartupFinished',
+      'onWebviewPanel:atlasmind.projectDashboard',
       'onChatParticipant:atlasmind.orchestrator',
     ]);
   });

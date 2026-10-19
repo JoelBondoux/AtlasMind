@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { ProjectDashboardPanel, isProjectDashboardMessage } from '../../src/views/projectDashboardPanel.js';
 
 /**
  * Named baselines are the only records on this dashboard that cannot be
@@ -88,5 +89,29 @@ describe('one comparison, and it is read-only', () => {
     // read. This must not: a named baseline means the moment somebody chose.
     expect(builder).not.toContain('.update(');
     expect(builder).not.toContain('takeObservedSnapshot');
+  });
+});
+
+
+describe('saved comparison selection', () => {
+  it('accepts an opaque target id, never an invented target role or a supplied observation', () => {
+    expect(isProjectDashboardMessage({ type: 'selectBaseline', payload: 'release-2', target: 'comparison' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'selectBaseline', payload: 'release-2', target: 'all' })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'selectBaseline', payload: { snapshot: {} }, target: 'comparison' })).toBe(false);
+  });
+  it('resolves saved targets and clears unknown ids without touching the register', async () => {
+    const update = vi.fn();
+    const baseline = { id: 'saved', label: 'Release', takenAt: '2026-10-01T00:00:00Z', snapshot: { takenAt: '2026-10-01T00:00:00Z', state: {} } };
+    const panel = Object.assign(Object.create(ProjectDashboardPanel.prototype) as {
+      handleSelectBaseline(id: string, target?: 'comparison'): Promise<void>;
+    }, {
+      atlas: { extensionContext: { workspaceState: { get: () => ({ version: 1, baselines: [baseline] }), update } } },
+      syncState: vi.fn(),
+    });
+    await panel.handleSelectBaseline('saved', 'comparison');
+    expect(update).toHaveBeenLastCalledWith('atlasmind.workflow.comparisonBaseline', 'saved');
+    await panel.handleSelectBaseline('unknown', 'comparison');
+    expect(update).toHaveBeenLastCalledWith('atlasmind.workflow.comparisonBaseline', '');
+    expect(update.mock.calls.every(call => call[0] !== 'atlasmind.workflow.namedBaselines')).toBe(true);
   });
 });

@@ -680,3 +680,42 @@ are excluded.
 - [[Delivery]] — where deployments actually happen
 - [[Tool Execution]] — approvals and checkpoints
 - [[Configuration]] — every `atlasmind.loop.*` and project setting
+
+### Delivered node controls
+
+Delivered-node management uses independent `completionPosition` pins and an optional
+`completionLayout` (`chronological`, `horizontal`, `vertical`) in the graph overlay. Existing
+files default to month columns. Auto tree and orientation controls reuse the deterministic layout
+on the delivered subgraph; returning to completion month releases only delivered pins. Single and
+group moves carry a validated `view: completed` scope. Unscoped legacy messages still address plan
+positions. Each arrangement preserves the other view, and temporary drag offsets clear when views
+change. The delivered Route control uses the same host-derived route lookup as the plan.
+
+### Saved baseline comparisons on Workflow
+
+Workflow also compares **two saved baselines** through `compareNamedBaselines`, using the same
+`compareObservedState` engine. Both labels and capture timestamps travel with the result; selecting
+an earlier target states the reverse chronological direction. Repository identity is read from the
+snapshot envelope, component coverage from the captured scope, and incompatible snapshots report
+not comparable. Each changed field exposes its before/after readings; an absent reading is labelled
+not observed. The host resolves both opaque ids from its local register. Selecting or comparing
+never rewrites either observation, and the target can return to **Current project** at any time.
+
+### Performance captures in Testing
+
+Enable the performance policy and let the project's own benchmark/export step write the documented
+[v1 report](../docs/game-engine-integration.md#44-performance-evidence). Testing reads either fixed
+report path from the project home. Expand the Performance card to see reported values, statistics,
+units, sample counts and capture date. Measured means evidence exists; it does not mean a budget passed.
+No report gives no performance verdict, and AtlasMind never starts a profiler. Engine-native capture
+files need a project-owned exporter; they are not parsed as this format.
+
+### Game-shaped technical debt
+
+Use **Scan for technical debt** after declaring the game's composition/profile. The modal includes
+asset reads and local Git fork inspection. The Debt page shows game findings, their published rules,
+measured threshold details and unassessed-signal notes. Declare optional maxima in `forkDebtThresholds`
+in `domain/game.json`; no default limit is imposed. Use `TUNING: identifier` as the first word of a code
+comment to identify a tuning point deliberately. No numeric-literal heuristic is applied. See
+[the exact contract](../docs/game-engine-integration.md#45-game-shaped-debt-signals). Partial/missing
+evidence preserves prior findings, and obsolete never means somebody confirmed a fix.

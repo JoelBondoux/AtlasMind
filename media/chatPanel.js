@@ -5162,7 +5162,7 @@
   });
   if (toggleAutopilotBtn) {
     toggleAutopilotBtn.addEventListener('click', function () {
-      vscode.postMessage({ type: 'toggleAutopilot' });
+      vscode.postMessage({ type: 'selectApprovalMode' });
     });
   }
   sendMode.addEventListener('change', function () {
@@ -5255,11 +5255,13 @@
       renderOpenFiles(state.openFiles);
       renderRecoveryNotice(state.recoveryNotice);
       if (toggleAutopilotBtn) {
-        var autopilotOn = Boolean(state.autopilotEnabled);
-        toggleAutopilotBtn.setAttribute('aria-pressed', String(autopilotOn));
-        toggleAutopilotBtn.title = autopilotOn
-          ? 'Autopilot ON — click to disable (tool approvals will be required again)'
-          : 'Toggle Autopilot — grant all tool approvals automatically';
+        var approvalMode = state.approvalMode || (state.autopilotEnabled ? 'bypass' : 'ask');
+        var modeLabel = approvalMode === 'auto' ? 'Auto' : approvalMode === 'bypass' ? 'Bypass' : 'Ask';
+        var approvalModeLabel = document.getElementById('approvalModeLabel');
+        if (approvalModeLabel) { approvalModeLabel.textContent = modeLabel; }
+        toggleAutopilotBtn.dataset.approvalMode = approvalMode;
+        toggleAutopilotBtn.title = 'Approvals: ' + modeLabel + ' — choose Ask, Auto (model-reviewed), or Bypass';
+        toggleAutopilotBtn.setAttribute('aria-label', toggleAutopilotBtn.title);
       }
 
       if (brandProject) {

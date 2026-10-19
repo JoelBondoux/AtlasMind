@@ -581,3 +581,29 @@ describe('a governance regime is never evidenced by a file', () => {
     expect(coverage.rows[0]!.status).toBe('governed');
   });
 });
+
+
+describe('performance captures are evidence, not passing test cases', () => {
+  it('closes the file-only gap without inventing a test or budget verdict', () => {
+    const evidence = { status: 'measured', capturedAt: '2026-10-18T10:00:00.000Z', target: 'windows',
+      relativePath: 'test-results/performance.json', budgetVerdict: 'not-assessed',
+      measurements: [{ scenario: 'scene', metric: 'frameTimeMs', unit: 'ms', statistic: 'p95', value: 16.2, sampleCount: 600 }] } as const;
+    const coverage = deriveTestingPolicyCoverage(baseInput({ enabledMethodologies: ['performance'], performanceReport: evidence }));
+    expect(coverage.rows[0]?.status).toBe('covered');
+    expect(coverage.rows[0]?.statusLabel).toBe('Measured');
+    expect(coverage.rows[0]?.fileCount).toBe(0);
+    expect(coverage.rows[0]?.caseCount).toBe(0);
+    expect(coverage.rows[0]?.detail).toContain('Budget not assessed');
+    expect(coverage.summary).not.toContain('has tests');
+    expect(coverage.rows[0]?.performanceReport).toEqual(evidence);
+  });
+  it('keeps missing and unreadable captures as no verdict, without losing existing test evidence', () => {
+    for (const status of ['no-report', 'unreadable'] as const) {
+      const coverage = deriveTestingPolicyCoverage(baseInput({ enabledMethodologies: ['performance'], performanceReport: { status, reason: 'No usable report.' } }));
+      expect(coverage.rows[0]?.status).toBe('missing');
+      expect(coverage.rows[0]?.detail).toContain('No performance verdict');
+      const withTests = deriveTestingPolicyCoverage(baseInput({ enabledMethodologies: ['performance'], performanceReport: { status, reason: 'No usable report.' }, testFiles: [{ relativePath: 'performance/frame.test.ts', cases: 1, skipped: 0 }] }));
+      expect(withTests.rows[0]?.status).toBe('covered');
+    }
+  });
+});

@@ -1,5 +1,10 @@
 # Configuration
 
+The session selector (Ask, Auto, Bypass) is separate from saved settings. Use **AtlasMind: Set Approval
+Mode**, chat or Workflow to select it. Ask uses the configured policy; Auto invokes a reviewer;
+Bypass grants eligible prompts. Existing capabilities and workflow limits remain; restart resets to
+Ask. A repository cannot select a more permissive session mode for the operator.
+
 **Every AtlasMind setting, what it does, and what to set it to.**
 
 Two ways in:

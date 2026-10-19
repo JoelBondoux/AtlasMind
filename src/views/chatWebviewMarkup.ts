@@ -168,11 +168,12 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
                   </button>
                   <div id="modelPinList" class="composer-typeahead model-pin-list hidden" role="listbox" aria-label="Model"></div>
                 </div>
-                <button id="toggleAutopilot" class="icon-btn compact-icon-btn autopilot-btn" type="button" title="Toggle Autopilot — grant all tool approvals automatically" aria-label="Toggle Autopilot" aria-pressed="false">
+                <button id="toggleAutopilot" class="icon-btn autopilot-btn" type="button" title="Choose Ask, Auto or Bypass approvals" aria-label="Choose approval mode" aria-haspopup="dialog">
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <circle cx="8" cy="8" r="6.5"/>
                     <path d="M8 4.5 L9.5 7.5 L13 8 L10.5 10.5 L11 14 L8 12.5 L5 14 L5.5 10.5 L3 8 L6.5 7.5 Z"/>
                   </svg>
+                  <span id="approvalModeLabel">Ask</span>
                 </button>
               </div>
               <div id="openFilesSection" class="composer-section hidden">
@@ -1021,7 +1022,8 @@ export function buildChatWebviewHtml(opts: { scriptUri: string; cspSource: strin
           font-size: 0.82rem;
           line-height: 1;
         }
-        .autopilot-btn[aria-pressed="true"] {
+        .icon-btn.autopilot-btn { width: auto; padding: 0 7px; gap: 4px; font-size: 0.78rem; }
+        .autopilot-btn[data-approval-mode="auto"], .autopilot-btn[data-approval-mode="bypass"] {
           border-color: color-mix(in srgb, color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) var(--atlas-ink-share), var(--tint-away)) 70%, var(--atlas-boundary));
           background: color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) 18%, transparent);
           color: color-mix(in srgb, var(--vscode-charts-yellow, #d7ba7d) var(--atlas-ink-share), var(--tint-away));

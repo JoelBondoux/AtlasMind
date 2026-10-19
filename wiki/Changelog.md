@@ -19,6 +19,44 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.508.0 -- Game-shaped debt signals
+
+A confirmed debt scan records observed asset/LFS and import-marker evidence, explicit author TUNING
+points, and engine-fork counts above declared profile limits. The published rules grade every finding.
+Unknown/partial evidence cannot clear old findings, and changing measured counts preserves manual
+status/history. No engine, build, profiler or network fetch runs.
+
+## v0.507.0 -- Project-reported performance evidence
+
+Testing can read a project-produced v1 performance capture and show its metrics, statistics, units,
+sample counts and date. Measured means evidence exists; budget compliance stays not assessed. Missing
+or invalid reports yield no performance verdict. Reads are local and bounded; nothing runs a profiler.
+
+## v0.506.0 -- Delivered node controls and saved baseline comparisons
+
+Delivered roadmap nodes now support persistent individual/group movement, snap, both tree directions
+and return to completion-month columns. Their layout is independent of outstanding work. Workflow
+can compare two captured baselines, showing both dates and before/after readings without advancing
+an observation. Repository and coverage mismatches remain explicitly not comparable.
+
+## v0.505.0 -- Ask, Auto and Bypass
+
+Workflow, chat and the status bar share session approval modes. Auto uses a separate, tool-free
+reviewer and asks on uncertainty or failure. Bypass skips eligible prompts. Ask revokes grants;
+restart resets them. Reviewer calls use synthesis routing, privacy and daily-budget checks and record
+their own spend. Workflow writes need a declared and effective `auto` stage; explicit-only actions ask.
+
+## v0.504.6 -- Workflow controls reconnect after restart
+
+Restoring the Project Dashboard now activates AtlasMind through the dashboard's webview activation
+event. Workflow permission switches, ceiling buttons, configuration edits and settings links check for
+a host reply and show recovery instructions if the tab is disconnected. Permission limits and
+confirmation requirements are unchanged.
+
+## v0.504.5 -- Published baseline refreshed
+
+The README now names v0.504.4 as the last Marketplace publication.
+
 ## v0.504.4 -- A crafted HTML page cannot freeze the editor
 
 UI Studio steps over the comments at the top of a page to find its doctype, and checks what sits between two

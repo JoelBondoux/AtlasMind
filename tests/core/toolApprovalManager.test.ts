@@ -1,7 +1,55 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ToolApprovalManager } from '../../src/core/toolApprovalManager.ts';
 
 describe('ToolApprovalManager', () => {
+  it('reviews an existing ordinary card when Auto is selected, but not an explicit-only card', async () => {
+    const manager = new ToolApprovalManager();
+    manager.setTaskIntent('task', 'Edit the file');
+    const reviewer = vi.fn().mockResolvedValue({ decision: 'allow', rule: 'auto/reviewer-approved' });
+    manager.setAutomaticReviewer(reviewer);
+    const request = { taskId: 'task', toolName: 'file-edit', category: 'workspace-write' as const, risk: 'high' as const, summary: 'edit' };
+    const reviewInput = { kind: 'tool' as const, name: 'file-edit', args: {}, intent: 'Edit the file', policy: { category: request.category, risk: request.risk, summary: request.summary } };
+    const ordinary = manager.requestApproval(request, reviewInput);
+    void manager.requestApproval({ ...request, allowedDecisions: ['allow-once', 'deny'] }, reviewInput);
+    manager.setApprovalMode('auto');
+    await expect(ordinary).resolves.toBe('allow-once');
+    expect(reviewer).toHaveBeenCalledOnce();
+    expect(manager.listPendingRequests()).toHaveLength(1);
+    manager.clearTask('task');
+    expect(manager.getTaskIntent('task')).toBe('');
+  });
+
+  it('does not grant a pending review after Auto was revoked', async () => {
+    const manager = new ToolApprovalManager();
+    let approve: () => void = () => undefined;
+    manager.setAutomaticReviewer(() => new Promise(resolve => { approve = () => resolve({ decision: 'allow', rule: 'auto/reviewer-approved' }); }));
+    const policy = { category: 'workspace-write' as const, risk: 'high' as const, summary: 'edit' };
+    void manager.requestApproval({ taskId: 'task', toolName: 'file-edit', ...policy }, { kind: 'tool', name: 'file-edit', intent: 'edit', args: {}, policy });
+    manager.setApprovalMode('auto');
+    manager.setApprovalMode('ask');
+    approve();
+    await Promise.resolve();
+    expect(manager.listPendingRequests()).toHaveLength(1);
+    manager.reset();
+  });
+
+  it('exposes Ask, Auto and Bypass as distinct revocable session modes', () => {
+    const manager = new ToolApprovalManager();
+    expect(manager.getApprovalMode()).toBe('ask');
+    manager.setApprovalMode('auto');
+    expect(manager.getApprovalMode()).toBe('auto');
+    expect(manager.isAutopilot()).toBe(false);
+    manager.setApprovalMode('bypass');
+    expect(manager.getApprovalMode()).toBe('bypass');
+    expect(manager.isAutopilot()).toBe(true);
+    manager.bypassTask('active-task');
+    manager.setApprovalMode('ask');
+    expect(manager.shouldBypass('active-task', { category: 'workspace-write', risk: 'high', summary: 'edit' })).toBe(false);
+    manager.setApprovalMode('auto');
+    manager.reset();
+    expect(manager.getApprovalMode()).toBe('ask');
+  });
+
   it('queues pending approval requests until the chat UI resolves them', async () => {
     const manager = new ToolApprovalManager();
 
