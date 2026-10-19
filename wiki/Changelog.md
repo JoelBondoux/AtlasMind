@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.508.1 -- ACP runtime recovery and honest failures
+
+Failed ACP probes are excluded per agent; unknown agent ids cannot fall through to another
+subscription. The observed legacy Codex warning-plus-HTTP-error response fails the turn even when
+the adapter reports `end_turn`. Repository settings leave ACP agent commands and runtime pins to
+User settings. See [Model Routing](Model-Routing.md) for runtime and sign-in checks.
+
 ## v0.508.0 -- Game-shaped debt signals
 
 A confirmed debt scan records observed asset/LFS and import-marker evidence, explicit author TUNING
@@ -38,6 +45,13 @@ Delivered roadmap nodes now support persistent individual/group movement, snap, 
 and return to completion-month columns. Their layout is independent of outstanding work. Workflow
 can compare two captured baselines, showing both dates and before/after readings without advancing
 an observation. Repository and coverage mismatches remain explicitly not comparable.
+
+## v0.505.1 -- ACP runtime recovery and honest failures
+
+Failed ACP probes are excluded per agent; unknown agent ids cannot fall through to another
+subscription. The observed legacy Codex warning-plus-HTTP-error response fails the turn even when
+the adapter reports `end_turn`. Repository settings leave ACP agent commands and runtime pins to
+User settings. See [Model Routing](Model-Routing.md) for runtime and sign-in checks.
 
 ## v0.505.0 -- Ask, Auto and Bypass
 

@@ -69,6 +69,7 @@ import {
   parseSessionUpdate,
   buildSetConfigOptionRequest,
   parseStopReason,
+  parseLegacyCodexError,
   toFinishReason,
   type AcpConfigOption,
   type AcpInitializeResult,
@@ -794,6 +795,8 @@ export class AcpAdapter implements ProviderAdapter {
   async discoverModels(): Promise<DiscoveredModel[]> {
     return this.agents().flatMap(agent => {
       const known = this.lastProbeByAgent.get(agent.id) ?? peekAcpProbe(this.probeCacheKey(agent));
+      // A healthy sibling cannot vouch for an agent whose own probe failed.
+      if (known && (!known.installed || !known.authenticated)) return [];
       const baseModelId = `${ACP_PROVIDER_ID}/${agent.id}`;
       const label = agent.label ?? agent.id;
       const capabilities: DiscoveredModel['capabilities'] = known?.supportsImages
@@ -1029,8 +1032,8 @@ export class AcpAdapter implements ProviderAdapter {
    *
    * `acp/claude@opus#high` is one agent, one model, one effort. **Both suffixes
    * are stripped before the agent lookup** — an id still carrying either would
-   * match no configured agent and fall through to `agents[0]`, quietly running
-   * the turn on somebody else's subscription. The model segment is separated
+   * match no configured agent. Unknown agents are refused rather than falling
+   * through to another subscription. The model segment is separated
    * first because it sits between the agent and the effort.
    */
   private resolveAgent(model: string): {
@@ -1044,7 +1047,7 @@ export class AcpAdapter implements ProviderAdapter {
       ? baseModelId.slice(ACP_PROVIDER_ID.length + 1)
       : baseModelId;
     const agents = this.agents();
-    const agent = agents.find(entry => entry.id === wanted) ?? agents[0];
+    const agent = agents.find(entry => entry.id === wanted);
     if (!agent) {
       return undefined;
     }
@@ -1973,6 +1976,7 @@ class AcpSession {
   private configOptions: AcpConfigOption[] = [];
   /** Set from the handshake; a close sent to an agent that never offered one is noise. */
   private supportsClose = false;
+  private legacyCodexErrors = false;
   private readonly processPid: number | undefined;
   private exited: { code: number | null; signal: string | null } | undefined;
   private disposed = false;
@@ -2027,6 +2031,7 @@ class AcpSession {
   async initialize(): Promise<AcpInitializeResult> {
     const result = await this.request(buildInitializeRequest(this.nextId, this.clientVersion));
     const parsed = parseInitializeResult(result);
+    this.legacyCodexErrors = parsed.agentName === '@agentclientprotocol/codex-acp';
     this.supportsClose = parsed.supportsSessionClose;
     return parsed;
   }
@@ -2153,6 +2158,8 @@ class AcpSession {
         aborted,
       ]);
       const stop = parseStopReason(result);
+      const legacyError = this.legacyCodexErrors ? parseLegacyCodexError(this.text) : undefined;
+      if (legacyError) throw new Error(`The ACP agent returned an error (-32603): ${legacyError}`);
       // Token counts come off the prompt **result**, which is where every agent
       // actually reports them. The `usage_update` notification carries context
       // occupancy instead — reading input/output tokens out of it was why every

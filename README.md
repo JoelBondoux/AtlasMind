@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.508.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.508.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,14 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.508.1
+
+**ACP failures stay failures.** Failed agent probes no longer become routing candidates through a
+healthy sibling, and an unknown agent cannot fall through to another subscription. The observed
+legacy Codex warning-plus-HTTP-error response is rejected even when its adapter says the turn ended
+normally. ACP agent commands and runtime pins belong in User settings; this repository no longer
+shadows them. See [ACP troubleshooting](docs/model-routing.md#acp-runtime-and-sign-in-checks).
+
 ## What's new in 0.508.0
 
 **Game-shaped technical debt.** A confirmed debt scan can now record observed binary assets outside
@@ -191,15 +199,6 @@ nothing launches an engine, build, profiler or fetch.
 and displays its measurements, statistics, units, sample counts and capture date. A capture is marked
 **Measured**; budget compliance remains **Not assessed**. Missing or unreadable reports give no verdict.
 Nothing starts a profiler. See [the report format](docs/game-engine-integration.md#44-performance-evidence).
-
-## What's new in 0.506.0
-
-**Manage delivered roadmap nodes.** Drag individual nodes or a selected group, snap to the grid,
-arrange a dependency tree in either direction, or return to completion-month columns. Delivered
-positions are saved separately from the outstanding plan.
-
-**Compare two saved baselines.** Workflow now offers a saved target as well as the current project,
-with both capture dates and before/after values. Neither saved observation advances.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.504.4**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in

@@ -1,5 +1,10 @@
 # Contributing to AtlasMind
 
+ACP regression checks must cover actual reply failures as well as handshake/discovery. Test both
+single-use and retained sessions; a legacy Codex warning-plus-HTTP-error response must reject even
+when its prompt result says `end_turn`. Keep runtime paths in local User settings, never in a PR.
+See [ACP runtime and sign-in checks](docs/model-routing.md#acp-runtime-and-sign-in-checks).
+
 ## Development Setup
 
 1. Clone the repo and install dependencies:

@@ -1,5 +1,10 @@
 ## Running a branch
 
+Configure ACP agents in User settings. The repository's `.vscode/settings.json` deliberately does
+not supply an agent array, so a local runtime pin is not shadowed. When a desktop app works and
+ACP does not, compare executable versions and standalone sign-in, then verify a completion-only
+reply. See [ACP runtime and sign-in checks](model-routing.md#acp-runtime-and-sign-in-checks).
+
 Approval modes are implemented in `src/core/approvalModes.ts` and `toolApprovalManager.ts`.
 Regression tests cover malformed/late reviews, revocation, pending cards and explicit-only actions.
 Workflow/chat DOM tests exercise the selectors; installed acceptance should also verify the activation

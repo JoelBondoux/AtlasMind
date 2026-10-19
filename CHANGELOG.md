@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.508.1] - 2026-10-19
+
+### Fixed
+
+- ACP discovery excludes an agent whose own probe failed, even when a sibling keeps the provider healthy.
+- Unknown ACP agent ids are refused instead of using the first configured subscription.
+- The observed legacy Codex warning-plus-JSON HTTP error is rejected even when its adapter reports
+  `end_turn`; quoted examples, bare JSON and other agents are not treated as this compatibility case.
+- Repository settings no longer shadow machine-specific ACP agent commands and runtime pins in User settings.
+
 ## [0.508.0] - 2026-10-19
 
 ### Added
@@ -49,6 +59,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Delivered nodes retain their dragged positions after refresh. Their Route controls now filter
   the delivered canvas, and temporary drag previews cannot leak into the outstanding plan.
 
+
+## [0.505.1] - 2026-10-19
+
+### Fixed
+
+- ACP discovery excludes an agent whose own probe failed, even when a sibling keeps the provider healthy.
+- Unknown ACP agent ids are refused instead of using the first configured subscription.
+- The observed legacy Codex warning-plus-JSON HTTP error is rejected even when its adapter reports
+  `end_turn`; quoted examples, bare JSON and other agents are not treated as this compatibility case.
+- Repository settings no longer shadow machine-specific ACP agent commands and runtime pins in User settings.
 
 ## [0.505.0] - 2026-10-18
 

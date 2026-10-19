@@ -1,5 +1,9 @@
 # Contributing
 
+ACP agent commands and runtime pins belong in local User settings; repository settings do not
+override them. Include completion-only reply checks when testing an adapter, because session
+creation can succeed with an expired login or unsupported model. See [Model Routing](Model-Routing.md).
+
 **Thanks for wanting to help.** AtlasMind is MIT licensed, has no commercial edition, and welcomes
 contributions of any size — a typo fix counts.
 
