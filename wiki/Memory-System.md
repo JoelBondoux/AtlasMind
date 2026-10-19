@@ -311,3 +311,11 @@ refreshes the Memory sidebar immediately — you don't need to run `/import` aga
 - [[Chat Commands]] — `/memory`, `/bootstrap`, `/import`
 - [[Ideation]] — the research register, which lives in memory
 - [[Agents]] — how memory reaches the model
+
+### Roadmap display metadata and saved observations (0.506.0)
+
+The roadmap graph overlay may store each node's `completionPosition` separately from its plan
+`position`, with a document-level `completionLayout` for month columns or either tree direction.
+Absent layout metadata preserves the existing chronological default. These display fields do not
+change backlog completion or dependencies. Named baseline snapshots remain per developer in VS Code
+workspace state; selecting a saved comparison target stores an id and never edits either snapshot.

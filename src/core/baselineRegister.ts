@@ -9,7 +9,7 @@
  * the release*, *since this branch started*, *since the audit* — and none of
  * them could be asked at all.
  *
- * This adds named baselines and nothing else. **The comparison is
+ * Named baselines can be compared with current state or another saved reading. **The comparison is
  * `compareObservedState`, unchanged**: a second implementation would eventually
  * disagree with the first, and the symptom would be two cards on one dashboard
  * reporting different numbers for the same fortnight. Every rule that module
@@ -95,6 +95,7 @@ export const BASELINE_RULES: readonly BaselineRule[] = [
   { id: 'cap-refuses', describes: `At ${MAX_NAMED_BASELINES} baselines a new capture is refused and names what to remove. The oldest is never evicted — it is the only one that can answer a question about the whole project.` },
   { id: 'deletion-is-a-decision', describes: 'Nothing expires and nothing is cleaned up. A baseline goes when somebody removes it.' },
   { id: 'inapplicable-is-kept', describes: 'A baseline from another repository is reported as not comparable here, never deleted. Opening a folder is not a reason to lose a record.' },
+  { id: 'saved-endpoints', describes: 'A comparison between saved baselines names both capture dates. Selection order sets the direction; neither observation advances.' },
   { id: 'one-comparison', describes: 'The comparison is the same one the "since you last looked" card uses, so two surfaces cannot disagree about the same fortnight.' },
 ];
 
@@ -270,7 +271,7 @@ const BASELINE_RECENT_AFTER_DAYS = 7;
 export interface BaselineComparison {
   baseline: NamedBaseline;
   delta: ObservedDelta;
-  /** Whole days between the baseline and now. */
+  /** Whole days between the baseline and comparison endpoint. */
   ageDays: number;
   staleness: BaselineStaleness;
   /**
@@ -307,6 +308,25 @@ export function compareAgainstBaseline(input: {
     ageDays,
     staleness,
     span: describeBaselineSpan(input.baseline, ageDays, delta),
+  };
+}
+
+/** Compare two immutable saved readings; selection order is the direction. */
+export function compareNamedBaselines(input: { baseline: NamedBaseline; target: NamedBaseline }): BaselineComparison {
+  const { baseline, target } = input;
+  const delta = compareObservedState(baseline.snapshot, { ...target.snapshot.state, repoSlug: target.snapshot.repoSlug } as WorkflowObservedState, target.snapshot.scope);
+  const elapsed = Date.parse(target.takenAt) - Date.parse(baseline.takenAt);
+  const ageDays = Number.isFinite(elapsed) ? Math.floor(Math.abs(elapsed) / MS_PER_DAY) : 0;
+  const endpoints = `"${baseline.label}" (${baseline.takenAt}) → "${target.label}" (${target.takenAt})`;
+  const direction = elapsed < 0 ? ', reverse chronological' : '';
+  const count = delta.changes.length + delta.droppedByCap;
+  const result = delta.status === 'first-look'
+    ? `cannot be compared: ${delta.firstLookReason === 'different-repository' ? 'different repositories' : delta.firstLookReason === 'different-scope' ? 'different component coverage' : 'unreadable saved observation'}`
+    : delta.status === 'unchanged' ? 'nothing tracked changed' : `${count} tracked change${count === 1 ? '' : 's'}`;
+  return {
+    baseline, delta, ageDays,
+    staleness: ageDays >= BASELINE_OLD_AFTER_DAYS ? 'old' : ageDays >= BASELINE_RECENT_AFTER_DAYS ? 'recent' : 'fresh',
+    span: `${endpoints}: ${result} (${ageDays} days apart${direction}). Saved observations only.`,
   };
 }
 

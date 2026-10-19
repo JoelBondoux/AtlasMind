@@ -2,6 +2,14 @@
 
 This roadmap provides a clear, user-friendly overview of upcoming features, improvements, and compliance initiatives for AtlasMind. It is updated in sync with the developer backlog and highlights priorities relevant to users, contributors, and stakeholders.
 
+## Delivered MVP refinements
+
+Delivered-roadmap node management and saved-baseline comparisons are implemented in 0.506.0.
+Delivered nodes have independent persistent pins, group movement, snapping, both tree directions
+and a completion-month reset. Workflow can compare two captured moments with before/after readings
+and exact endpoints. See the [MVP worklist](../project_memory/operations/mvp-worklist.md) for evidence
+and remaining scope; the canonical backlog remains authoritative.
+
 ## Upcoming Features & Improvements
 
 ### AtlasMind Lens — Queryable Project Visualisations

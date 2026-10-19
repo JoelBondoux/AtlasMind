@@ -680,3 +680,23 @@ are excluded.
 - [[Delivery]] — where deployments actually happen
 - [[Tool Execution]] — approvals and checkpoints
 - [[Configuration]] — every `atlasmind.loop.*` and project setting
+
+### Delivered node controls
+
+Delivered-node management uses independent `completionPosition` pins and an optional
+`completionLayout` (`chronological`, `horizontal`, `vertical`) in the graph overlay. Existing
+files default to month columns. Auto tree and orientation controls reuse the deterministic layout
+on the delivered subgraph; returning to completion month releases only delivered pins. Single and
+group moves carry a validated `view: completed` scope. Unscoped legacy messages still address plan
+positions. Each arrangement preserves the other view, and temporary drag offsets clear when views
+change. The delivered Route control uses the same host-derived route lookup as the plan.
+
+### Saved baseline comparisons on Workflow
+
+Workflow also compares **two saved baselines** through `compareNamedBaselines`, using the same
+`compareObservedState` engine. Both labels and capture timestamps travel with the result; selecting
+an earlier target states the reverse chronological direction. Repository identity is read from the
+snapshot envelope, component coverage from the captured scope, and incompatible snapshots report
+not comparable. Each changed field exposes its before/after readings; an absent reading is labelled
+not observed. The host resolves both opaque ids from its local register. Selecting or comparing
+never rewrites either observation, and the target can return to **Current project** at any time.

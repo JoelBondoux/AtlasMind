@@ -150,8 +150,8 @@ describe('the route filter is a way of looking, not a change', () => {
     expect(namedFunction('roadmapRouteFilter')).toContain('return null;');
   });
 
-  it('never filters the delivered view — a record of what shipped is not a route', () => {
-    expect(namedFunction('roadmapRouteFilter')).toContain("state.roadmapView === 'completed'");
+  it('allows the route control to work on delivered nodes too', () => {
+    expect(namedFunction('roadmapRouteFilter')).not.toContain("state.roadmapView === 'completed'");
   });
 });
 
@@ -507,8 +507,8 @@ describe('arranging is separated from changing', () => {
     // the layout, and two layouts would eventually disagree.
     // The dispatch lives in the delegated click handler, above the canvas block.
     const align = WEBVIEW_SCRIPT.slice(WEBVIEW_SCRIPT.indexOf("action === 'roadmap-auto-align'"));
-    expect(align.slice(0, 400)).toContain("type: 'roadmapAutoLayout'");
-    expect(align.slice(0, 400)).not.toContain('position');
+    expect(align.slice(0, 1200)).toContain("type: 'roadmapAutoLayout'");
+    expect(align.slice(0, 1200)).not.toContain('position');
   });
 
   it('asks for the tree calculation and performs none of it', () => {
@@ -525,7 +525,7 @@ describe('arranging is separated from changing', () => {
     // on any plan wider than the frame the whole result happened out of view —
     // which is why both arrange controls read as buttons that did nothing.
     const align = WEBVIEW_SCRIPT.slice(WEBVIEW_SCRIPT.indexOf("action === 'roadmap-auto-align'"));
-    expect(align.slice(0, 800)).toContain('state.roadmapFitAfterRender = true;');
+    expect(align.slice(0, 1200)).toContain('state.roadmapFitAfterRender = true;');
     const derive = WEBVIEW_SCRIPT.slice(WEBVIEW_SCRIPT.indexOf("action === 'roadmap-derive-links'"));
     expect(derive.slice(0, 500)).toContain('state.roadmapFitAfterRender = true;');
 
@@ -537,7 +537,7 @@ describe('arranging is separated from changing', () => {
     expect(WEBVIEW_SCRIPT).toMatch(
       /state\.roadmapFitAfterRender = false;\s*\n\s*const scope = state\.roadmapFitScope;\s*\n\s*state\.roadmapFitScope = 'all';\s*\n\s*fitRoadmapCanvas\(scope\);/);
     // An arrange frames the whole re-flowed tree, never a leftover match set.
-    expect(align.slice(0, 800)).not.toContain("roadmapFitScope = 'emphasis'");
+    expect(align.slice(0, 1200)).not.toContain("roadmapFitScope = 'emphasis'");
     expect(derive.slice(0, 500)).not.toContain("roadmapFitScope = 'emphasis'");
   });
 
@@ -561,7 +561,7 @@ describe('arranging is separated from changing', () => {
     // The bare action keeps whatever orientation the plan already declares,
     // rather than silently flipping it.
     const align = WEBVIEW_SCRIPT.slice(WEBVIEW_SCRIPT.indexOf("action === 'roadmap-auto-align'"));
-    expect(align.slice(0, 800)).toContain("roadmapGraph().orientation === 'vertical' ? 'vertical' : 'horizontal'");
+    expect(align.slice(0, 1200)).toContain("orientation === 'vertical' ? 'vertical' : 'horizontal'");
   });
 
   it('explains a one-column plan rather than leaving it looking broken', () => {

@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { isProjectDashboardMessage } from '../../src/views/projectDashboardPanel.ts';
+import { ProjectDashboardPanel, isProjectDashboardMessage } from '../../src/views/projectDashboardPanel.ts';
 
 /**
  * The gate in front of a box-selected group move.
@@ -73,5 +73,66 @@ describe('a group move is validated entry by entry', () => {
 
     expect(isProjectDashboardMessage({ type: 'roadmapNodeMove', payload: bad })).toBe(false);
     expect(isProjectDashboardMessage(batch([bad]))).toBe(false);
+  });
+});
+
+
+describe('delivered view message boundary', () => {
+  it('accepts scoped moves and layouts, while retaining legacy plan messages', () => {
+    expect(isProjectDashboardMessage({ type: 'roadmapNodeMove', payload: { ...MOVE, view: 'completed' } })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'roadmapNodesMove', payload: { moves: [MOVE], view: 'completed' } })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'roadmapAutoLayout', payload: 'vertical', view: 'completed' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'roadmapAutoLayout', payload: 'chronological', view: 'completed' })).toBe(true);
+    expect(isProjectDashboardMessage({ type: 'roadmapAutoLayout', payload: 'chronological' })).toBe(false);
+  });
+  it('rejects invented layout scopes instead of applying them to the plan', () => {
+    expect(isProjectDashboardMessage({ type: 'roadmapNodeMove', payload: { ...MOVE, view: 'all' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'roadmapNodesMove', payload: { moves: [MOVE], view: 'all' } })).toBe(false);
+    expect(isProjectDashboardMessage({ type: 'roadmapAutoLayout', payload: 'vertical', view: 'all' })).toBe(false);
+  });
+});
+
+
+describe('delivered writes keep plan layout intact', () => {
+  function harness() {
+    const document = { version: 1, layoutOrientation: 'horizontal', nodes: [{
+      id: 'kept', normalizedText: 'kept', position: { x: 100, y: 200 }, completionPosition: { x: 300, y: 400 },
+    }], edges: [], dismissed: [], suggestLinks: false, updatedAt: '2026-10-19T00:00:00Z' };
+    const commit = vi.fn();
+    const panel = Object.assign(Object.create(ProjectDashboardPanel.prototype) as {
+      handleRoadmapNodeMove(payload: unknown): Promise<void>;
+      handleRoadmapNodesMove(payload: unknown): Promise<void>;
+      handleRoadmapAutoLayout(layout: string, view?: string): Promise<void>;
+    }, {
+      openRoadmapGraphForWrite: async () => ({ document, workspaceRoot: 'test', ssotPath: 'memory', nodeText: new Map([['kept', 'kept']]) }),
+      commitRoadmapGraph: commit,
+    });
+    return { panel, commit, document };
+  }
+  it.each(['single', 'group'])('saves a %s delivered move to its own pin', async kind => {
+    const h = harness();
+    const move = { nodeId: 'kept', x: 700, y: 800 };
+    if (kind === 'single') { await h.panel.handleRoadmapNodeMove({ ...move, view: 'completed' }); }
+    else { await h.panel.handleRoadmapNodesMove({ moves: [move], view: 'completed' }); }
+    const saved = h.commit.mock.calls[0]![2];
+    expect(saved.nodes[0].position).toEqual({ x: 100, y: 200 });
+    expect(saved.nodes[0].completionPosition).toEqual({ x: 700, y: 800 });
+    expect(h.document.nodes[0]!.completionPosition).toEqual({ x: 300, y: 400 });
+  });
+  it('releases plan pins while keeping delivered pins', async () => {
+    const h = harness();
+    await h.panel.handleRoadmapAutoLayout('vertical');
+    const saved = h.commit.mock.calls[0]![2];
+    expect(saved.nodes[0].position).toBeUndefined();
+    expect(saved.nodes[0].completionPosition).toEqual({ x: 300, y: 400 });
+  });
+  it('releases only delivered pins when arranging delivered work', async () => {
+    const h = harness();
+    await h.panel.handleRoadmapAutoLayout('vertical', 'completed');
+    const saved = h.commit.mock.calls[0]![2];
+    expect(saved.layoutOrientation).toBe('horizontal');
+    expect(saved.completionLayout).toBe('vertical');
+    expect(saved.nodes[0].position).toEqual({ x: 100, y: 200 });
+    expect(saved.nodes[0].completionPosition).toBeUndefined();
   });
 });

@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.506.0 -- Delivered node controls and saved baseline comparisons
+
+Delivered roadmap nodes now support persistent individual/group movement, snap, both tree directions
+and return to completion-month columns. Their layout is independent of outstanding work. Workflow
+can compare two captured baselines, showing both dates and before/after readings without advancing
+an observation. Repository and coverage mismatches remain explicitly not comparable.
+
 ## v0.505.0 -- Ask, Auto and Bypass
 
 Workflow, chat and the status bar share session approval modes. Auto uses a separate, tool-free

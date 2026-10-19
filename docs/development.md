@@ -1249,3 +1249,13 @@ Labelled groups and bullets carry the hierarchy Markdown cannot, keeping propose
 preserved data, and consequences scannable. Cancellation wording applies only to the listed import;
 load-time anchor and managed-instruction maintenance are named separately because they may already
 have completed before the confirmation appears.
+
+### Delivered canvas and baseline comparison validation (0.506.0)
+
+The roadmap DOM tests execute delivered arranging/snap controls and scoped drag messages, and check
+that a drag preview clears on a view switch. Host handler tests exercise single/group persistence
+and independent pin release. Graph tests cover both tree directions and immutable input; store tests
+round-trip separate pins and reject invalid layout data. Baseline tests compare saved endpoints,
+reverse direction, mismatched repositories/coverage, escaped labels/readings and opaque target
+selection. Run the standard local CI gate before treating these changes as locally validated;
+installed VS Code acceptance and hosted CI are separate evidence.

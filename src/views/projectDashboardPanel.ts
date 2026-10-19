@@ -162,6 +162,7 @@ import {
   BASELINE_RULES,
   captureBaseline,
   compareAgainstBaseline,
+  compareNamedBaselines,
   orderedBaselines,
   removeBaseline,
   sanitizeBaselineRegister,
@@ -1213,7 +1214,7 @@ type ProjectDashboardMessage =
    * roadmap and validates each id against it, so a crafted message can address a
    * node that exists and nothing more.
    */
-  | { type: 'roadmapNodeMove'; payload: { nodeId: string; x: number; y: number } }
+  | { type: 'roadmapNodeMove'; payload: { nodeId: string; x: number; y: number; view?: 'completed' } }
   /**
    * A box-selection dragged as one group.
    *
@@ -1228,7 +1229,7 @@ type ProjectDashboardMessage =
    * the batch, since a group that silently moved nineteen of twenty nodes is
    * worse than one that moves the nineteen it could resolve and says so.
    */
-  | { type: 'roadmapNodesMove'; payload: { moves: Array<{ nodeId: string; x: number; y: number }> } }
+  | { type: 'roadmapNodesMove'; payload: { moves: Array<{ nodeId: string; x: number; y: number }>; view?: 'completed' } }
   | {
     type: 'roadmapNodeUpdate';
     payload: {
@@ -1267,7 +1268,7 @@ type ProjectDashboardMessage =
    * so a webview that sent coordinates would be doing the layout, and two
    * layouts would eventually disagree about the same plan.
    */
-  | { type: 'roadmapAutoLayout'; payload: 'horizontal' | 'vertical' }
+  | { type: 'roadmapAutoLayout'; payload: 'horizontal' | 'vertical' | 'chronological'; view?: 'completed' }
   /**
    * Start a roadmap import. Carries no payload by design: every detail is
    * gathered by the host through the editor's own pickers, so this message
@@ -1561,7 +1562,7 @@ type ProjectDashboardMessage =
   | { type: 'testDataPrivacy'; payload: { kind: 'text' | 'path'; value: string } }
   | { type: 'captureBaseline'; payload: { label: string; reason?: string } }
   | { type: 'removeBaseline'; payload: string }
-  | { type: 'selectBaseline'; payload: string }
+  | { type: 'selectBaseline'; payload: string; target?: 'comparison' }
   | { type: 'saveDirectorConfig'; payload: import('../types.js').ProjectDirectorConfig }
   | { type: 'seedDirectorFromRepo' }
   | { type: 'saveWebsiteDelivery'; payload: { platforms: unknown[]; hostingEnvironments: unknown[]; automations: unknown[] } }
@@ -2895,12 +2896,14 @@ interface DashboardGuidedWorkflowSnapshot {
     }>;
     /** The chosen baseline's id, when one is chosen. */
     selectedId?: string;
+    /** Empty means compare the baseline with the current project. */
+    targetId?: string;
     /** The comparison against it. Absent when nothing is chosen. */
     comparison?: {
       span: string;
       status: ObservedDelta['status'];
       staleness: BaselineStaleness;
-      changes: Array<{ label: string; kind: string; summary: string }>;
+      changes: Array<{ label: string; kind: string; summary: string; before?: string; after?: string }>;
       droppedByCap: number;
     };
     /** How many more may be captured before a capture is refused. */
@@ -3050,7 +3053,8 @@ interface DashboardGateCandidatesView {
 interface DashboardRoadmapGraphView {
   /** Nodes on the plan canvas: outstanding work, plus delivered work still holding something up. */
   active: RoadmapGraphNode[];
-  /** Nodes on the completion canvas, laid out chronologically. */
+  /** Delivered nodes at their own saved or derived layout positions. */
+  completionLayout?: 'chronological' | 'horizontal' | 'vertical';
   completed: RoadmapGraphNode[];
   /**
    * The same outstanding work, grouped into one band per person.
@@ -6276,7 +6280,7 @@ export class ProjectDashboardPanel {
         await this.handleDismissCapabilityOffer(message.payload);
         break;
       case 'roadmapAutoLayout':
-        await this.handleRoadmapAutoLayout(message.payload === 'vertical' ? 'vertical' : 'horizontal');
+        await this.handleRoadmapAutoLayout(message.payload, message.view);
         break;
       case 'importRoadmap':
         await this.handleImportRoadmap();
@@ -6580,7 +6584,7 @@ export class ProjectDashboardPanel {
         await this.handleRemoveBaseline(message.payload);
         return;
       case 'selectBaseline':
-        await this.handleSelectBaseline(message.payload);
+        await this.handleSelectBaseline(message.payload, message.target);
         return;
       case 'saveDirectorConfig':
         await this.handleSaveDirectorConfig(message.payload);
@@ -14149,7 +14153,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
     return { ...document, nodes };
   }
 
-  private async handleRoadmapNodeMove(payload: { nodeId: string; x: number; y: number }): Promise<void> {
+  private async handleRoadmapNodeMove(payload: { nodeId: string; x: number; y: number; view?: 'completed' }): Promise<void> {
     const context = await this.openRoadmapGraphForWrite();
     const text = context?.nodeText.get(payload.nodeId);
     if (context === undefined || text === undefined) {
@@ -14167,7 +14171,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
       context.workspaceRoot,
       context.ssotPath,
       ProjectDashboardPanel.upsertRoadmapNode(context.document, payload.nodeId, text, record => {
-        record.position = position;
+        if (payload.view === 'completed') { record.completionPosition = position; }
+        else { record.position = position; }
       }),
     );
   }
@@ -14184,7 +14189,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * only ever sends what it has selected — it is that a message handler taking
    * an array should say how long an array it will act on.
    */
-  private async handleRoadmapNodesMove(payload: { moves: Array<{ nodeId: string; x: number; y: number }> }): Promise<void> {
+  private async handleRoadmapNodesMove(payload: { moves: Array<{ nodeId: string; x: number; y: number }>; view?: 'completed' }): Promise<void> {
     const requested = Array.isArray(payload?.moves) ? payload.moves.slice(0, MAX_ROADMAP_GROUP_MOVE) : [];
     if (requested.length === 0) {
       return;
@@ -14205,7 +14210,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
       }
       const position = clampRoadmapPosition(move.x, move.y);
       document = ProjectDashboardPanel.upsertRoadmapNode(document, move.nodeId, text, record => {
-        record.position = position;
+        if (payload.view === 'completed') { record.completionPosition = position; }
+        else { record.position = position; }
       });
       applied += 1;
     }
@@ -14653,11 +14659,26 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * "align everything" that quietly skipped what a filter was hiding would leave
    * the plan half aligned in a way nobody could see.
    */
-  private async handleRoadmapAutoLayout(orientation: 'horizontal' | 'vertical'): Promise<void> {
+  private async handleRoadmapAutoLayout(orientation: 'horizontal' | 'vertical' | 'chronological', view?: 'completed'): Promise<void> {
     const context = await this.openRoadmapGraphForWrite();
     if (context === undefined) {
       return;
     }
+    if (view === 'completed') {
+      await this.commitRoadmapGraph(context.workspaceRoot, context.ssotPath, {
+        ...context.document,
+        completionLayout: orientation,
+        nodes: context.document.nodes.map(node => {
+          const { completionPosition: _released, ...rest } = node;
+          return rest;
+        }),
+      });
+      void vscode.window.showInformationMessage(orientation === 'chronological'
+        ? 'Arranged delivered work by completion month. Delivered pins were released.'
+        : `Arranged delivered work as a tree, ${orientation === 'vertical' ? 'top to bottom' : 'left to right'}. Delivered pins were released.`);
+      return;
+    }
+    if (orientation === 'chronological') { return; }
     const moved = context.document.nodes.filter(node => node.position !== undefined).length;
     const nodes = context.document.nodes.map(node => {
       const { position: _dropped, ...rest } = node;
@@ -15720,6 +15741,9 @@ ${buildCardEvidenceSection(source, derivation)}`;
     const state = this.atlas.extensionContext?.workspaceState;
     try {
       await state?.update(NAMED_BASELINE_STATE_KEY, removeBaseline(register, id));
+      if (readSelectedBaselineId(this.atlas, 'comparison') === id) {
+        await state?.update(COMPARISON_BASELINE_STATE_KEY, '');
+      }
       if (readSelectedBaselineId(this.atlas) === id) {
         await state?.update(SELECTED_BASELINE_STATE_KEY, '');
       }
@@ -15731,13 +15755,13 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   /** Choose which baseline the comparison is against. An empty id chooses none. */
-  private async handleSelectBaseline(id: string): Promise<void> {
+  private async handleSelectBaseline(id: string, target?: 'comparison'): Promise<void> {
     const register = readBaselineRegister(this.atlas);
     // Resolved against the register, so an id that names nothing selects
     // nothing rather than leaving a dangling selection on the page.
     const resolved = register.baselines.some(entry => entry.id === id) ? id : '';
     try {
-      await this.atlas.extensionContext?.workspaceState.update(SELECTED_BASELINE_STATE_KEY, resolved);
+      await this.atlas.extensionContext?.workspaceState.update(target === 'comparison' ? COMPARISON_BASELINE_STATE_KEY : SELECTED_BASELINE_STATE_KEY, resolved);
     } catch {
       return;
     }
@@ -18146,6 +18170,7 @@ function isReleaseMatrixImportPayload(value: unknown): value is { previewId: str
  */
 function isRoadmapNodeMovePayload(value: Record<string, unknown> | undefined): boolean {
   return typeof value === 'object' && value !== null
+    && (value['view'] === undefined || value['view'] === 'completed')
     && isOpaqueDashboardId(value['nodeId'])
     && typeof value['x'] === 'number' && Number.isFinite(value['x'])
     && typeof value['y'] === 'number' && Number.isFinite(value['y']);
@@ -18694,7 +18719,8 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     // Every entry, not a sample: a batch validator that checks the first item
     // and trusts the rest is a validator with an offset.
     const moves = payload['moves'] as unknown[];
-    return moves.length > 0 && moves.every(move => isRoadmapNodeMovePayload(move as Record<string, unknown>));
+    return (payload['view'] === undefined || payload['view'] === 'completed')
+      && moves.length > 0 && moves.every(move => isRoadmapNodeMovePayload(move as Record<string, unknown>));
   }
 
   if (candidate['type'] === 'roadmapNodeUpdate') {
@@ -18730,7 +18756,9 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   }
 
   if (candidate['type'] === 'roadmapAutoLayout') {
-    return candidate['payload'] === 'horizontal' || candidate['payload'] === 'vertical';
+    return (candidate['view'] === undefined || candidate['view'] === 'completed')
+      && (candidate['payload'] === 'horizontal' || candidate['payload'] === 'vertical'
+        || (candidate['view'] === 'completed' && candidate['payload'] === 'chronological'));
   }
 
   if (candidate['type'] === 'roadmapDeriveLinks') {
@@ -18817,7 +18845,8 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   if (candidate['type'] === 'removeBaseline' || candidate['type'] === 'selectBaseline') {
     // An opaque id, resolved host-side against the stored register: a crafted
     // message can name a baseline that exists and can never supply one.
-    return typeof candidate['payload'] === 'string';
+    return typeof candidate['payload'] === 'string'
+      && (candidate['target'] === undefined || (candidate['type'] === 'selectBaseline' && candidate['target'] === 'comparison'));
   }
 
   if (candidate['type'] === 'saveDirectorConfig') {
@@ -24157,6 +24186,7 @@ const OBSERVED_BASELINE_STATE_KEY = 'atlasmind.workflow.observedBaseline';
  */
 const NAMED_BASELINE_STATE_KEY = 'atlasmind.workflow.namedBaselines';
 const SELECTED_BASELINE_STATE_KEY = 'atlasmind.workflow.selectedBaseline';
+const COMPARISON_BASELINE_STATE_KEY = 'atlasmind.workflow.comparisonBaseline';
 
 /**
  * The delta, computed once and then held.
@@ -24270,6 +24300,8 @@ function buildBaselineView(
   const ordered = orderedBaselines(register);
   const selectedId = readSelectedBaselineId(atlas);
   const selected = ordered.find(entry => entry.id === selectedId);
+  const targetId = readSelectedBaselineId(atlas, 'comparison');
+  const target = ordered.find(entry => entry.id === targetId);
   const comparisons = ordered.map(entry => compareAgainstBaseline({
     baseline: entry,
     current: observed,
@@ -24277,9 +24309,11 @@ function buildBaselineView(
     now,
   }));
   const chosen = selected
-    ? comparisons.find(comparison => comparison.baseline.id === selected.id)
+    ? target ? compareNamedBaselines({ baseline: selected, target })
+      : comparisons.find(comparison => comparison.baseline.id === selected.id)
     : undefined;
   return {
+    ...(target === undefined ? {} : { targetId: target.id }),
     entries: comparisons.map(comparison => ({
       id: comparison.baseline.id,
       label: comparison.baseline.label,
@@ -24300,6 +24334,8 @@ function buildBaselineView(
           label: change.label,
           kind: change.kind,
           summary: change.summary,
+          ...(change.before === undefined ? {} : { before: change.before }),
+          ...(change.after === undefined ? {} : { after: change.after }),
         })),
         droppedByCap: chosen.delta.droppedByCap,
       },
@@ -24318,9 +24354,9 @@ function readBaselineRegister(atlas: AtlasMindContext): BaselineRegister {
   }
 }
 
-function readSelectedBaselineId(atlas: AtlasMindContext): string | undefined {
+function readSelectedBaselineId(atlas: AtlasMindContext, target?: 'comparison'): string | undefined {
   try {
-    const value = atlas.extensionContext?.workspaceState.get<string>(SELECTED_BASELINE_STATE_KEY);
+    const value = atlas.extensionContext?.workspaceState.get<string>(target === 'comparison' ? COMPARISON_BASELINE_STATE_KEY : SELECTED_BASELINE_STATE_KEY);
     return typeof value === 'string' && value ? value : undefined;
   } catch {
     return undefined;
@@ -26553,7 +26589,7 @@ function buildRoadmapGraphView(
     });
 
     const partition = partitionRoadmapCompletion(graph);
-    const completion = layoutRoadmapCompletion(partition.completed);
+    const completion = layoutRoadmapCompletion(partition.completed, { records: reconciled.document.nodes, layout: reconciled.document.completionLayout });
     const routes: DashboardRoadmapGraphView['routes'] = {};
     for (const node of graph.nodes) {
       const route = roadmapRouteTo(graph, node.id);
@@ -26596,6 +26632,7 @@ function buildRoadmapGraphView(
     return {
       active: partition.active,
       completed: completion.nodes,
+      completionLayout: reconciled.document.completionLayout ?? 'chronological',
       completedColumns: completion.columns,
       byPerson: byPerson.nodes,
       lanes: byPerson.lanes,

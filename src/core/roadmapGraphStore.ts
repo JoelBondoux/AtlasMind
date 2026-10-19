@@ -95,6 +95,8 @@ export interface RoadmapGraphDocument {
    * graph rather than on the person.
    */
   layoutOrientation: RoadmapLayoutOrientation;
+  /** Delivered canvas defaults to month columns; tree direction is independent. */
+  completionLayout?: 'chronological' | RoadmapLayoutOrientation;
   updatedAt: string;
 }
 
@@ -238,6 +240,7 @@ export function sanitizeRoadmapNodeRecord(value: unknown): RoadmapNodeRecord | u
   // distinguishable on the by-person view.
   const assigneeId = sanitizeId(record['assigneeId']);
   const position = sanitizePosition(record['position']);
+  const completionPosition = sanitizePosition(record['completionPosition']);
   const origin = sanitizeRoadmapOrigin(record['origin']);
   const imported = sanitizeRoadmapImport(record['imported']);
   // Validated, never cleaned: the value is resolved against the workspace root
@@ -262,6 +265,7 @@ export function sanitizeRoadmapNodeRecord(value: unknown): RoadmapNodeRecord | u
     ...(completedAt === undefined ? {} : { completedAt }),
     ...(completedBy === undefined ? {} : { completedBy }),
     ...(position === undefined ? {} : { position }),
+    ...(completionPosition === undefined ? {} : { completionPosition }),
     ...(imported === undefined ? {} : { imported }),
     ...(planPath === undefined ? {} : { planPath }),
     ...(origin === undefined ? {} : { origin }),
@@ -433,6 +437,8 @@ export function sanitizeRoadmapGraphDocument(value: unknown): RoadmapGraphDocume
     suggestLinks: record['suggestLinks'] !== false,
     dismissed,
     layoutOrientation: record['layoutOrientation'] === 'vertical' ? 'vertical' : 'horizontal',
+    ...((record['completionLayout'] === 'chronological' || record['completionLayout'] === 'horizontal' || record['completionLayout'] === 'vertical')
+      ? { completionLayout: record['completionLayout'] as 'chronological' | RoadmapLayoutOrientation } : {}),
     updatedAt: sanitizeTimestamp(record['updatedAt']) ?? new Date(0).toISOString(),
   };
 }
@@ -667,6 +673,8 @@ export function renderRoadmapGraphMarkdown(document: RoadmapGraphDocument): stri
     `Suggested links: ${document.suggestLinks ? 'on — AtlasMind proposes links, and nothing is applied until somebody accepts it' : 'off — only links drawn by hand are shown'}`,
     '',
     `Layout: ${document.layoutOrientation === 'vertical' ? 'vertical — the tree runs top to bottom' : 'horizontal — the tree runs left to right'}. Nodes moved by hand keep their position whichever way the tree runs.`,
+    '',
+    `Delivered layout: ${document.completionLayout ?? 'chronological'}. Delivered pins are independent of plan positions.`,
     '',
     '## Nodes',
     '',

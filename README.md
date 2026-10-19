@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.505.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.506.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,15 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.506.0
+
+**Manage delivered roadmap nodes.** Drag individual nodes or a selected group, snap to the grid,
+arrange a dependency tree in either direction, or return to completion-month columns. Delivered
+positions are saved separately from the outstanding plan.
+
+**Compare two saved baselines.** Workflow now offers a saved target as well as the current project,
+with both capture dates and before/after values. Neither saved observation advances.
+
 ## What's new in 0.505.0
 
 **Choose Ask, Auto or Bypass.** Workflow, chat and the status bar share one session approval mode.
@@ -190,12 +199,6 @@ Auto reviews use your synthesis-model routing and may cost tokens.
 **Workflow permission controls reconnect after a restart.** Restoring the dashboard now activates its
 extension host. If a control cannot reach that host, the dashboard shows how to reconnect instead of
 silently ignoring the click. Permission limits and confirmation requirements are unchanged.
-
-## What's new in 0.504.5
-
-The last Marketplace publication is now **v0.504.4**, which carries everything since v0.482.1. That
-includes Unsloth Studio as a local runtime and the sandboxed execution work. Every release is written up
-in full in [CHANGELOG.md](CHANGELOG.md).
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.504.4**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in

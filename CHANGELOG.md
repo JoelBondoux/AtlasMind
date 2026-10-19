@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.506.0] - 2026-10-19
+
+### Added
+
+- Delivered-roadmap Auto tree controls, horizontal/vertical arrangement, grid snapping and return
+  to completion-month layout. Dragging one node or a selected group saves delivered positions
+  independently of plan positions; arranging either view releases only its own pins.
+- Workflow comparisons between two saved baselines, with exact capture dates, explicit direction,
+  and before/after values. Repository or component-coverage mismatches refuse comparison. Selection
+  stores only existing baseline ids; saved observations stay unchanged.
+
+### Fixed
+
+- Delivered nodes retain their dragged positions after refresh. Their Route controls now filter
+  the delivered canvas, and temporary drag previews cannot leak into the outstanding plan.
+
+
 ## [0.505.0] - 2026-10-18
 
 ### Added
