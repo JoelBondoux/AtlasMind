@@ -709,3 +709,13 @@ report path from the project home. Expand the Performance card to see reported v
 units, sample counts and capture date. Measured means evidence exists; it does not mean a budget passed.
 No report gives no performance verdict, and AtlasMind never starts a profiler. Engine-native capture
 files need a project-owned exporter; they are not parsed as this format.
+
+### Game-shaped technical debt
+
+Use **Scan for technical debt** after declaring the game's composition/profile. The modal includes
+asset reads and local Git fork inspection. The Debt page shows game findings, their published rules,
+measured threshold details and unassessed-signal notes. Declare optional maxima in `forkDebtThresholds`
+in `domain/game.json`; no default limit is imposed. Use `TUNING: identifier` as the first word of a code
+comment to identify a tuning point deliberately. No numeric-literal heuristic is applied. See
+[the exact contract](../docs/game-engine-integration.md#45-game-shaped-debt-signals). Partial/missing
+evidence preserves prior findings, and obsolete never means somebody confirmed a fix.

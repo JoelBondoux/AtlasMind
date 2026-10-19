@@ -28,10 +28,16 @@ hosted checks are recorded separately, not substituted by fixtures.
   explicit no-verdict paths and no inferred passing budgets. Schema, real collector and dashboard
   integration included. Game Dev remains open for C2.7 onward.
 
+## Implemented in 0.508.0
+
+- C2.7: confirmed game asset/LFS/import findings, explicit author TUNING points and exact fork counts
+  past declared maxima. Same rule table; unknown/partial evidence keeps prior findings; measured
+  details preserve manual decisions/history. Game Dev remains open for C2.8 onward.
+
 ## Next MVP work
 
 The next open MVP item in canonical order is Game Dev's scoped consumers. Its next declared slice
-is C2.7 game-shaped debt signals; C2.6 performance-report coverage is implemented above. See
+is C2.8 decisive-file archetype detection; C2.6 and C2.7 are implemented above. See
 [the phased plan](../roadmap/game-engine-integration.md). Team
 management is ahead of it in the overall backlog but has no MVP gate. Other open MVP items remain
 open; these completed slices do not establish whole-MVP completion.
@@ -72,3 +78,21 @@ were added or changed. Release metadata and the three-entry README history are s
 - New source, core policy/detail services, webview, report boundary, release notes and roadmap docs
   have matching README/development/architecture/wiki updates. Commands, persisted settings, scheduler,
   providers, model routing and stored memory schemas are unchanged.
+
+## C2.7 validation evidence (0.508.0)
+
+- Test-first failures covered the missing derivation/profile contract and retaining high-severity
+  findings at the candidate cap. Focused core, persisted profile, actual host collector and executed
+  dashboard DOM regressions passed (420 tests); the final cap/dead-export checks passed (21 tests).
+- Full `npm run ci:local` passed: production/web compile, lint, integration audit, 581 test files,
+  provider recommendations, coverage (12,105 tests; 63.14% lines) and VSIX packaging. Using an existing
+  export reduced the unused-export ratchet from 84 to 83.
+- Separate test-source typing remains at 215 pre-existing errors, with no new game-debt/profile
+  errors. Unknown or partial evidence preserves old findings; manual decisions survive count changes.
+- VSIX 0.508.0 contains the final compiled collector/cap fix and no project-memory, test-results,
+  `.git`, `.claude` or `.atlasmind` artifacts. Local installation was verified as
+  `joelbondoux.atlasmind@0.508.0`. Installed UI/engine acceptance and hosted CI remain unperformed.
+- Source additions, core debt/profile changes, SSOT fields, webview and confirmed read boundary have
+  matching README, architecture, development, memory, workflow, safety and wiki updates. No command,
+  VS Code setting, provider, model-routing, agent or scheduler contract changed. Version/changelog and
+  three-entry README history align. No merge, push, release tag or publication was performed.

@@ -1268,3 +1268,13 @@ exchange format, not engine-native exports. Keep the fixed-path collector under 
 profiler to fill an evidence gap. Retain sample counts/statistics, reject bad reports whole, and keep
 budget compliance separate from evidence coverage. Regression tests exercise parser refusal, cap and
 symlink cases, schema vocabulary parity, the real Testing collector and executed dashboard rendering.
+
+### Game debt signals (C2.7)
+
+`src/core/gameDebt.ts` derives game findings and collects them only for a confirmed debt scan. Reuse
+existing asset and Git readers. Keep fork count comparison separate from descriptive burden and path
+interpretation; accept only declared thresholds for matching engine/upstream evidence. Negative
+reconciliation needs per-finding proof, not a scanned path. Cap candidate/source/Git work and report
+omissions; never clear omitted findings. Tests exercise the real asset/profile collector, cancelled
+scan, partial-to-complete reconciliation, stable accepted entries, long-path identity, schema selection
+and executed dashboard escaping. Source scans now include `.gd` within the existing shared file cap.

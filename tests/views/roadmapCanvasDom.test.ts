@@ -1979,3 +1979,23 @@ describe('performance evidence on Testing', () => {
     expect(table.closest('.performance-evidence').textContent).toContain('Budget not assessed');
   });
 });
+
+
+describe('game debt evidence on the dashboard', () => {
+  it('shows escaped measured details and unassessed-signal notes beside debt', () => {
+    const harness = mount();
+    const message = snapshot();
+    Object.assign(message.payload.debt, { lastGameScanNotes: ['LFS not-visible <img src=x>'], entries: [{
+      id: 'game-debt-one', title: 'Fork threshold exceeded', domain: 'infrastructure', status: 'open',
+      evidencePath: 'project_memory/domain/game.json', detectedAt: '2026-10-19T00:00:00Z', severity: 'high',
+      rule: 'game-fork-threshold', transitions: [], evidenceDetail: 'commitsBehind: 11; maximum: 10 <script>bad()</script>',
+    }] });
+    harness.send(message);
+    const section = harness.root().querySelector('[data-page="debt"]') || harness.root();
+    expect(section.textContent).toContain('commitsBehind: 11; maximum: 10');
+    const coverage = harness.root().querySelector('.game-debt-coverage');
+    expect(coverage.textContent).toContain('not-visible');
+    expect(coverage.querySelector('img')).toBeNull();
+    expect(section.querySelector('script')).toBeNull();
+  });
+});

@@ -9539,6 +9539,7 @@
   function renderDebt(snapshot) {
     const debt = snapshot.debt || { entries: [], metrics: {}, rules: [] };
     const metrics = debt.metrics || {};
+    const gameNotes = Array.isArray(debt.lastGameScanNotes) ? debt.lastGameScanNotes : [];
     const entries = debt.entries || [];
     const scanScope = Array.isArray(debt.lastScanScope) ? debt.lastScanScope : [];
     const visibleScopeCount = scanScope.filter(component => component.visibility === 'visible').length;
@@ -9626,6 +9627,7 @@
             <span class="tag ${DEBT_STATUS_TONE[entry.status] || ''}">${escapeHtml(entry.status)}</span>
           </span>
         </div>
+        ${entry.evidenceDetail ? `<p class="stat-detail">${escapeHtml(entry.evidenceDetail)}</p>` : ''}
         <div class="list-meta">${entry.componentLabel ? `<strong>${escapeHtml(entry.componentLabel)}</strong> · ` : ''}<code>${escapeHtml(entry.evidencePath)}${entry.evidenceLine ? ':' + entry.evidenceLine : ''}</code> · ${escapeHtml(entry.domain)} · since ${escapeHtml((entry.detectedAt || '').slice(0, 10))} · graded by <code>${escapeHtml(entry.rule)}</code></div>
         <div class="tag-row">
           ${renderDirectorOwnerControl('debt', entry.id)}
@@ -9637,7 +9639,8 @@
         </div>
       </div>`).join('');
 
-    return pageSectionOpen('debt') + intro + scanScopeCard + `
+    const gameNoteCard = gameNotes.length ? `<article class="panel-card game-debt-coverage"><p class="card-kicker">Game signal coverage</p><ul>${gameNotes.map(note => `<li>${escapeHtml(note)}</li>`).join('')}</ul></article>` : '';
+    return pageSectionOpen('debt') + intro + scanScopeCard + gameNoteCard + `
       <div class="panel-grid">
         <article class="panel-card">
           <p class="card-kicker">Where it is${help.button}</p>

@@ -1861,3 +1861,21 @@ Measured and leaves test-file/case counts alone. `testingPolicyDetail` recognise
 of JUnit and invents no passing case mix. The Project Dashboard renders an escaped measurement table;
 budget compliance remains not assessed. `schemas/performance-report.schema.json` is the editor contract.
 The normative format and scope are documented in `docs/game-engine-integration.md` §4.4.
+
+
+### Game-shaped debt derivation (0.508.0)
+
+`src/core/gameDebt.ts` joins a validated `GameProfile`, declared composition, caller-resolved roots,
+existing source reads, confirmed `GameAssetInventoryReport`, and generic `UpstreamDivergenceReport`.
+It applies the same published `DEBT_RULES` as written debt. `collectGameDebtForScan` in the Project
+Dashboard binds the SSOT home and custom SSOT folder, runs only after debt-scan confirmation, and
+passes bounded read-only Git calls. The collector never runs an engine or fetch. Tuning points are
+explicit author markers, not inferred numeric literals.
+
+`GameProfile.forkDebtThresholds` declares component/metric maxima without defaults. Its selector
+validates finite non-negative safe integers, retains unknown entry fields, and reports unresolved
+engine/upstream references. `game.md` mirrors the declarations. The debt overlay optionally stores
+`evidenceDetail` and `lastGameScanNotes`. Game finding ids hash the full evidence identity; measured
+counts are excluded from identity. Reconciliation requires the exact game finding to be assessed
+before obsoleting it; ordinary scanned paths cannot clear it. Manual decisions/history survive count
+changes. The normative bounds, policies and evidence limitations are in game-engine integration §4.5.

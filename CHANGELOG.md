@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.508.0] - 2026-10-19
+
+### Added
+
+- Game-shaped findings in the explicitly confirmed technical-debt scan: observed binary assets outside
+  readable Git LFS coverage, retained import/missing-reference markers, author-marked TUNING points,
+  and exact engine-fork counts above project-declared limits. All use the published debt rule table.
+- Optional `forkDebtThresholds` in the game profile, with explicit non-negative safe-integer maxima,
+  exact metric names, engine/upstream validation and a readable mirror. No threshold is guessed.
+- Per-finding reconciliation authority so unreadable or partial game scans cannot obsolete prior
+  findings. Measured details update without changing manual decisions, age or history. Long game
+  evidence paths receive collision-resistant ids. The Debt page records unassessed-signal notes.
+
+
 ## [0.507.0] - 2026-10-19
 
 ### Added

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { redactSecrets } from '../utils/secretRedactor.js';
 /**
  * The technical-debt register — stage 7.
  *
@@ -80,6 +82,8 @@ export interface DebtEntry {
   componentId?: string;
   componentLabel?: string;
   evidenceLine?: number;
+  /** Sanitised measured facts; never raw engine metadata. */
+  evidenceDetail?: string;
   detectedAt: string;
   severity: DebtSeverity;
   /** The rule that assigned the severity, so it can be argued with. */
@@ -97,6 +101,7 @@ export interface DebtRegister {
   lastScanAt?: string;
   /** Exactly which declared components the last scan could and could not assess. */
   lastScanScope?: DebtScanScope[];
+  lastGameScanNotes?: string[];
 }
 
 /** One declared component's coverage in a debt scan. */
@@ -176,7 +181,16 @@ export const DEBT_RULES: readonly DebtRule[] = [
     severity: 'medium',
     describes: 'No CI workflow. On a solo project CI is not a supplement to review — it is the review.',
   },
+  { id: 'game-asset-outside-lfs', domain: 'infrastructure', severity: 'medium', describes: 'An observed binary game asset is not covered by readable declared Git LFS rules.' },
+  { id: 'game-import-error', domain: 'code', severity: 'medium', describes: 'An observed asset metadata file retains an import-error or missing-reference marker. No engine was run to verify it.' },
+  { id: 'game-sensitive-tuning', domain: 'security', severity: 'high', describes: 'An author-marked tuning point mentions a security-sensitive concern. The security grade cannot be lowered by the tuning rule.' },
+  { id: 'game-tuning-in-code', domain: 'code', severity: 'low', describes: 'The author marked a source tuning point with TUNING: identifier. Ordinary numbers are never inferred to be debt.' },
+  { id: 'game-fork-threshold', domain: 'infrastructure', severity: 'high', describes: 'An exact Git divergence count exceeds the project-declared maximum for this engine and upstream. No default threshold exists.' },
 ];
+
+export function isGameDebtRule(rule: string): boolean {
+  return ['game-asset-outside-lfs', 'game-import-error', 'game-tuning-in-code', 'game-sensitive-tuning', 'game-fork-threshold'].includes(rule);
+}
 
 const RULE_BY_ID = new Map(DEBT_RULES.map(rule => [rule.id, rule]));
 
@@ -377,6 +391,8 @@ export interface DebtScanCandidate {
   componentId?: string;
   componentLabel?: string;
   evidenceLine?: number;
+  /** Sanitised measured facts; never raw engine metadata. */
+  evidenceDetail?: string;
   severity: DebtSeverity;
   rule: string;
 }
@@ -496,6 +512,10 @@ export function debtEntryId(candidate: DebtScanCandidate): string {
     .toLowerCase()
     .replace(/[^a-z0-9:/._-]+/g, '-')
     .replace(/-+/g, '-');
+  if (isGameDebtRule(candidate.rule)) {
+    const digest = createHash('sha256').update(JSON.stringify([candidate.componentId, candidate.domain, candidate.rule, candidate.evidencePath, candidate.title])).digest('hex').slice(0, 20);
+    return `${slug.slice(0, 138)}:${digest}`;
+  }
   return slug.length > 160 ? slug.slice(0, 160) : slug;
 }
 
@@ -682,7 +702,9 @@ export function reconcileDebtScan(
   scannedPaths: readonly DebtScannedPath[],
   at: string,
   lastScanScope?: readonly DebtScanScope[],
+  gameAssessedIds: readonly string[] = [],
 ): DebtReconcileResult {
+  const gameAssessed = new Set(gameAssessedIds);
   const scanned = new Set(scannedPaths.map(scannedPathKey));
   const seen = new Map<string, DebtScanCandidate>();
   const legacyMatches = new Map<string, DebtScanCandidate[]>();
@@ -723,6 +745,7 @@ export function reconcileDebtScan(
           // The line may have moved; everything else about the entry is what it
           // always was, including when it was first detected.
           ...(match.evidenceLine === undefined ? {} : { evidenceLine: match.evidenceLine }),
+          ...(match.evidenceDetail === undefined ? {} : { evidenceDetail: match.evidenceDetail }),
           transitions: [...entry.transitions, {
             at,
             from: entry.status,
@@ -734,19 +757,22 @@ export function reconcileDebtScan(
         return revived;
       }
       unchanged += 1;
-      return match.evidenceLine === entry.evidenceLine && !componentChanged
+      return match.evidenceLine === entry.evidenceLine && match.evidenceDetail === entry.evidenceDetail && !componentChanged
         ? entry
         : {
           ...entry,
           id: matchId,
           ...(match.evidenceLine === undefined ? {} : { evidenceLine: match.evidenceLine }),
+          ...(match.evidenceDetail === undefined ? {} : { evidenceDetail: match.evidenceDetail }),
           ...(match.componentId === undefined ? {} : { componentId: match.componentId }),
           ...(match.componentLabel === undefined ? {} : { componentLabel: match.componentLabel }),
         };
     }
 
     // Not in the scan. Only meaningful if the file was actually looked at.
-    const wasScanned = scanned.has(scannedPathKey({ componentId: entry.componentId, path: entry.evidencePath }));
+    const wasScanned = isGameDebtRule(entry.rule)
+      ? gameAssessed.has(entry.id)
+      : scanned.has(scannedPathKey({ componentId: entry.componentId, path: entry.evidencePath }));
     if (!wasScanned || entry.status === 'obsolete' || entry.status === 'resolved') {
       return entry;
     }
@@ -773,6 +799,7 @@ export function reconcileDebtScan(
       ...(candidate.componentId === undefined ? {} : { componentId: candidate.componentId }),
       ...(candidate.componentLabel === undefined ? {} : { componentLabel: candidate.componentLabel }),
       ...(candidate.evidenceLine === undefined ? {} : { evidenceLine: candidate.evidenceLine }),
+      ...(candidate.evidenceDetail === undefined ? {} : { evidenceDetail: candidate.evidenceDetail }),
       detectedAt: at,
       severity: candidate.severity,
       rule: candidate.rule,
@@ -1009,6 +1036,7 @@ export function sanitizeDebtRegister(input: unknown): DebtRegister {
     ...(typeof raw['updatedAt'] === 'string' ? { updatedAt: raw['updatedAt'] } : {}),
     ...(typeof raw['lastScanAt'] === 'string' ? { lastScanAt: raw['lastScanAt'] } : {}),
     ...(lastScanScope === undefined ? {} : { lastScanScope }),
+    ...(Array.isArray(raw['lastGameScanNotes']) ? { lastGameScanNotes: raw['lastGameScanNotes'].slice(0, 64).filter((value): value is string => typeof value === 'string').map(value => redactSecrets(clampTitle(value)).text) } : {}),
   };
 }
 
@@ -1063,6 +1091,7 @@ function sanitizeEntry(input: unknown): DebtEntry | undefined {
     domain: DOMAINS.includes(raw['domain'] as DebtDomain) ? raw['domain'] as DebtDomain : 'code',
     title: clampTitle(typeof raw['title'] === 'string' ? raw['title'] : 'Untitled'),
     evidencePath,
+    ...(typeof raw['evidenceDetail'] === 'string' ? { evidenceDetail: redactSecrets(clampTitle(raw['evidenceDetail'])).text } : {}),
     ...(typeof raw['componentId'] === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/u.test(raw['componentId'])
       ? { componentId: raw['componentId'] }
       : {}),
@@ -1179,6 +1208,9 @@ export function renderDebtMarkdown(
     '',
   ];
 
+  if (register.lastGameScanNotes?.length) {
+    lines.push('## Game signal coverage', '', ...register.lastGameScanNotes.map(note => `- ${markdownCell(note)}`), '');
+  }
   if (register.lastScanScope !== undefined) {
     lines.push(
       '## Scan scope',
@@ -1210,7 +1242,7 @@ export function renderDebtMarkdown(
         entry.severity,
         entry.domain,
         markdownCell(entry.componentLabel ?? 'project'),
-        entry.title,
+        markdownCell(entry.title + (entry.evidenceDetail ? ` — ${entry.evidenceDetail}` : '')),
         `\`${entry.evidencePath}${entry.evidenceLine ? `:${entry.evidenceLine}` : ''}\``,
         entry.detectedAt.slice(0, 10),
         `\`${entry.rule}\``,

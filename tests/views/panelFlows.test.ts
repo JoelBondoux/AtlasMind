@@ -645,6 +645,35 @@ describe('panel refresh flows', () => {
     expect(dashboardPrompt).not.toContain('abcdefghijklmnopqrstuvwxyz');
   });
 
+  it('collects game debt from the real declared profile only after scan confirmation', async () => {
+    const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-game-debt-'));
+    try {
+      mkdirSync(path.join(tempRoot, 'project_memory', 'domain'), { recursive: true });
+      mkdirSync(path.join(tempRoot, 'Content'), { recursive: true });
+      writeFileSync(path.join(tempRoot, 'Content', 'texture.png'), new Uint8Array([1]));
+      writeFileSync(path.join(tempRoot, 'project_memory', 'domain', 'game.json'), JSON.stringify({
+        version: 1, contentRoots: [{ location: 'Content' }],
+      }));
+      mocks.state.workspaceFolders = [{ name: 'Temp', uri: { fsPath: tempRoot, path: tempRoot } }];
+      const { buildGameProjectComposition } = await import('../../src/core/projectComposition.ts');
+      const panel = Object.assign(Object.create(ProjectDashboardPanel.prototype) as {
+        collectGameDebtForScan(...args: unknown[]): Promise<{ candidates: Array<{ rule: string }> }>;
+        handleScanDebt(): Promise<void>;
+      }, { syncState: vi.fn() });
+      Object.defineProperty(panel, 'debtManager', { value: { get: () => ({ version: 1, entries: [] }) } });
+      const composition = buildGameProjectComposition('single-repo-indie');
+      const result = await panel.collectGameDebtForScan(composition, [{ componentId: 'gameplay', fsPath: tempRoot }], []);
+      expect(result.candidates.map(c => c.rule)).toContain('game-asset-outside-lfs');
+      const collect = vi.spyOn(panel, 'collectGameDebtForScan');
+      mocks.showWarningMessage.mockResolvedValue(undefined);
+      await panel.handleScanDebt();
+      expect(collect).not.toHaveBeenCalled();
+    } finally {
+      const { rm } = await import('node:fs/promises');
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it('reads performance evidence through the real Testing collector when enabled', async () => {
     const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'atlasmind-perf-collector-'));
     try {

@@ -1,3 +1,5 @@
+import { collectGameDebt, type GameDebtSourceFile, type GameDebtResult } from '../core/gameDebt.js';
+import { GameProfileManager } from '../core/gameProfile.js';
 import * as vscode from 'vscode';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -295,6 +297,7 @@ import {
   deriveDebtFromSignals,
   deriveDebtMetrics,
   isDependencyPullRequest,
+  isGameDebtRule,
   reconcileDebtScan,
   scanForDebtMarkers,
   scopeDebtCandidates,
@@ -3641,6 +3644,7 @@ interface DashboardSnapshot {
     metrics: DebtMetrics;
     lastScanAt?: string;
     lastScanScope?: DebtScanScope[];
+    lastGameScanNotes?: string[];
     /** The declared rules, so a grade can be checked against them on screen. */
     rules: Array<{ id: string; domain: string; severity: string; describes: string }>;
     scanning: boolean;
@@ -11042,6 +11046,31 @@ export class ProjectDashboardPanel {
     });
   }
 
+  /** This helper is called only after the ordinary debt-scan confirmation. */
+  private async collectGameDebtForScan(
+    composition: ProjectComposition | undefined,
+    roots: readonly { componentId: string; fsPath: string }[],
+    sourceFiles: readonly GameDebtSourceFile[],
+  ): Promise<GameDebtResult> {
+    const home = ssotHomeRoot();
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const reading = new GameProfileManager(home.fsPath, home.refusal, ssotPath).read();
+    const previous = this.debtManager.get().entries;
+    if (!composition?.components.some(c => c.archetype?.archetype === 'game') && reading.status === 'absent'
+      && !previous.some(entry => isGameDebtRule(entry.rule))) {
+      return { candidates: [], assessedIds: [], notes: [] };
+    }
+    const profile = reading.status === 'loaded' && reading.findings.every(f => f.kind !== 'invalid') ? reading.profile : undefined;
+    const deadline = Date.now() + 15_000;
+    return collectGameDebt({ confirmed: true, composition, profile, roots, sourceFiles, previous,
+      profilePath: `${ssotPath}/domain/game.json`,
+    }, (root, args) => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) { throw new Error('Game fork inspection time budget reached.'); }
+      return runGit(root, [...args], { timeoutMs: Math.min(3000, remaining) });
+    });
+  }
+
   private async handleScanDebt(): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
@@ -11060,6 +11089,7 @@ export class ProjectDashboardPanel {
           `This reads your source files for TODO, FIXME, HACK and XXX markers and writes what it finds to \`${DEBT_SSOT_PATH}\`, with a readable mirror beside it.\n\n`
           + 'Nothing is deleted. An entry whose marker has gone is recorded as obsolete rather than resolved, '
           + 'because "the line is gone" and "somebody did the work" are different facts.\n\n'
+          + 'For a declared game project this also reads declared content roots for asset/LFS and import markers, author-marked TUNING points, and local Git fork counts against declared limits. The asset walk is capped and no engine, build, fetch or profiler runs.\n\n'
           + 'Severity comes from a declared rule, never a judgement call, and every entry names the rule that graded it.',
       },
       'Yes, scan',
@@ -11083,6 +11113,7 @@ export class ProjectDashboardPanel {
       const declaredScope = await collectDashboardWorkspaceScope(composition, this.workflowConfig.getWorkspaceRoot());
       const markerCandidates: import('../core/debtRegister.js').DebtScanCandidate[] = [];
       const scannedPaths: import('../core/debtRegister.js').DebtScannedPath[] = [];
+      const gameSourceFiles: GameDebtSourceFile[] = [];
       const scanCoverage: DebtScanScope[] = [];
       let remainingFiles = DEBT_SCAN_MAX_FILES;
       let truncated = false;
@@ -11107,6 +11138,7 @@ export class ProjectDashboardPanel {
           }
           const scanned = await collectDebtScanFiles(root.fsPath, remainingFiles);
           remainingFiles = Math.max(0, remainingFiles - scanned.scannedPaths.length);
+          gameSourceFiles.push(...scanned.files.map(file => ({ ...file, componentId: component.id })));
           truncated ||= scanned.truncated;
           markerCandidates.push(...scopeDebtCandidates(
             scanForDebtMarkers(scanned.files, customMarkers),
@@ -11176,7 +11208,8 @@ export class ProjectDashboardPanel {
           uncoveredMethodologies,
           ciWorkflowCount: snapshot.delivery.workflows.length,
         });
-      const candidates = [...markerCandidates, ...derivedCandidates];
+      const game = await this.collectGameDebtForScan(composition, declaredScope.roots.flatMap(root => root.componentId === undefined ? [] : [{ componentId: root.componentId, fsPath: root.fsPath }]), gameSourceFiles);
+      const candidates = [...markerCandidates, ...derivedCandidates, ...game.candidates];
       const at = new Date().toISOString();
       // The derived entries' evidence paths are added to the scanned set, so a
       // signal that has cleared (the update merged, the methodology covered)
@@ -11196,7 +11229,9 @@ export class ProjectDashboardPanel {
         ],
         at,
         composition ? scanCoverage : undefined,
+        game.assessedIds,
       );
+      result.register.lastGameScanNotes = game.notes;
       await this.debtManager.save(result.register, customMarkers);
       void vscode.window.showInformationMessage(
         `Scanned ${scannedPaths.length} files${composition ? ` across ${scanCoverage.length} declared components` : ''}: ${result.added.length} new, ${result.unchanged} already recorded`
@@ -21085,6 +21120,7 @@ async function collectDashboardSnapshot(
       metrics: deriveDebtMetrics(debt?.register ?? { version: 1, entries: [] }, Date.now()),
       ...(debt?.register.lastScanAt === undefined ? {} : { lastScanAt: debt.register.lastScanAt }),
       ...(debt?.register.lastScanScope === undefined ? {} : { lastScanScope: debt.register.lastScanScope }),
+      ...(debt?.register.lastGameScanNotes === undefined ? {} : { lastGameScanNotes: debt.register.lastGameScanNotes }),
       // The project's own marker rules are published alongside the shipped
       // ones. A grade whose rule is not on the page is a grade nobody can
       // check, which is the same as no rule at all.
@@ -27793,7 +27829,7 @@ const DEBT_SCAN_SKIP_DIRS = new Set([
 /** Extensions worth reading. Anything else is either binary or not authored. */
 const DEBT_SCAN_EXTENSIONS = new Set([
   '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.rs', '.go', '.java',
-  '.kt', '.swift', '.rb', '.php', '.cs', '.c', '.h', '.cpp', '.hpp', '.css',
+  '.kt', '.swift', '.rb', '.php', '.cs', '.gd', '.c', '.h', '.cpp', '.hpp', '.css',
   '.scss', '.vue', '.svelte', '.sql', '.sh', '.yml', '.yaml',
 ]);
 

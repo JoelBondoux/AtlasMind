@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.508.0 -- Game-shaped debt signals
+
+A confirmed debt scan records observed asset/LFS and import-marker evidence, explicit author TUNING
+points, and engine-fork counts above declared profile limits. The published rules grade every finding.
+Unknown/partial evidence cannot clear old findings, and changing measured counts preserves manual
+status/history. No engine, build, profiler or network fetch runs.
+
 ## v0.507.0 -- Project-reported performance evidence
 
 Testing can read a project-produced v1 performance capture and show its metrics, statistics, units,
