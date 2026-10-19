@@ -1,5 +1,10 @@
 # Security
 
+ACP does not fall through from an unknown agent id to a different subscription. Failed agent
+probes are excluded individually. Runtime pins are local User configuration, and AtlasMind does
+not extract or copy desktop login tokens. The observed legacy Codex warning-plus-HTTP-error
+envelope is rejected despite an `end_turn` result; it cannot enter the successful-response cache.
+
 Auto approvals use a separate no-tool reviewer. `approvalModes.ts` owns eligibility, payload/reply
 bounds, strict JSON validation and timeout fallback. A model may waive an eligible prompt, never a
 denial; missing intent and withheld evidence ask. Bypass is an explicit session grant. Fresh

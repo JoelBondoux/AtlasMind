@@ -35,17 +35,6 @@
     "atlasmind.autoVerifyTimeoutMs": 120000,
     "atlasmind.maxToolIterations": 40,
     "atlasmind.projectApprovalFileThreshold": 20,
-    "atlasmind.acp.agents": [
-        {
-            "id": "codex",
-            "command": "codex-acp",
-            "args": []
-        },
-        {
-            "id": "claude",
-            "command": "claude-agent-acp"
-        }
-    ],
     "atlasmind.acp.toolsEnabled": true,
     "atlasmind.buzz.enabled": true,
     "atlasmind.buzz.inboundEnabled": true,

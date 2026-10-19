@@ -1,5 +1,11 @@
 # Agents & Skills
 
+ACP agent selection requires the configured id to match exactly; removing an agent cannot send
+its pinned tasks to the first remaining subscription. Failed probes are excluded per agent,
+while a successful session-open probe still requires a real reply check to establish usability.
+Local CLI runtime pins and sign-in checks are described in
+[Model Routing](model-routing.md#acp-runtime-and-sign-in-checks).
+
 **Ask / Auto / Bypass** are session approval modes, selected from Workflow, chat, the status bar or
 **AtlasMind: Set Approval Mode**. Ask uses the configured policy; Auto reviews eligible requests in
 a separate tool-free model call; Bypass retains the eligible grant previously called Autopilot.

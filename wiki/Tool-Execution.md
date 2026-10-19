@@ -1,5 +1,10 @@
 # Tool Execution & Safety
 
+ACP resolves the named configured agent exactly; a missing agent is refused before spawning
+another subscription. A failed per-agent probe excludes that agent's discovered rows. The legacy
+Codex warning-plus-JSON HTTP-error compatibility case rejects the turn instead of recording a
+success; permission and delegated-execution gates still apply independently.
+
 ## Session approval modes
 
 Select a mode in Workflow, chat, the status bar or **AtlasMind: Set Approval Mode**. The selector
