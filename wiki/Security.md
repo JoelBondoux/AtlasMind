@@ -1208,3 +1208,15 @@ This is the short form. The prompt-injection part, including what is **not** def
 - [[Delivery]] — production protection
 - [[Remote Control]] — the remote security model
 - [[Agents]] — the read-only advisors and the immutable baseline
+
+
+### Project-produced performance evidence (0.507.0)
+
+The Testing reader accepts only a bounded v1 measurement document from two fixed paths under the
+unambiguous SSOT home. It rejects symlink descendants and non-regular files, checks opened-file identity
+and size, and caps the descriptor read. Unsupported, partial, future-dated or duplicate captures yield
+no performance verdict; an invalid newest report never falls back to older data. Known-secret/control
+filtering applies before scenario text reaches the escaped UI. Arbitrary scenario and target text are
+omitted from generated policy prompts. Raw report access through tools retains their ordinary provenance
+and approval controls. This reader grants no permission, runs no profiler or command, writes nothing,
+and treats measured evidence separately from test passes and budget compliance.

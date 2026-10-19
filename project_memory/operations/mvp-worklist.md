@@ -22,12 +22,19 @@ passes (compile, lint, integration audit, tests, provider recommendations, cover
 version/docs/wiki align; unrelated dirty work stays untouched. Installed-app/manual acceptance and
 hosted checks are recorded separately, not substituted by fixtures.
 
+## Implemented in 0.507.0
+
+- C2.6: bounded, read-only project-produced v1 performance reports; Tested/Measured distinction,
+  explicit no-verdict paths and no inferred passing budgets. Schema, real collector and dashboard
+  integration included. Game Dev remains open for C2.7 onward.
+
 ## Next MVP work
 
 The next open MVP item in canonical order is Game Dev's scoped consumers. Its next declared slice
-is performance-report coverage in [the phased plan](../roadmap/game-engine-integration.md). Team
+is C2.7 game-shaped debt signals; C2.6 performance-report coverage is implemented above. See
+[the phased plan](../roadmap/game-engine-integration.md). Team
 management is ahead of it in the overall backlog but has no MVP gate. Other open MVP items remain
-open; the two completed refinements do not establish whole-MVP completion.
+open; these completed slices do not establish whole-MVP completion.
 
 ## Validation evidence
 
@@ -47,3 +54,21 @@ Documentation triggers checked: existing core services, webview, roadmap overlay
 user-facing workflow guidance updated with matching wiki pages. No source files, commands, slash
 commands, configuration settings, provider/routing contracts, tool approvals or scheduler behavior
 were added or changed. Release metadata and the three-entry README history are synchronized.
+
+
+## C2.6 validation evidence (0.507.0)
+
+- Test-first failures captured for missing report support, missing UI measurements and unverified
+  detail grading. Parser/coverage/detail, real collector, multi-root home selection and executed
+  dashboard regressions pass. The schema vocabulary and reader limits are checked together.
+- Full `npm run ci:local` passed: production/web compile, lint, integration audit, 580 test files,
+  provider recommendations, coverage (12,083 tests; 63.08% lines) and VSIX packaging. The added
+  multi-root test also passed separately, as did final docs integrity and targeted lint.
+- Separate test-source typecheck remains at 215 pre-existing errors; no added report-reader/test errors.
+- Compiled reader against this repository returned `no-report`; no fixture was installed as a real
+  capture. There is no claimed engine/profile or budget acceptance.
+- VSIX 0.507.0 contains the compiled reader and editor schema, with no project-memory, test-results,
+  `.git`, `.claude` or `.atlasmind` artifacts. Hosted CI and installed UI acceptance remain separate.
+- New source, core policy/detail services, webview, report boundary, release notes and roadmap docs
+  have matching README/development/architecture/wiki updates. Commands, persisted settings, scheduler,
+  providers, model routing and stored memory schemas are unchanged.

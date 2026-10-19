@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.506.0",
+  "version": "0.507.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -56,6 +56,14 @@
   },
   "contributes": {
     "jsonValidation": [
+      {
+        "fileMatch": "**/test-results/performance.json",
+        "url": "./schemas/performance-report.schema.json"
+      },
+      {
+        "fileMatch": "**/reports/performance.json",
+        "url": "./schemas/performance-report.schema.json"
+      },
       {
         "fileMatch": "**/.atlasmind/lens-mappings.json",
         "url": "./schemas/lens-mappings.schema.json"

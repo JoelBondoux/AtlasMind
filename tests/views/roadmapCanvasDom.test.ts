@@ -1952,3 +1952,30 @@ describe('saved baseline comparisons in the real dashboard', () => {
     ]);
   });
 });
+
+
+describe('performance evidence on Testing', () => {
+  it('renders reported metrics with units, statistics and date while withholding budget verdicts', () => {
+    const harness = mount();
+    const message = snapshot();
+    const evidence = { status: 'measured', capturedAt: '2026-10-18T10:00:00.000Z', target: 'windows-shipping',
+      relativePath: 'test-results/performance.json', budgetVerdict: 'not-assessed', measurements: [
+        { scenario: '<img src=x onerror=alert(1)>', metric: 'frameTimeMs', unit: 'ms', statistic: 'p95', value: 16.2, sampleCount: 600 },
+      ] };
+    Object.assign(message.payload.testing.policyCoverage, { rows: [{ id: 'performance', label: 'Performance', category: 'quality',
+      status: 'covered', statusLabel: 'Measured', fileCount: 0, caseCount: 0, skippedCount: 0, failedCount: 0,
+      toolingSignals: [], files: [], failures: [], detail: 'Budget not assessed.', actionPrompt: 'Review evidence', performanceReport: evidence,
+    }] });
+    harness.send(message);
+    harness.click('[data-action="testing-policy-toggle"][data-payload="performance"]');
+    const table = harness.root().querySelector('.performance-measurements');
+    expect(table).not.toBeNull();
+    expect(table.textContent).toContain('16.2');
+    expect(table.textContent).toContain('ms');
+    expect(table.textContent).toContain('p95');
+    expect(table.textContent).toContain('600');
+    expect(table.querySelector('img')).toBeNull();
+    expect(table.closest('.performance-evidence').textContent).toContain('2026-10-18');
+    expect(table.closest('.performance-evidence').textContent).toContain('Budget not assessed');
+  });
+});

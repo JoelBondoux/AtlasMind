@@ -7920,6 +7920,26 @@
       </div>`;
   }
 
+  function renderPerformanceEvidence(evidence) {
+    if (!evidence) { return ''; }
+    if (evidence.status !== 'measured') {
+      return `<div class="performance-evidence dist-empty">No performance verdict. ${escapeHtml(evidence.reason || 'No usable project report.')}</div>`;
+    }
+    return `<div class="performance-evidence">
+      <p class="section-copy"><strong>Reported measurements</strong> · ${escapeHtml(evidence.target)} · captured ${escapeHtml(evidence.capturedAt)}</p>
+      <p class="stat-detail">Budget not assessed. These are project-reported observations; recording a capture does not verify performance against a budget.</p>
+      ${evidence.relativePath ? `<p class="list-meta">Source: <code>${escapeHtml(evidence.relativePath)}</code></p>` : ''}
+      <table class="mini-table performance-measurements">
+        <caption class="section-kicker">Performance measurements</caption>
+        <thead><tr><th scope="col">Scenario</th><th scope="col">Metric</th><th scope="col">Statistic</th><th scope="col">Value</th><th scope="col">Samples</th></tr></thead>
+        <tbody>${(evidence.measurements || []).map(entry => `<tr>
+          <td>${escapeHtml(entry.scenario)}</td><td>${escapeHtml(entry.metric)}</td><td>${escapeHtml(entry.statistic)}</td>
+          <td>${escapeHtml(String(entry.value))} ${escapeHtml(entry.unit)}</td><td>${escapeHtml(String(entry.sampleCount))}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+  }
+
   function renderPolicyCardDetail(row, detail, technicalEntry) {
     const finding = detail && detail.finding;
     const caseMix = detail && detail.caseMix;
@@ -7981,6 +8001,8 @@
         </div>
 
         ${renderTechnicalControls(technicalEntry)}
+
+        ${renderPerformanceEvidence(row.performanceReport)}
 
         ${renderPolicySubjects(row)}
 
@@ -8345,6 +8367,9 @@
         } else {
           counts.push('nothing recorded');
         }
+      } else if (row.performanceReport && row.performanceReport.status === 'measured') {
+        counts.push(`${row.performanceReport.measurements.length} reported measurements`);
+        counts.push(`captured ${String(row.performanceReport.capturedAt).slice(0, 10)}`);
       } else if (row.status !== 'not-file-evident') {
         counts.push(`${row.fileCount} file${row.fileCount === 1 ? '' : 's'}`);
         if (row.caseCount > 0) { counts.push(`${row.caseCount} case${row.caseCount === 1 ? '' : 's'}`); }
@@ -8400,7 +8425,7 @@
         ${reportLine}
         <div class="panel-grid" style="margin-top:12px">
           ${renderDistributionBar('policy-coverage', [
-            { label: 'Tested', value: coverage.coveredCount, tone: 'good' },
+            { label: 'Evidenced', value: coverage.coveredCount, tone: 'good' },
             { label: 'Tooling only', value: coverage.toolingOnlyCount, tone: 'warn' },
             { label: 'Nothing found', value: coverage.missingCount, tone: 'critical' },
             { label: 'Practice (not file-evident)', value: coverage.practiceCount, tone: 'muted' },
@@ -8413,7 +8438,7 @@
           <div class="mini-grid">
             ${renderMetricPill('Failing tests', report ? String(report.failed) : 'Unknown', { tone: report ? (report.failed > 0 ? 'critical' : 'good') : 'warn' })}
             ${renderMetricPill('Skipped in tree', String(coverage.totalSkipped || 0), { tone: (coverage.totalSkipped || 0) > 0 ? 'warn' : 'good' })}
-            ${renderMetricPill('Policies with no tests', String(gapRows.length), { tone: gapRows.length > 0 ? 'warn' : 'good' })}
+            ${renderMetricPill('Policies without evidence', String(gapRows.length), { tone: gapRows.length > 0 ? 'warn' : 'good' })}
             ${renderMetricPill('Total cases', formatNumber(rows.reduce((sum, row) => sum + (row.caseCount || 0), 0)), { tone: 'accent' })}
           </div>
         </div>

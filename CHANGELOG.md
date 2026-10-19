@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.507.0] - 2026-10-19
+
+### Added
+
+- Testing recognises bounded project-produced v1 performance reports from two fixed local paths.
+  Measurements retain capture date, target, statistic, units and sample counts, while budget compliance
+  stays explicitly not assessed. The performance policy reads Measured without inventing passing tests.
+- A JSON editor schema and documented report example. Unsupported native profiler formats are not
+  guessed, and no profiler, script or engine is launched. Missing, unreadable, oversized, future-dated
+  or incomplete reports produce no performance verdict; a broken newer report cannot reuse an older one.
+- Symlink refusal, bounded descriptor reads and control/secret filtering at the report boundary.
+
+
 ## [0.506.0] - 2026-10-19
 
 ### Added

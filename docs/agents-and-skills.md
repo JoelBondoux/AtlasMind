@@ -1129,3 +1129,15 @@ come back to the model and to the reply, each with a **Review & install** button
 Project Dashboard data remains untrusted after it reaches the webview. User-authored Director values are
 hydrated with `textContent`, and delivery-stage form fields map to explicit properties; neither HTML
 template interpolation nor recursive property paths are accepted at that boundary.
+
+
+### Project-produced performance evidence (0.507.0)
+
+The Testing reader accepts only a bounded v1 measurement document from two fixed paths under the
+unambiguous SSOT home. It rejects symlink descendants and non-regular files, checks opened-file identity
+and size, and caps the descriptor read. Unsupported, partial, future-dated or duplicate captures yield
+no performance verdict; an invalid newest report never falls back to older data. Known-secret/control
+filtering applies before scenario text reaches the escaped UI. Arbitrary scenario and target text are
+omitted from generated policy prompts. Raw report access through tools retains their ordinary provenance
+and approval controls. This reader grants no permission, runs no profiler or command, writes nothing,
+and treats measured evidence separately from test passes and budget compliance.

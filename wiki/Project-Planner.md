@@ -700,3 +700,12 @@ snapshot envelope, component coverage from the captured scope, and incompatible 
 not comparable. Each changed field exposes its before/after readings; an absent reading is labelled
 not observed. The host resolves both opaque ids from its local register. Selecting or comparing
 never rewrites either observation, and the target can return to **Current project** at any time.
+
+### Performance captures in Testing
+
+Enable the performance policy and let the project's own benchmark/export step write the documented
+[v1 report](../docs/game-engine-integration.md#44-performance-evidence). Testing reads either fixed
+report path from the project home. Expand the Performance card to see reported values, statistics,
+units, sample counts and capture date. Measured means evidence exists; it does not mean a budget passed.
+No report gives no performance verdict, and AtlasMind never starts a profiler. Engine-native capture
+files need a project-owned exporter; they are not parsed as this format.

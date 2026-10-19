@@ -26,13 +26,14 @@
  * derivation is unit-testable.
  */
 
+import type { PerformanceReportEvidence } from './performanceReport.js';
 import type { TestingPolicyGovernance } from './complianceReadiness.js';
 import { TESTING_METHODOLOGY_DEFINITIONS, type TestingMethodologyId } from '../types.js';
 
 // ── Public shapes ────────────────────────────────────────────────
 
 export type TestingPolicyStatus =
-  /** Test files matching this policy exist. */
+  /** Test, configuration or supported measurement-report evidence exists. */
   | 'covered'
   /** Its tooling is installed but nothing in the tree tests with it. */
   | 'tooling-only'
@@ -112,6 +113,8 @@ export interface TestingPolicyRow {
    * which the renderer shows as not examined rather than as clear.
    */
   governance?: TestingPolicyGovernance;
+  /** Project-reported measurements, never an inferred passing test or budget. */
+  performanceReport?: PerformanceReportEvidence;
 }
 
 export interface TestingPolicyReportInfo {
@@ -164,6 +167,7 @@ export interface TestingPolicyTestFile {
 export interface TestingPolicyEvidenceInput {
   /** Enabled methodology ids. */
   enabledMethodologies: TestingMethodologyId[];
+  performanceReport?: PerformanceReportEvidence;
   testFiles: TestingPolicyTestFile[];
   /** Dependency + devDependency names. */
   dependencies: string[];
@@ -1280,24 +1284,29 @@ export function deriveTestingPolicyCoverage(input: TestingPolicyEvidenceInput): 
     const isGovernance = category.startsWith('compliance-');
     const governance = isGovernance ? input.governance?.get(id) : undefined;
 
+    const performanceReport = id === 'performance' ? input.performanceReport : undefined;
+    const measured = performanceReport?.status === 'measured';
     const status: TestingPolicyStatus = markers.practiceOnly
       ? 'not-file-evident'
       : isGovernance
         ? 'governed'
-        : matchingFiles.length > 0 || configEvidence.length > 0
+        : measured || matchingFiles.length > 0 || configEvidence.length > 0
           ? 'covered'
           : toolingSignals.length > 0
             ? 'tooling-only'
             : 'missing';
 
-    const detail = buildDetail({ status, label, matchingFileCount: matchingFiles.length, caseCount, skippedCount, toolingSignals, configEvidence, failureCount: failures.length, governance });
+    const fileDetail = buildDetail({ status, label, matchingFileCount: matchingFiles.length, caseCount, skippedCount, toolingSignals, configEvidence, failureCount: failures.length, governance });
 
+    const detail = measured
+      ? `${performanceReport.measurements.length} project-reported performance measurement(s), captured ${performanceReport.capturedAt}. Budget not assessed; a capture is not a passing test.`
+      : performanceReport ? `${fileDetail} No performance verdict: ${performanceReport.reason}` : fileDetail;
     return {
       id,
       label,
       category,
       status,
-      statusLabel: STATUS_LABEL[status],
+      statusLabel: measured ? 'Measured' : STATUS_LABEL[status],
       fileCount: matchingFiles.length,
       caseCount,
       skippedCount,
@@ -1309,6 +1318,7 @@ export function deriveTestingPolicyCoverage(input: TestingPolicyEvidenceInput): 
       actionPrompt: buildActionPrompt(id, label, status, failures, governance),
       failures,
       ...(governance ? { governance } : {}),
+      ...(performanceReport ? { performanceReport } : {}),
     };
   });
 
@@ -1479,7 +1489,7 @@ function buildSummary(input: {
   // governance regimes and practices in it made the board read permanently
   // short against a target nothing in the tree could ever reach.
   const parts = input.assessableCount > 0
-    ? [`${input.coveredCount}/${input.assessableCount} testable polic${input.assessableCount === 1 ? 'y has' : 'ies have'} tests`]
+    ? [`${input.coveredCount}/${input.assessableCount} testable polic${input.assessableCount === 1 ? 'y has' : 'ies have'} evidence`]
     : [];
   const gaps = input.toolingOnlyCount + input.missingCount;
   if (gaps > 0) {

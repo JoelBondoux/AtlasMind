@@ -945,3 +945,15 @@ boundary, not an approval: no mode, bypass or task release turns it off.
 - [[Delivery]] — the guarded path to production
 - [[Configuration]] — every safety setting
 - [[Remote Control]] — remote sessions
+
+
+### Project-produced performance evidence (0.507.0)
+
+The Testing reader accepts only a bounded v1 measurement document from two fixed paths under the
+unambiguous SSOT home. It rejects symlink descendants and non-regular files, checks opened-file identity
+and size, and caps the descriptor read. Unsupported, partial, future-dated or duplicate captures yield
+no performance verdict; an invalid newest report never falls back to older data. Known-secret/control
+filtering applies before scenario text reaches the escaped UI. Arbitrary scenario and target text are
+omitted from generated policy prompts. Raw report access through tools retains their ordinary provenance
+and approval controls. This reader grants no permission, runs no profiler or command, writes nothing,
+and treats measured evidence separately from test passes and budget compliance.

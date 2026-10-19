@@ -3712,3 +3712,20 @@ snapshot envelope, component coverage from the captured scope, and incompatible 
 not comparable. Each changed field exposes its before/after readings; an absent reading is labelled
 not observed. The host resolves both opaque ids from its local register. Selecting or comparing
 never rewrites either observation, and the target can return to **Current project** at any time.
+
+
+### Project-produced performance reports (0.507.0)
+
+`src/core/performanceReport.ts` owns the bounded v1 measurement exchange format and fixed-path local
+reader. The pure parser refuses incomplete reports, unsupported versions, non-finite/non-positive
+values, future dates and duplicate tuples. It retains only closed metric/statistic fields plus
+sanitised scenario text; raw reports and unknown fields never enter the payload. The collector uses
+only the SSOT home and two fixed paths, never scans recursively, rejects symlink descendants and checks
+descriptor identity/size before a capped read. It writes and executes nothing.
+
+`collectTestingDashboardSnapshot` reads reports only when performance is enabled and the home is
+unambiguous. `deriveTestingPolicyCoverage` accepts this evidence on the performance row, labels it
+Measured and leaves test-file/case counts alone. `testingPolicyDetail` recognises this report independently
+of JUnit and invents no passing case mix. The Project Dashboard renders an escaped measurement table;
+budget compliance remains not assessed. `schemas/performance-report.schema.json` is the editor contract.
+The normative format and scope are documented in `docs/game-engine-integration.md` §4.4.

@@ -19,6 +19,12 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.507.0 -- Project-reported performance evidence
+
+Testing can read a project-produced v1 performance capture and show its metrics, statistics, units,
+sample counts and date. Measured means evidence exists; budget compliance stays not assessed. Missing
+or invalid reports yield no performance verdict. Reads are local and bounded; nothing runs a profiler.
+
 ## v0.506.0 -- Delivered node controls and saved baseline comparisons
 
 Delivered roadmap nodes now support persistent individual/group movement, snap, both tree directions

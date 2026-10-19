@@ -15,7 +15,7 @@ Where this document and the plan disagree, this document wins.
 
 ### 0.2 Built versus proposed
 
-Phase 0 and Phase 1 are built through C1.8, and Phase 2 is built through C2.5: the `game` persisted-document kind is registered at schema
+Phase 0 and Phase 1 are built through C1.8, and Phase 2 is built through C2.6: the `game` persisted-document kind is registered at schema
 v1; deterministic fixtures cover Unreal, Unity, Godot 3/4 and Perforce; declared component scope
 round-trips through `workflow.json`; and the Project Dashboard now scopes Git, local CI, debt,
 issue-tracker visibility, and observed-delta evidence to those components with explicit `not-visible`
@@ -33,7 +33,7 @@ build-log reader now interprets only complete caller-supplied reports, with decl
 redacted retained diagnostics, conservative completion evidence, and display-only report commands pinned
 to verified engine versions. The game profile (§3) is built: a declared `domain/game.json` with a
 regenerated mirror, a refusal table for forbidden content, findings rather than repairs, and a bootstrap
-seed for game presets that never overwrites. No game command surface, bridge, or game dashboard is built
+seed for game presets that never overwrites. Performance-report coverage (§4.4) is also built. No game command surface, bridge, or game dashboard is built
 yet; those sections remain intended behaviour.
 
 ### 0.3 Engines in scope
@@ -237,6 +237,44 @@ identities receive no extrapolated command or version-specific parsing.
 
 `TestingPolicyCoverage` gains a reader for a performance report the project already wrote. It MUST
 NOT run a profiler. No report means no verdict — never "0 ms", never a passing budget.
+
+Built in 0.507.0 (C2.6): `src/core/performanceReport.ts` accepts the engine-neutral v1 exchange format
+below. It does **not** parse native Unreal Insights, Unity Profiler or Godot capture files. A project's
+existing benchmark/export step may emit this file; AtlasMind never runs that step. Reports live at
+`test-results/performance.json` or `reports/performance.json` under the unambiguous SSOT home. The newest
+existing file is read; a malformed newer file never falls back to an older success.
+
+```json
+{
+  "version": 1,
+  "capturedAt": "2026-10-18T10:00:00.000Z",
+  "target": "windows-shipping",
+  "measurements": [
+    { "scenario": "busy-scene", "metric": "frameTimeMs", "statistic": "p95", "value": 16.2, "sampleCount": 600 }
+  ]
+}
+```
+
+The [JSON schema](../schemas/performance-report.schema.json) is associated with both paths in the
+editor. Supported metrics are `frameTimeMs` (milliseconds), `memoryMb` (decimal megabytes), and
+`loadTimeS` (seconds); supported statistics are `mean`, `median`, `p95`, `p99`, and `max`. The target is a
+project-authored identifier, not a verified platform assertion. Values must be finite and positive;
+sample counts must be positive safe integers. UTC capture timestamps must be real, canonical ISO dates
+and cannot be in the future. One scenario/metric/statistic tuple may appear only once. Unknown fields,
+partial data and unsupported versions refuse the whole report. The limits are 256 KiB, 128 measurements
+and 120 characters per scenario. Directory/file symlinks and non-regular files are refused; the opened
+file's identity and size are checked before a bounded read.
+
+With the performance policy enabled, the Testing coverage row reads **Measured** and its expanded
+card shows reported values, statistics, units, samples, source and date. Missing or unreadable captures
+say **No performance verdict**; existing performance tests still count independently. Measurements do
+not become test files or passing cases. **Budget not assessed** remains visible: this slice does not
+compare `game.json` budgets, assert freshness against changed source, verify a platform, or claim every
+component/scenario was captured. Only the project-reported observations are shown. Scenario text is
+control-stripped, known-secret-redacted and HTML-escaped; neither scenario nor arbitrary target text
+is included in the generated model-facing policy summary. Opening the raw file through ordinary tools
+remains subject to their existing provenance controls.
+
 
 ## §5 The bridge
 

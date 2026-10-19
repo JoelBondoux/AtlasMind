@@ -1,6 +1,6 @@
 # Game Engine Integration — Phased Roadmap
 
-> **Status:** Phase 1 complete; Phase 2 in progress through C2.5; C2.6 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
+> **Status:** Phase 1 complete; Phase 2 in progress through C2.6; C2.7 next. **Owner:** AtlasMind core. **Created:** 2026-07-30. **Baseline:** v0.213.0.
 > This is the SSOT implementation plan. Its normative specifications are
 > [`docs/project-composition.md`](../../docs/project-composition.md) (v0.213.1) and
 > [`docs/game-engine-integration.md`](../../docs/game-engine-integration.md) (v0.213.2), both written
@@ -344,8 +344,12 @@ plugin installed and no engine running.
   unknown fields survive, and the manager takes the SSOT home and its refusal. Seeding never overwrites an
   existing or newer file; only an explicit `replaceNewer` save may. Bootstrap seeds it for a game preset
   (engine `unknown`, preset content roots), executing nothing.
-- **C2.6** `TestingPolicyCoverage` reads a **performance report the project already wrote**, closing
-  the false gap. Never runs a profiler; no report means no verdict.
+- **C2.6** — ✅ `performanceReport.ts` reads the documented engine-neutral v1 report the project already
+  wrote from two fixed SSOT-home paths. Bounded regular-file/identity reads refuse symlinks; unsupported,
+  partial, oversized, future-dated and duplicate evidence is withheld whole. Testing labels valid
+  captures Measured and shows values, statistics, units, sample counts and capture date without inventing
+  tests or passing budgets. Native profiler formats are not guessed. Never runs a profiler; no report
+  means no verdict. Parser, real collector, policy/detail and executed dashboard regressions cover it.
 - **C2.7** `DebtRegister` gains game-shaped derived signals — assets outside LFS, unresolved import
   errors, tuning values in code, **fork distance past a declared threshold** — graded by the *same*
   rule table.
