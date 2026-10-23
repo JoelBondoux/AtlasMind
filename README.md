@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.505.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.506.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,14 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.506.0
+
+**CI that falls over to your own computer.** On the Pipeline page, choose Automatic, Always GitHub
+or Always this computer. In Automatic, switched workflows run on GitHub until it refuses runs for
+billing, then on your local runner. Pull requests from other repositories and bot-started runs
+always stay on GitHub. Local CI limits now change on the page, and open sections no longer close
+every time the dashboard refreshes.
+
 ## What's new in 0.505.1
 
 **ACP failures stay failures.** Failed agent probes no longer become routing candidates through a
@@ -192,12 +200,6 @@ shadows them. See [ACP troubleshooting](docs/model-routing.md#acp-runtime-and-si
 Auto asks a separate model to review eligible actions; Bypass skips eligible prompts. Ask revokes
 the grants, and a restart resets them. Existing capabilities and explicit-only approvals still apply.
 Auto reviews use your synthesis-model routing and may cost tokens.
-
-## What's new in 0.504.6
-
-**Workflow permission controls reconnect after a restart.** Restoring the dashboard now activates its
-extension host. If a control cannot reach that host, the dashboard shows how to reconnect instead of
-silently ignoring the click. Permission limits and confirmation requirements are unchanged.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.504.4**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
