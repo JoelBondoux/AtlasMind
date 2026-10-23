@@ -29,6 +29,13 @@ Pipeline page offers Automatic, Always GitHub and Always this computer, checks b
 minutes while the switch is on, and saves local CI limits as they move. Collapsible sections on
 every dashboard page now keep the state you gave them across a refresh.
 
+## v0.508.1 -- ACP runtime recovery and honest failures
+
+Failed ACP probes are excluded per agent; unknown agent ids cannot fall through to another
+subscription. The observed legacy Codex warning-plus-HTTP-error response fails the turn even when
+the adapter reports `end_turn`. Repository settings leave ACP agent commands and runtime pins to
+User settings. See [Model Routing](Model-Routing.md) for runtime and sign-in checks.
+
 ## v0.508.0 -- Game-shaped debt signals
 
 A confirmed debt scan records observed asset/LFS and import-marker evidence, explicit author TUNING

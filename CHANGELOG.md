@@ -25,6 +25,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Collapsible sections on every dashboard page no longer close when the page refreshes. A section
   keeps the state you gave it; one you never touched keeps its own default.
 
+## [0.508.1] - 2026-10-19
+
+### Fixed
+
+- ACP discovery excludes an agent whose own probe failed, even when a sibling keeps the provider healthy.
+- Unknown ACP agent ids are refused instead of using the first configured subscription.
+- The observed legacy Codex warning-plus-JSON HTTP error is rejected even when its adapter reports
+  `end_turn`; quoted examples, bare JSON and other agents are not treated as this compatibility case.
+- Repository settings no longer shadow machine-specific ACP agent commands and runtime pins in User settings.
+
 ## [0.508.0] - 2026-10-19
 
 ### Added

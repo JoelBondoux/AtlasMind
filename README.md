@@ -186,19 +186,20 @@ billing, then on your local runner. Pull requests from other repositories and bo
 always stay on GitHub. Local CI limits now change on the page, and open sections no longer close
 every time the dashboard refreshes.
 
+## What's new in 0.508.1
+
+**ACP failures stay failures.** Failed agent probes no longer become routing candidates through a
+healthy sibling, and an unknown agent cannot fall through to another subscription. The observed
+legacy Codex warning-plus-HTTP-error response is rejected even when its adapter says the turn ended
+normally. ACP agent commands and runtime pins belong in User settings; this repository no longer
+shadows them. See [ACP troubleshooting](docs/model-routing.md#acp-runtime-and-sign-in-checks).
+
 ## What's new in 0.508.0
 
 **Game-shaped technical debt.** A confirmed debt scan can now record observed binary assets outside
 Git LFS, import-error markers, author-marked tuning points, and engine-fork counts over project-declared
 limits. Each finding uses the published debt rules. Missing or partial evidence keeps previous findings;
 nothing launches an engine, build, profiler or fetch.
-
-## What's new in 0.507.0
-
-**Performance captures count as evidence.** Testing reads a project-produced v1 performance report
-and displays its measurements, statistics, units, sample counts and capture date. A capture is marked
-**Measured**; budget compliance remains **Not assessed**. Missing or unreadable reports give no verdict.
-Nothing starts a profiler. See [the report format](docs/game-engine-integration.md#44-performance-evidence).
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.504.4**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
