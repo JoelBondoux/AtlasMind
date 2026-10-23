@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "missions": [
+    {
+      "id": "mission-1792338224163",
+      "goal": "continue with MVP tasks until complete",
+      "status": "failed",
+      "createdAt": "2026-10-18T15:43:46.025Z",
+      "updatedAt": "2026-10-18T15:44:24.606Z",
+      "config": {
+        "id": "mission-1792338224163",
+        "goal": "continue with MVP tasks until complete",
+        "guardrails": {
+          "instructions": [
+            "Make the smallest safe, verifiable change each iteration; prefer existing skills and agents before creating new ones."
+          ]
+        },
+        "budget": {
+          "maxIterations": 8,
+          "maxCostUsd": 5,
+          "maxTokens": 2000000,
+          "maxDurationMs": 1800000,
+          "maxConsecutiveNoProgress": 2
+        },
+        "checkpointPolicy": {
+          "everyNIterations": 3,
+          "atBudgetFractions": [
+            0.75
+          ],
+          "beforeWriteBatches": false
+        },
+        "constraints": {
+          "budget": "auto",
+          "speed": "auto"
+        },
+        "allowDiscovery": true
+      },
+      "iterations": [],
+      "achieved": false,
+      "totalCostUsd": 0,
+      "totalInputTokens": 0,
+      "totalOutputTokens": 0,
+      "totalDurationMs": 38581,
+      "createdCapabilities": [],
+      "stopReason": "error"
+    }
+  ]
+}
