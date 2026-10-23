@@ -15,7 +15,7 @@ Where this document and the plan disagree, this document wins.
 
 ### 0.2 Built versus proposed
 
-Phase 0 and Phase 1 are built through C1.8, and Phase 2 is built through C2.5: the `game` persisted-document kind is registered at schema
+Phase 0 and Phase 1 are built through C1.8, and Phase 2 is built through C2.7: the `game` persisted-document kind is registered at schema
 v1; deterministic fixtures cover Unreal, Unity, Godot 3/4 and Perforce; declared component scope
 round-trips through `workflow.json`; and the Project Dashboard now scopes Git, local CI, debt,
 issue-tracker visibility, and observed-delta evidence to those components with explicit `not-visible`
@@ -33,7 +33,7 @@ build-log reader now interprets only complete caller-supplied reports, with decl
 redacted retained diagnostics, conservative completion evidence, and display-only report commands pinned
 to verified engine versions. The game profile (§3) is built: a declared `domain/game.json` with a
 regenerated mirror, a refusal table for forbidden content, findings rather than repairs, and a bootstrap
-seed for game presets that never overwrites. No game command surface, bridge, or game dashboard is built
+seed for game presets that never overwrites. Performance-report coverage (§4.4) and game-shaped debt (§4.5) are also built. No game command surface, bridge, or game dashboard is built
 yet; those sections remain intended behaviour.
 
 ### 0.3 Engines in scope
@@ -124,7 +124,7 @@ The built `gameEngineDivergence.ts` layer therefore accepts an `UpstreamDivergen
 collect one. It MUST verify that the report names the current `engine` component and declared upstream,
 then preserve the exact commits-ahead, commits-behind, files-diverged, conflict-candidate, and trend
 facts. Its merge-burden shape is descriptive rather than a severity or threshold: policy thresholds
-remain team-owned work for C2.7.
+are team-owned declarations consumed by C2.7 (§4.5).
 
 Engine-specific area labels are derived only from the bounded displayed paths. They MUST say whether
 the list was truncated and MUST NOT be presented as repository-wide per-area counts. Layout claims are
@@ -237,6 +237,103 @@ identities receive no extrapolated command or version-specific parsing.
 
 `TestingPolicyCoverage` gains a reader for a performance report the project already wrote. It MUST
 NOT run a profiler. No report means no verdict — never "0 ms", never a passing budget.
+
+Built in 0.507.0 (C2.6): `src/core/performanceReport.ts` accepts the engine-neutral v1 exchange format
+below. It does **not** parse native Unreal Insights, Unity Profiler or Godot capture files. A project's
+existing benchmark/export step may emit this file; AtlasMind never runs that step. Reports live at
+`test-results/performance.json` or `reports/performance.json` under the unambiguous SSOT home. The newest
+existing file is read; a malformed newer file never falls back to an older success.
+
+```json
+{
+  "version": 1,
+  "capturedAt": "2026-10-18T10:00:00.000Z",
+  "target": "windows-shipping",
+  "measurements": [
+    { "scenario": "busy-scene", "metric": "frameTimeMs", "statistic": "p95", "value": 16.2, "sampleCount": 600 }
+  ]
+}
+```
+
+The [JSON schema](../schemas/performance-report.schema.json) is associated with both paths in the
+editor. Supported metrics are `frameTimeMs` (milliseconds), `memoryMb` (decimal megabytes), and
+`loadTimeS` (seconds); supported statistics are `mean`, `median`, `p95`, `p99`, and `max`. The target is a
+project-authored identifier, not a verified platform assertion. Values must be finite and positive;
+sample counts must be positive safe integers. UTC capture timestamps must be real, canonical ISO dates
+and cannot be in the future. One scenario/metric/statistic tuple may appear only once. Unknown fields,
+partial data and unsupported versions refuse the whole report. The limits are 256 KiB, 128 measurements
+and 120 characters per scenario. Directory/file symlinks and non-regular files are refused; the opened
+file's identity and size are checked before a bounded read.
+
+With the performance policy enabled, the Testing coverage row reads **Measured** and its expanded
+card shows reported values, statistics, units, samples, source and date. Missing or unreadable captures
+say **No performance verdict**; existing performance tests still count independently. Measurements do
+not become test files or passing cases. **Budget not assessed** remains visible: this slice does not
+compare `game.json` budgets, assert freshness against changed source, verify a platform, or claim every
+component/scenario was captured. Only the project-reported observations are shown. Scenario text is
+control-stripped, known-secret-redacted and HTML-escaped; neither scenario nor arbitrary target text
+is included in the generated model-facing policy summary. Opening the raw file through ordinary tools
+remains subject to their existing provenance controls.
+
+
+
+### 4.5 Game-shaped debt signals
+
+Built in 0.508.0 (C2.7). The existing **Scan for technical debt** confirmation now names the additional
+game reads. It reuses the bounded asset inventory and exact local-ref upstream-divergence reader.
+Nothing runs on render, and no engine, build, profiler or `git fetch` is launched. A usable game profile
+and declared composition are required; absent, newer, invalid or ambiguous-home profiles withhold the
+signals rather than guessing. Content roots come from `game.json`, never from an assumed engine layout.
+
+Four signal families use `DEBT_RULES`:
+
+- `game-asset-outside-lfs`: medium infrastructure debt for an observed binary asset not covered by
+  readable Git LFS rules. Non-Git or unreadable rules are not a clean result. Partial scans may record
+  observed positive findings but cannot clear previous ones.
+- `game-import-error`: medium code debt for a retained import-error or missing-reference marker in
+  asset metadata. It says what the file records, not what a running editor currently reports. Raw
+  metadata lines are never copied into the debt register.
+- `game-tuning-in-code`: low code debt for an explicit first-word comment marker `TUNING: identifier`
+  in a declared game component, for example `const float speed = 5; // TUNING: movement-speed`.
+  The author identifies the tuning point; AtlasMind does not infer gameplay intent from numeric
+  literals. Security-sensitive markers use the high security rule `game-sensitive-tuning` instead.
+- `game-fork-threshold`: high infrastructure debt only when an exact count for the matching declared
+  engine component/upstream is strictly greater than its project-authored maximum. Displayed-path
+  length and descriptive burden shapes never decide severity. Conflict-prone paths remain overlap
+  candidates, not predicted merge conflicts.
+
+Declare limits in the existing `<ssot>/domain/game.json`:
+
+```json
+{
+  "version": 1,
+  "forkDebtThresholds": [
+    { "componentId": "engine", "metric": "commitsBehind", "maximum": 10 }
+  ]
+}
+```
+
+Supported metrics are `commitsAhead`, `commitsBehind`, `filesDiverged`, and `conflictPronePathCount`.
+A maximum is an explicit non-negative safe integer; zero is valid. At most 48 component/metric pairs
+are allowed, with duplicate declarations reported. An undeclared or non-engine component, or one with
+no upstream, is unresolved and retained in the profile. There are no default limits. The engine evidence
+must match the declared component and upstream remote/ref. The bound is eight fork components and a
+15-second host inspection budget, with individual Git calls limited to three seconds. Only refs already
+present locally are inspected, so an old local upstream ref remains an old observation.
+
+`gameDebt.ts` carries per-finding assessed ids into reconciliation. Generic source-path scans cannot
+obsolete a game finding. A complete asset/import reading can establish absence only inside its declared
+roots and without withheld/excluded paths; source tuning points require that source file to have been
+read. A configured fork metric can clear only after matching available evidence shows it at/below the
+limit. Removing a threshold, losing a component, or an unreadable scan does not erase its prior finding;
+that finding remains for a later assessment or an explicit status decision. Candidates are capped at
+500; the cap retains higher-severity eligible findings and withholds all negative authority. Tuning inspection reuses already-read source with
+a 4-MiB text budget; it starts no second source walk. Coverage omissions are kept beside the last scan.
+
+Observed numeric details update without changing ids, detected dates, accepted/scheduled decisions or
+transition history. `obsolete` remains distinct from `resolved`. Game ids hash the full identity so long
+paths cannot collide after display-slug truncation. Paths are traversal/control/known-secret screened;
+raw metadata/source notes are not retained. The dashboard HTML-escapes details and coverage notes.
 
 ## §5 The bridge
 

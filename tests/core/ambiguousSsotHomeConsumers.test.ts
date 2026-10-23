@@ -222,6 +222,28 @@ describe('the testing coverage the release gate reads', () => {
     expect(snapshot.policyCoverage.rows).toEqual([]);
   });
 
+  it('reads a performance capture from the located policy home, not the first folder', async () => {
+    const first = folderWithoutMemory();
+    const home = folderWithCases();
+    mkdirSync(path.join(home, 'project_memory', 'index'), { recursive: true });
+    writeFileSync(path.join(home, 'project_memory', 'index', 'testing-config.json'), JSON.stringify({
+      version: 1, updatedAt: '2026-10-18T00:00:00.000Z', methodologies: [{ id: 'performance', enabled: true }],
+    }));
+    for (const [root, value] of [[first, 99], [home, 17]] as const) {
+      mkdirSync(path.join(root, 'test-results'), { recursive: true });
+      writeFileSync(path.join(root, 'test-results', 'performance.json'), JSON.stringify({
+        version: 1, capturedAt: '2026-10-18T00:00:00.000Z', target: 'windows',
+        measurements: [{ scenario: 'scene', metric: 'frameTimeMs', statistic: 'p95', value, sampleCount: 60 }],
+      }));
+    }
+    open(first, home);
+    const { collectTestingDashboardSnapshot } = await import('../../src/views/settingsPanel.ts');
+    const evidence = collectTestingDashboardSnapshot().policyCoverage.rows.find(row => row.id === 'performance')?.performanceReport;
+    expect(evidence?.status).toBe('measured');
+    if (evidence?.status !== 'measured') { throw new Error('the home capture was not read'); }
+    expect(evidence.measurements[0]?.value).toBe(17);
+  });
+
   it('control: a located home with no matrix still gets the two defaults', async () => {
     open(folderWithoutMemory());
     const { collectTestingDashboardSnapshot } = await import('../../src/views/settingsPanel.ts');

@@ -19,7 +19,7 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
-## v0.506.0 -- CI runner switch and panels that stay open
+## v0.509.0 -- CI runner switch and panels that stay open
 
 Workflows that opt in read the `ATLASMIND_CI_RUNNER` repository variable in `runs-on`. AtlasMind
 points it at your local runner when GitHub refuses runs for billing (read from the job annotation,
@@ -29,12 +29,33 @@ Pipeline page offers Automatic, Always GitHub and Always this computer, checks b
 minutes while the switch is on, and saves local CI limits as they move. Collapsible sections on
 every dashboard page now keep the state you gave them across a refresh.
 
+## v0.508.0 -- Game-shaped debt signals
+
+A confirmed debt scan records observed asset/LFS and import-marker evidence, explicit author TUNING
+points, and engine-fork counts above declared profile limits. The published rules grade every finding.
+Unknown/partial evidence cannot clear old findings, and changing measured counts preserves manual
+status/history. No engine, build, profiler or network fetch runs.
+
+## v0.507.0 -- Project-reported performance evidence
+
+Testing can read a project-produced v1 performance capture and show its metrics, statistics, units,
+sample counts and date. Measured means evidence exists; budget compliance stays not assessed. Missing
+or invalid reports yield no performance verdict. Reads are local and bounded; nothing runs a profiler.
+
+## v0.506.0 -- Delivered node controls and saved baseline comparisons
+
+Delivered roadmap nodes now support persistent individual/group movement, snap, both tree directions
+and return to completion-month columns. Their layout is independent of outstanding work. Workflow
+can compare two captured baselines, showing both dates and before/after readings without advancing
+an observation. Repository and coverage mismatches remain explicitly not comparable.
+
 ## v0.505.1 -- ACP runtime recovery and honest failures
 
 Failed ACP probes are excluded per agent; unknown agent ids cannot fall through to another
 subscription. The observed legacy Codex warning-plus-HTTP-error response fails the turn even when
 the adapter reports `end_turn`. Repository settings leave ACP agent commands and runtime pins to
 User settings. See [Model Routing](Model-Routing.md) for runtime and sign-in checks.
+
 
 ## v0.505.0 -- Ask, Auto and Bypass
 

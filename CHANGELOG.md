@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.506.0] - 2026-10-23
+## [0.509.0] - 2026-10-23
 
 ### Added
 
@@ -25,6 +25,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Collapsible sections on every dashboard page no longer close when the page refreshes. A section
   keeps the state you gave it; one you never touched keeps its own default.
 
+## [0.508.0] - 2026-10-19
+
+### Added
+
+- Game-shaped findings in the explicitly confirmed technical-debt scan: observed binary assets outside
+  readable Git LFS coverage, retained import/missing-reference markers, author-marked TUNING points,
+  and exact engine-fork counts above project-declared limits. All use the published debt rule table.
+- Optional `forkDebtThresholds` in the game profile, with explicit non-negative safe-integer maxima,
+  exact metric names, engine/upstream validation and a readable mirror. No threshold is guessed.
+- Per-finding reconciliation authority so unreadable or partial game scans cannot obsolete prior
+  findings. Measured details update without changing manual decisions, age or history. Long game
+  evidence paths receive collision-resistant ids. The Debt page records unassessed-signal notes.
+
+
+## [0.507.0] - 2026-10-19
+
+### Added
+
+- Testing recognises bounded project-produced v1 performance reports from two fixed local paths.
+  Measurements retain capture date, target, statistic, units and sample counts, while budget compliance
+  stays explicitly not assessed. The performance policy reads Measured without inventing passing tests.
+- A JSON editor schema and documented report example. Unsupported native profiler formats are not
+  guessed, and no profiler, script or engine is launched. Missing, unreadable, oversized, future-dated
+  or incomplete reports produce no performance verdict; a broken newer report cannot reuse an older one.
+- Symlink refusal, bounded descriptor reads and control/secret filtering at the report boundary.
+
+
+## [0.506.0] - 2026-10-19
+
+### Added
+
+- Delivered-roadmap Auto tree controls, horizontal/vertical arrangement, grid snapping and return
+  to completion-month layout. Dragging one node or a selected group saves delivered positions
+  independently of plan positions; arranging either view releases only its own pins.
+- Workflow comparisons between two saved baselines, with exact capture dates, explicit direction,
+  and before/after values. Repository or component-coverage mismatches refuse comparison. Selection
+  stores only existing baseline ids; saved observations stay unchanged.
+
+### Fixed
+
+- Delivered nodes retain their dragged positions after refresh. Their Route controls now filter
+  the delivered canvas, and temporary drag previews cannot leak into the outstanding plan.
+
 ## [0.505.1] - 2026-10-19
 
 ### Fixed
@@ -34,6 +77,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The observed legacy Codex warning-plus-JSON HTTP error is rejected even when its adapter reports
   `end_turn`; quoted examples, bare JSON and other agents are not treated as this compatibility case.
 - Repository settings no longer shadow machine-specific ACP agent commands and runtime pins in User settings.
+
 
 ## [0.505.0] - 2026-10-18
 

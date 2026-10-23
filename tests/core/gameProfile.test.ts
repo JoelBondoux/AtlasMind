@@ -461,3 +461,22 @@ describe('GameProfileManager', () => {
     await expect(manager.save(buildSeedGameProfile('single-repo-indie'))).rejects.toThrow(/Open a workspace folder/u);
   });
 });
+
+
+describe('declared fork-debt thresholds', () => {
+  it('accepts explicit zero, preserves unknown entry fields, and mirrors declared metrics', () => {
+    const source = { version: 1, forkDebtThresholds: [{ componentId: 'engine', metric: 'commitsBehind', maximum: 0, note: 'Deliberately current' }] };
+    const result = sanitizeGameProfile(source);
+    expect(result.profile?.forkDebtThresholds).toEqual(source.forkDebtThresholds);
+    expect(renderGameProfileMarkdown(result.profile!)).toContain('commitsBehind');
+    expect(renderGameProfileMarkdown(result.profile!)).toContain('Fork debt thresholds');
+  });
+  it.each([-1, 0.5, '10', Infinity])('refuses invalid threshold %s without inventing a default', maximum => {
+    const result = sanitizeGameProfile({ version: 1, forkDebtThresholds: [{ componentId: 'engine', metric: 'commitsBehind', maximum }] });
+    expect(result.findings.some(f => f.kind === 'invalid')).toBe(true);
+  });
+  it('reports a non-engine or undeclared target without dropping the policy', () => {
+    const profile: GameProfile = { version: 1, forkDebtThresholds: [{ componentId: 'gameplay', metric: 'commitsBehind', maximum: 10 }] };
+    expect(validateGameProfile(profile, { composition: buildGameProjectComposition('single-repo-indie') }).some(f => f.kind === 'unresolved')).toBe(true);
+  });
+});

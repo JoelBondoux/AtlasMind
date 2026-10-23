@@ -255,3 +255,16 @@ describe('a testing follow-up survives the Director sanitizer', () => {
     expect(clean?.followUps[0].linked).toEqual({ kind: 'testing-policy', id: 'gdpr' });
   });
 });
+
+
+it('does not require JUnit to acknowledge a measured capture, or invent passing cases', () => {
+  const measured = row({ id: 'performance', fileCount: 0, caseCount: 0, performanceReport: {
+    status: 'measured', capturedAt: '2026-10-18T00:00:00Z', target: 'windows', budgetVerdict: 'not-assessed',
+    measurements: [{ scenario: 'scene', metric: 'frameTimeMs', statistic: 'max', unit: 'ms', value: 17, sampleCount: 60 }],
+  } });
+  const details = deriveTestingPolicyDetails({ rows: [measured], report: undefined });
+  expect(details.details[0]?.finding.unverified).toBe(false);
+  expect(details.details[0]?.finding.statement).toContain('Budget not assessed');
+  expect(details.details[0]?.caseMix).toBeUndefined();
+  expect(details.summary).not.toContain('nothing here has actually been run');
+});

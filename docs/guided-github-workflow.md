@@ -1202,3 +1202,13 @@ fix.
 | [`../project_memory/roadmap/guided-github-workflow.md`](../project_memory/roadmap/guided-github-workflow.md) | The phased implementation roadmap. |
 | [`agents-and-skills.md`](agents-and-skills.md) | Agent definitions and selection. |
 | [`architecture.md`](architecture.md) | Services, data flow, dependency graph. |
+
+### Compare captured project states
+
+Workflow also compares **two saved baselines** through `compareNamedBaselines`, using the same
+`compareObservedState` engine. Both labels and capture timestamps travel with the result; selecting
+an earlier target states the reverse chronological direction. Repository identity is read from the
+snapshot envelope, component coverage from the captured scope, and incompatible snapshots report
+not comparable. Each changed field exposes its before/after readings; an absent reading is labelled
+not observed. The host resolves both opaque ids from its local register. Selecting or comparing
+never rewrites either observation, and the target can return to **Current project** at any time.
