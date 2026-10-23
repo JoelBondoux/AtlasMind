@@ -9,6 +9,7 @@ import {
   MAX_NAMED_BASELINES,
   captureBaseline,
   compareAgainstBaseline,
+  compareNamedBaselines,
   orderedBaselines,
   removeBaseline,
   sanitizeBaselineRegister,
@@ -239,5 +240,39 @@ describe('the chooser order', () => {
     let register = capture(EMPTY_BASELINE_REGISTER, 'Older', '2026-08-01T09:00:00.000Z').register;
     register = capture(register, 'Newer', '2026-09-01T09:00:00.000Z').register;
     expect(orderedBaselines(register).map(entry => entry.label)).toEqual(['Newer', 'Older']);
+  });
+});
+
+
+describe('comparing two deliberately captured moments', () => {
+  const first = capture(EMPTY_BASELINE_REGISTER, 'Release 1', '2026-08-01T09:00:00.000Z', state({ openIssueCount: 7 })).captured!;
+  const second = capture(EMPTY_BASELINE_REGISTER, 'Release 2', '2026-08-15T09:00:00.000Z', state({ openIssueCount: 3 })).captured!;
+  it('compares saved values with both endpoints, without mutating either', () => {
+    const before = JSON.stringify([first, second]);
+    const comparison = compareNamedBaselines({ baseline: first, target: second });
+    expect(comparison.delta.status).toBe('changed');
+    const change = comparison.delta.changes.find(entry => entry.field === 'openIssueCount');
+    expect(change?.before).toBe('7');
+    expect(change?.after).toBe('3');
+    expect(comparison.span).toContain('Release 1');
+    expect(comparison.span).toContain('2026-08-01');
+    expect(comparison.span).toContain('Release 2');
+    expect(comparison.span).toContain('2026-08-15');
+    expect(comparison.ageDays).toBe(14);
+    expect(JSON.stringify([first, second])).toBe(before);
+  });
+  it('keeps a reversed comparison explicit and directional', () => {
+    const comparison = compareNamedBaselines({ baseline: second, target: first });
+    expect(comparison.span).toContain('reverse chronological');
+    expect(comparison.delta.changes.find(entry => entry.field === 'openIssueCount')?.kind).toBe('worsened');
+  });
+  it('reports mismatched repository or coverage as not comparable', () => {
+    const other = capture(EMPTY_BASELINE_REGISTER, 'Other', second.takenAt, state({ repoSlug: 'other/project' })).captured!;
+    const comparison = compareNamedBaselines({ baseline: first, target: other });
+    expect(comparison.delta.status).toBe('first-look');
+    expect(comparison.span).toContain('cannot be compared');
+    expect(comparison.span).not.toContain('Nothing tracked');
+    const scoped = { ...second, snapshot: { ...second.snapshot, scope: { label: 'Components', components: [] } } };
+    expect(compareNamedBaselines({ baseline: first, target: scoped }).delta.status).toBe('first-look');
   });
 });

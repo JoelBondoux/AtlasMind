@@ -1,3 +1,5 @@
+import { collectGameDebt, type GameDebtSourceFile, type GameDebtResult } from '../core/gameDebt.js';
+import { GameProfileManager } from '../core/gameProfile.js';
 import * as vscode from 'vscode';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -162,6 +164,7 @@ import {
   BASELINE_RULES,
   captureBaseline,
   compareAgainstBaseline,
+  compareNamedBaselines,
   orderedBaselines,
   removeBaseline,
   sanitizeBaselineRegister,
@@ -294,6 +297,7 @@ import {
   deriveDebtFromSignals,
   deriveDebtMetrics,
   isDependencyPullRequest,
+  isGameDebtRule,
   reconcileDebtScan,
   scanForDebtMarkers,
   scopeDebtCandidates,
@@ -1226,7 +1230,7 @@ type ProjectDashboardMessage =
    * roadmap and validates each id against it, so a crafted message can address a
    * node that exists and nothing more.
    */
-  | { type: 'roadmapNodeMove'; payload: { nodeId: string; x: number; y: number } }
+  | { type: 'roadmapNodeMove'; payload: { nodeId: string; x: number; y: number; view?: 'completed' } }
   /**
    * A box-selection dragged as one group.
    *
@@ -1241,7 +1245,7 @@ type ProjectDashboardMessage =
    * the batch, since a group that silently moved nineteen of twenty nodes is
    * worse than one that moves the nineteen it could resolve and says so.
    */
-  | { type: 'roadmapNodesMove'; payload: { moves: Array<{ nodeId: string; x: number; y: number }> } }
+  | { type: 'roadmapNodesMove'; payload: { moves: Array<{ nodeId: string; x: number; y: number }>; view?: 'completed' } }
   | {
     type: 'roadmapNodeUpdate';
     payload: {
@@ -1280,7 +1284,7 @@ type ProjectDashboardMessage =
    * so a webview that sent coordinates would be doing the layout, and two
    * layouts would eventually disagree about the same plan.
    */
-  | { type: 'roadmapAutoLayout'; payload: 'horizontal' | 'vertical' }
+  | { type: 'roadmapAutoLayout'; payload: 'horizontal' | 'vertical' | 'chronological'; view?: 'completed' }
   /**
    * Start a roadmap import. Carries no payload by design: every detail is
    * gathered by the host through the editor's own pickers, so this message
@@ -1580,7 +1584,7 @@ type ProjectDashboardMessage =
   | { type: 'testDataPrivacy'; payload: { kind: 'text' | 'path'; value: string } }
   | { type: 'captureBaseline'; payload: { label: string; reason?: string } }
   | { type: 'removeBaseline'; payload: string }
-  | { type: 'selectBaseline'; payload: string }
+  | { type: 'selectBaseline'; payload: string; target?: 'comparison' }
   | { type: 'saveDirectorConfig'; payload: import('../types.js').ProjectDirectorConfig }
   | { type: 'seedDirectorFromRepo' }
   | { type: 'saveWebsiteDelivery'; payload: { platforms: unknown[]; hostingEnvironments: unknown[]; automations: unknown[] } }
@@ -2937,12 +2941,14 @@ interface DashboardGuidedWorkflowSnapshot {
     }>;
     /** The chosen baseline's id, when one is chosen. */
     selectedId?: string;
+    /** Empty means compare the baseline with the current project. */
+    targetId?: string;
     /** The comparison against it. Absent when nothing is chosen. */
     comparison?: {
       span: string;
       status: ObservedDelta['status'];
       staleness: BaselineStaleness;
-      changes: Array<{ label: string; kind: string; summary: string }>;
+      changes: Array<{ label: string; kind: string; summary: string; before?: string; after?: string }>;
       droppedByCap: number;
     };
     /** How many more may be captured before a capture is refused. */
@@ -3092,7 +3098,8 @@ interface DashboardGateCandidatesView {
 interface DashboardRoadmapGraphView {
   /** Nodes on the plan canvas: outstanding work, plus delivered work still holding something up. */
   active: RoadmapGraphNode[];
-  /** Nodes on the completion canvas, laid out chronologically. */
+  /** Delivered nodes at their own saved or derived layout positions. */
+  completionLayout?: 'chronological' | 'horizontal' | 'vertical';
   completed: RoadmapGraphNode[];
   /**
    * The same outstanding work, grouped into one band per person.
@@ -3681,6 +3688,7 @@ interface DashboardSnapshot {
     metrics: DebtMetrics;
     lastScanAt?: string;
     lastScanScope?: DebtScanScope[];
+    lastGameScanNotes?: string[];
     /** The declared rules, so a grade can be checked against them on screen. */
     rules: Array<{ id: string; domain: string; severity: string; describes: string }>;
     scanning: boolean;
@@ -6329,7 +6337,7 @@ export class ProjectDashboardPanel {
         await this.handleDismissCapabilityOffer(message.payload);
         break;
       case 'roadmapAutoLayout':
-        await this.handleRoadmapAutoLayout(message.payload === 'vertical' ? 'vertical' : 'horizontal');
+        await this.handleRoadmapAutoLayout(message.payload, message.view);
         break;
       case 'importRoadmap':
         await this.handleImportRoadmap();
@@ -6643,7 +6651,7 @@ export class ProjectDashboardPanel {
         await this.handleRemoveBaseline(message.payload);
         return;
       case 'selectBaseline':
-        await this.handleSelectBaseline(message.payload);
+        await this.handleSelectBaseline(message.payload, message.target);
         return;
       case 'saveDirectorConfig':
         await this.handleSaveDirectorConfig(message.payload);
@@ -11350,6 +11358,31 @@ export class ProjectDashboardPanel {
     });
   }
 
+  /** This helper is called only after the ordinary debt-scan confirmation. */
+  private async collectGameDebtForScan(
+    composition: ProjectComposition | undefined,
+    roots: readonly { componentId: string; fsPath: string }[],
+    sourceFiles: readonly GameDebtSourceFile[],
+  ): Promise<GameDebtResult> {
+    const home = ssotHomeRoot();
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const reading = new GameProfileManager(home.fsPath, home.refusal, ssotPath).read();
+    const previous = this.debtManager.get().entries;
+    if (!composition?.components.some(c => c.archetype?.archetype === 'game') && reading.status === 'absent'
+      && !previous.some(entry => isGameDebtRule(entry.rule))) {
+      return { candidates: [], assessedIds: [], notes: [] };
+    }
+    const profile = reading.status === 'loaded' && reading.findings.every(f => f.kind !== 'invalid') ? reading.profile : undefined;
+    const deadline = Date.now() + 15_000;
+    return collectGameDebt({ confirmed: true, composition, profile, roots, sourceFiles, previous,
+      profilePath: `${ssotPath}/domain/game.json`,
+    }, (root, args) => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) { throw new Error('Game fork inspection time budget reached.'); }
+      return runGit(root, [...args], { timeoutMs: Math.min(3000, remaining) });
+    });
+  }
+
   private async handleScanDebt(): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
@@ -11368,6 +11401,7 @@ export class ProjectDashboardPanel {
           `This reads your source files for TODO, FIXME, HACK and XXX markers and writes what it finds to \`${DEBT_SSOT_PATH}\`, with a readable mirror beside it.\n\n`
           + 'Nothing is deleted. An entry whose marker has gone is recorded as obsolete rather than resolved, '
           + 'because "the line is gone" and "somebody did the work" are different facts.\n\n'
+          + 'For a declared game project this also reads declared content roots for asset/LFS and import markers, author-marked TUNING points, and local Git fork counts against declared limits. The asset walk is capped and no engine, build, fetch or profiler runs.\n\n'
           + 'Severity comes from a declared rule, never a judgement call, and every entry names the rule that graded it.',
       },
       'Yes, scan',
@@ -11391,6 +11425,7 @@ export class ProjectDashboardPanel {
       const declaredScope = await collectDashboardWorkspaceScope(composition, this.workflowConfig.getWorkspaceRoot());
       const markerCandidates: import('../core/debtRegister.js').DebtScanCandidate[] = [];
       const scannedPaths: import('../core/debtRegister.js').DebtScannedPath[] = [];
+      const gameSourceFiles: GameDebtSourceFile[] = [];
       const scanCoverage: DebtScanScope[] = [];
       let remainingFiles = DEBT_SCAN_MAX_FILES;
       let truncated = false;
@@ -11415,6 +11450,7 @@ export class ProjectDashboardPanel {
           }
           const scanned = await collectDebtScanFiles(root.fsPath, remainingFiles);
           remainingFiles = Math.max(0, remainingFiles - scanned.scannedPaths.length);
+          gameSourceFiles.push(...scanned.files.map(file => ({ ...file, componentId: component.id })));
           truncated ||= scanned.truncated;
           markerCandidates.push(...scopeDebtCandidates(
             scanForDebtMarkers(scanned.files, customMarkers),
@@ -11484,7 +11520,8 @@ export class ProjectDashboardPanel {
           uncoveredMethodologies,
           ciWorkflowCount: snapshot.delivery.workflows.length,
         });
-      const candidates = [...markerCandidates, ...derivedCandidates];
+      const game = await this.collectGameDebtForScan(composition, declaredScope.roots.flatMap(root => root.componentId === undefined ? [] : [{ componentId: root.componentId, fsPath: root.fsPath }]), gameSourceFiles);
+      const candidates = [...markerCandidates, ...derivedCandidates, ...game.candidates];
       const at = new Date().toISOString();
       // The derived entries' evidence paths are added to the scanned set, so a
       // signal that has cleared (the update merged, the methodology covered)
@@ -11504,7 +11541,9 @@ export class ProjectDashboardPanel {
         ],
         at,
         composition ? scanCoverage : undefined,
+        game.assessedIds,
       );
+      result.register.lastGameScanNotes = game.notes;
       await this.debtManager.save(result.register, customMarkers);
       void vscode.window.showInformationMessage(
         `Scanned ${scannedPaths.length} files${composition ? ` across ${scanCoverage.length} declared components` : ''}: ${result.added.length} new, ${result.unchanged} already recorded`
@@ -14461,7 +14500,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
     return { ...document, nodes };
   }
 
-  private async handleRoadmapNodeMove(payload: { nodeId: string; x: number; y: number }): Promise<void> {
+  private async handleRoadmapNodeMove(payload: { nodeId: string; x: number; y: number; view?: 'completed' }): Promise<void> {
     const context = await this.openRoadmapGraphForWrite();
     const text = context?.nodeText.get(payload.nodeId);
     if (context === undefined || text === undefined) {
@@ -14479,7 +14518,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
       context.workspaceRoot,
       context.ssotPath,
       ProjectDashboardPanel.upsertRoadmapNode(context.document, payload.nodeId, text, record => {
-        record.position = position;
+        if (payload.view === 'completed') { record.completionPosition = position; }
+        else { record.position = position; }
       }),
     );
   }
@@ -14496,7 +14536,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * only ever sends what it has selected — it is that a message handler taking
    * an array should say how long an array it will act on.
    */
-  private async handleRoadmapNodesMove(payload: { moves: Array<{ nodeId: string; x: number; y: number }> }): Promise<void> {
+  private async handleRoadmapNodesMove(payload: { moves: Array<{ nodeId: string; x: number; y: number }>; view?: 'completed' }): Promise<void> {
     const requested = Array.isArray(payload?.moves) ? payload.moves.slice(0, MAX_ROADMAP_GROUP_MOVE) : [];
     if (requested.length === 0) {
       return;
@@ -14517,7 +14557,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
       }
       const position = clampRoadmapPosition(move.x, move.y);
       document = ProjectDashboardPanel.upsertRoadmapNode(document, move.nodeId, text, record => {
-        record.position = position;
+        if (payload.view === 'completed') { record.completionPosition = position; }
+        else { record.position = position; }
       });
       applied += 1;
     }
@@ -14965,11 +15006,26 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * "align everything" that quietly skipped what a filter was hiding would leave
    * the plan half aligned in a way nobody could see.
    */
-  private async handleRoadmapAutoLayout(orientation: 'horizontal' | 'vertical'): Promise<void> {
+  private async handleRoadmapAutoLayout(orientation: 'horizontal' | 'vertical' | 'chronological', view?: 'completed'): Promise<void> {
     const context = await this.openRoadmapGraphForWrite();
     if (context === undefined) {
       return;
     }
+    if (view === 'completed') {
+      await this.commitRoadmapGraph(context.workspaceRoot, context.ssotPath, {
+        ...context.document,
+        completionLayout: orientation,
+        nodes: context.document.nodes.map(node => {
+          const { completionPosition: _released, ...rest } = node;
+          return rest;
+        }),
+      });
+      void vscode.window.showInformationMessage(orientation === 'chronological'
+        ? 'Arranged delivered work by completion month. Delivered pins were released.'
+        : `Arranged delivered work as a tree, ${orientation === 'vertical' ? 'top to bottom' : 'left to right'}. Delivered pins were released.`);
+      return;
+    }
+    if (orientation === 'chronological') { return; }
     const moved = context.document.nodes.filter(node => node.position !== undefined).length;
     const nodes = context.document.nodes.map(node => {
       const { position: _dropped, ...rest } = node;
@@ -16032,6 +16088,9 @@ ${buildCardEvidenceSection(source, derivation)}`;
     const state = this.atlas.extensionContext?.workspaceState;
     try {
       await state?.update(NAMED_BASELINE_STATE_KEY, removeBaseline(register, id));
+      if (readSelectedBaselineId(this.atlas, 'comparison') === id) {
+        await state?.update(COMPARISON_BASELINE_STATE_KEY, '');
+      }
       if (readSelectedBaselineId(this.atlas) === id) {
         await state?.update(SELECTED_BASELINE_STATE_KEY, '');
       }
@@ -16043,13 +16102,13 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   /** Choose which baseline the comparison is against. An empty id chooses none. */
-  private async handleSelectBaseline(id: string): Promise<void> {
+  private async handleSelectBaseline(id: string, target?: 'comparison'): Promise<void> {
     const register = readBaselineRegister(this.atlas);
     // Resolved against the register, so an id that names nothing selects
     // nothing rather than leaving a dangling selection on the page.
     const resolved = register.baselines.some(entry => entry.id === id) ? id : '';
     try {
-      await this.atlas.extensionContext?.workspaceState.update(SELECTED_BASELINE_STATE_KEY, resolved);
+      await this.atlas.extensionContext?.workspaceState.update(target === 'comparison' ? COMPARISON_BASELINE_STATE_KEY : SELECTED_BASELINE_STATE_KEY, resolved);
     } catch {
       return;
     }
@@ -18458,6 +18517,7 @@ function isReleaseMatrixImportPayload(value: unknown): value is { previewId: str
  */
 function isRoadmapNodeMovePayload(value: Record<string, unknown> | undefined): boolean {
   return typeof value === 'object' && value !== null
+    && (value['view'] === undefined || value['view'] === 'completed')
     && isOpaqueDashboardId(value['nodeId'])
     && typeof value['x'] === 'number' && Number.isFinite(value['x'])
     && typeof value['y'] === 'number' && Number.isFinite(value['y']);
@@ -19024,7 +19084,8 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     // Every entry, not a sample: a batch validator that checks the first item
     // and trusts the rest is a validator with an offset.
     const moves = payload['moves'] as unknown[];
-    return moves.length > 0 && moves.every(move => isRoadmapNodeMovePayload(move as Record<string, unknown>));
+    return (payload['view'] === undefined || payload['view'] === 'completed')
+      && moves.length > 0 && moves.every(move => isRoadmapNodeMovePayload(move as Record<string, unknown>));
   }
 
   if (candidate['type'] === 'roadmapNodeUpdate') {
@@ -19060,7 +19121,9 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   }
 
   if (candidate['type'] === 'roadmapAutoLayout') {
-    return candidate['payload'] === 'horizontal' || candidate['payload'] === 'vertical';
+    return (candidate['view'] === undefined || candidate['view'] === 'completed')
+      && (candidate['payload'] === 'horizontal' || candidate['payload'] === 'vertical'
+        || (candidate['view'] === 'completed' && candidate['payload'] === 'chronological'));
   }
 
   if (candidate['type'] === 'roadmapDeriveLinks') {
@@ -19147,7 +19210,8 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   if (candidate['type'] === 'removeBaseline' || candidate['type'] === 'selectBaseline') {
     // An opaque id, resolved host-side against the stored register: a crafted
     // message can name a baseline that exists and can never supply one.
-    return typeof candidate['payload'] === 'string';
+    return typeof candidate['payload'] === 'string'
+      && (candidate['target'] === undefined || (candidate['type'] === 'selectBaseline' && candidate['target'] === 'comparison'));
   }
 
   if (candidate['type'] === 'saveDirectorConfig') {
@@ -21386,6 +21450,7 @@ async function collectDashboardSnapshot(
       metrics: deriveDebtMetrics(debt?.register ?? { version: 1, entries: [] }, Date.now()),
       ...(debt?.register.lastScanAt === undefined ? {} : { lastScanAt: debt.register.lastScanAt }),
       ...(debt?.register.lastScanScope === undefined ? {} : { lastScanScope: debt.register.lastScanScope }),
+      ...(debt?.register.lastGameScanNotes === undefined ? {} : { lastGameScanNotes: debt.register.lastGameScanNotes }),
       // The project's own marker rules are published alongside the shipped
       // ones. A grade whose rule is not on the page is a grade nobody can
       // check, which is the same as no rule at all.
@@ -24487,6 +24552,7 @@ const OBSERVED_BASELINE_STATE_KEY = 'atlasmind.workflow.observedBaseline';
  */
 const NAMED_BASELINE_STATE_KEY = 'atlasmind.workflow.namedBaselines';
 const SELECTED_BASELINE_STATE_KEY = 'atlasmind.workflow.selectedBaseline';
+const COMPARISON_BASELINE_STATE_KEY = 'atlasmind.workflow.comparisonBaseline';
 
 /**
  * The delta, computed once and then held.
@@ -24600,6 +24666,8 @@ function buildBaselineView(
   const ordered = orderedBaselines(register);
   const selectedId = readSelectedBaselineId(atlas);
   const selected = ordered.find(entry => entry.id === selectedId);
+  const targetId = readSelectedBaselineId(atlas, 'comparison');
+  const target = ordered.find(entry => entry.id === targetId);
   const comparisons = ordered.map(entry => compareAgainstBaseline({
     baseline: entry,
     current: observed,
@@ -24607,9 +24675,11 @@ function buildBaselineView(
     now,
   }));
   const chosen = selected
-    ? comparisons.find(comparison => comparison.baseline.id === selected.id)
+    ? target ? compareNamedBaselines({ baseline: selected, target })
+      : comparisons.find(comparison => comparison.baseline.id === selected.id)
     : undefined;
   return {
+    ...(target === undefined ? {} : { targetId: target.id }),
     entries: comparisons.map(comparison => ({
       id: comparison.baseline.id,
       label: comparison.baseline.label,
@@ -24630,6 +24700,8 @@ function buildBaselineView(
           label: change.label,
           kind: change.kind,
           summary: change.summary,
+          ...(change.before === undefined ? {} : { before: change.before }),
+          ...(change.after === undefined ? {} : { after: change.after }),
         })),
         droppedByCap: chosen.delta.droppedByCap,
       },
@@ -24648,9 +24720,9 @@ function readBaselineRegister(atlas: AtlasMindContext): BaselineRegister {
   }
 }
 
-function readSelectedBaselineId(atlas: AtlasMindContext): string | undefined {
+function readSelectedBaselineId(atlas: AtlasMindContext, target?: 'comparison'): string | undefined {
   try {
-    const value = atlas.extensionContext?.workspaceState.get<string>(SELECTED_BASELINE_STATE_KEY);
+    const value = atlas.extensionContext?.workspaceState.get<string>(target === 'comparison' ? COMPARISON_BASELINE_STATE_KEY : SELECTED_BASELINE_STATE_KEY);
     return typeof value === 'string' && value ? value : undefined;
   } catch {
     return undefined;
@@ -26883,7 +26955,7 @@ function buildRoadmapGraphView(
     });
 
     const partition = partitionRoadmapCompletion(graph);
-    const completion = layoutRoadmapCompletion(partition.completed);
+    const completion = layoutRoadmapCompletion(partition.completed, { records: reconciled.document.nodes, layout: reconciled.document.completionLayout });
     const routes: DashboardRoadmapGraphView['routes'] = {};
     for (const node of graph.nodes) {
       const route = roadmapRouteTo(graph, node.id);
@@ -26926,6 +26998,7 @@ function buildRoadmapGraphView(
     return {
       active: partition.active,
       completed: completion.nodes,
+      completionLayout: reconciled.document.completionLayout ?? 'chronological',
       completedColumns: completion.columns,
       byPerson: byPerson.nodes,
       lanes: byPerson.lanes,
@@ -28086,7 +28159,7 @@ const DEBT_SCAN_SKIP_DIRS = new Set([
 /** Extensions worth reading. Anything else is either binary or not authored. */
 const DEBT_SCAN_EXTENSIONS = new Set([
   '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.rs', '.go', '.java',
-  '.kt', '.swift', '.rb', '.php', '.cs', '.c', '.h', '.cpp', '.hpp', '.css',
+  '.kt', '.swift', '.rb', '.php', '.cs', '.gd', '.c', '.h', '.cpp', '.hpp', '.css',
   '.scss', '.vue', '.svelte', '.sql', '.sh', '.yml', '.yaml',
 ]);
 

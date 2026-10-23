@@ -334,9 +334,12 @@ export function deriveTestingPolicyDetails(
   const details = rows.map((row): TestingPolicyDetail => {
     const tally = options.subjects?.get(row.id);
     const finding = gradeTestingPolicy(row, {
-      hasReport,
+      hasReport: hasReport || row.performanceReport?.status === 'measured',
       ...(tally ? { uncoveredSubjects: tally.uncovered, totalSubjects: tally.total } : {}),
     });
+    if (finding.ruleId === 'clear' && row.performanceReport?.status === 'measured') {
+      finding.statement = 'Performance measurements are recorded. Budget not assessed.';
+    }
     const passing = Math.max(0, row.caseCount - row.skippedCount - row.failedCount);
     return {
       id: row.id,
@@ -363,7 +366,7 @@ export function deriveTestingPolicyDetails(
         ? `Nothing is failing. ${counts.moderate + counts.low} polic${counts.moderate + counts.low === 1 ? 'y' : 'ies'} still ${counts.moderate + counts.low === 1 ? 'has' : 'have'} a gap to close.`
         : hasReport
           ? 'Every enabled policy has evidence and nothing is failing.'
-          : 'Every enabled policy has evidence, but no test report has been produced — so nothing here has actually been run.';
+          : 'Every enabled policy has evidence, but no test report has been produced — so test-case execution remains unverified.';
 
   return { details, counts, summary, rules: TESTING_SEVERITY_RULES.map(rule => ({ ...rule })) };
 }

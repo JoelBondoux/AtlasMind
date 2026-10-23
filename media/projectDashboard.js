@@ -1962,6 +1962,8 @@
       // The route filter and a half-drawn link belong to the canvas. Leaving them
       // set while the list is showing means coming back to a view that is
       // mysteriously filtered by something you did several clicks ago.
+      state.roadmapDragOffsets = {};
+      state.roadmapSelection = [];
       state.roadmapFocusNodeId = '';
       state.roadmapLinkFrom = '';
       state.roadmapEditingNodeId = '';
@@ -2125,12 +2127,16 @@
      * declares. The webview never sends coordinates: a page supplying positions
      * would be doing the layout, and two layouts would drift.
      */
-    if (action === 'roadmap-auto-align') {
-      const declared = roadmapGraph().orientation === 'vertical' ? 'vertical' : 'horizontal';
+    if (action === 'roadmap-auto-align' || action === 'roadmap-completion-chronological') {
+      const delivered = state.roadmapView === 'completed';
+      const orientation = delivered ? roadmapGraph().completionLayout : roadmapGraph().orientation;
+      const declared = orientation === 'vertical' ? 'vertical' : 'horizontal';
       state.roadmapFitAfterRender = true;
       vscode.postMessage({
         type: 'roadmapAutoLayout',
-        payload: payload === 'vertical' ? 'vertical' : payload === 'horizontal' ? 'horizontal' : declared,
+        payload: action === 'roadmap-completion-chronological' ? 'chronological'
+          : payload === 'vertical' ? 'vertical' : payload === 'horizontal' ? 'horizontal' : declared,
+        ...(delivered ? { view: 'completed' } : {}),
       });
       return;
     }
@@ -4042,7 +4048,9 @@
     // The id is opaque and resolved host-side against the stored register, so
     // an empty or unknown value selects nothing rather than leaving a dangling
     // choice on the page.
-    vscode.postMessage({ type: 'selectBaseline', payload: target.value });
+    vscode.postMessage({ type: 'selectBaseline', payload: target.value,
+      ...(target.getAttribute('data-baseline-target') === 'comparison' ? { target: 'comparison' } : {}),
+    });
   });
 
   root?.addEventListener('change', event => {
@@ -4494,7 +4502,7 @@
    * on the edge key.
    */
   function rmBuildEdgePorts(edges, nodes) {
-    const orientationVertical = roadmapGraph().orientation === 'vertical';
+    const orientationVertical = roadmapCanvasOrientation() === 'vertical';
     const centreOf = id => {
       const node = nodes.find(entry => entry.id === id);
       if (!node) { return 0; }
@@ -4953,8 +4961,8 @@
       // one refresh rather than N of each with the canvas re-rendering under
       // the pointer partway through.
       vscode.postMessage(positions.length > 1
-        ? { type: 'roadmapNodesMove', payload: { moves: positions } }
-        : { type: 'roadmapNodeMove', payload: positions[0] });
+        ? { type: 'roadmapNodesMove', payload: { moves: positions, ...(state.roadmapView === 'completed' ? { view: 'completed' } : {}) } }
+        : { type: 'roadmapNodeMove', payload: { ...positions[0], ...(state.roadmapView === 'completed' ? { view: 'completed' } : {}) } });
     }
     // A snapshot that arrived mid-drag was held so it could not swap the DOM
     // out from under the pointer capture. Applied now — keeping the dropped
@@ -8006,6 +8014,26 @@
       </div>`;
   }
 
+  function renderPerformanceEvidence(evidence) {
+    if (!evidence) { return ''; }
+    if (evidence.status !== 'measured') {
+      return `<div class="performance-evidence dist-empty">No performance verdict. ${escapeHtml(evidence.reason || 'No usable project report.')}</div>`;
+    }
+    return `<div class="performance-evidence">
+      <p class="section-copy"><strong>Reported measurements</strong> · ${escapeHtml(evidence.target)} · captured ${escapeHtml(evidence.capturedAt)}</p>
+      <p class="stat-detail">Budget not assessed. These are project-reported observations; recording a capture does not verify performance against a budget.</p>
+      ${evidence.relativePath ? `<p class="list-meta">Source: <code>${escapeHtml(evidence.relativePath)}</code></p>` : ''}
+      <table class="mini-table performance-measurements">
+        <caption class="section-kicker">Performance measurements</caption>
+        <thead><tr><th scope="col">Scenario</th><th scope="col">Metric</th><th scope="col">Statistic</th><th scope="col">Value</th><th scope="col">Samples</th></tr></thead>
+        <tbody>${(evidence.measurements || []).map(entry => `<tr>
+          <td>${escapeHtml(entry.scenario)}</td><td>${escapeHtml(entry.metric)}</td><td>${escapeHtml(entry.statistic)}</td>
+          <td>${escapeHtml(String(entry.value))} ${escapeHtml(entry.unit)}</td><td>${escapeHtml(String(entry.sampleCount))}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+  }
+
   function renderPolicyCardDetail(row, detail, technicalEntry) {
     const finding = detail && detail.finding;
     const caseMix = detail && detail.caseMix;
@@ -8067,6 +8095,8 @@
         </div>
 
         ${renderTechnicalControls(technicalEntry)}
+
+        ${renderPerformanceEvidence(row.performanceReport)}
 
         ${renderPolicySubjects(row)}
 
@@ -8431,6 +8461,9 @@
         } else {
           counts.push('nothing recorded');
         }
+      } else if (row.performanceReport && row.performanceReport.status === 'measured') {
+        counts.push(`${row.performanceReport.measurements.length} reported measurements`);
+        counts.push(`captured ${String(row.performanceReport.capturedAt).slice(0, 10)}`);
       } else if (row.status !== 'not-file-evident') {
         counts.push(`${row.fileCount} file${row.fileCount === 1 ? '' : 's'}`);
         if (row.caseCount > 0) { counts.push(`${row.caseCount} case${row.caseCount === 1 ? '' : 's'}`); }
@@ -8486,7 +8519,7 @@
         ${reportLine}
         <div class="panel-grid" style="margin-top:12px">
           ${renderDistributionBar('policy-coverage', [
-            { label: 'Tested', value: coverage.coveredCount, tone: 'good' },
+            { label: 'Evidenced', value: coverage.coveredCount, tone: 'good' },
             { label: 'Tooling only', value: coverage.toolingOnlyCount, tone: 'warn' },
             { label: 'Nothing found', value: coverage.missingCount, tone: 'critical' },
             { label: 'Practice (not file-evident)', value: coverage.practiceCount, tone: 'muted' },
@@ -8499,7 +8532,7 @@
           <div class="mini-grid">
             ${renderMetricPill('Failing tests', report ? String(report.failed) : 'Unknown', { tone: report ? (report.failed > 0 ? 'critical' : 'good') : 'warn' })}
             ${renderMetricPill('Skipped in tree', String(coverage.totalSkipped || 0), { tone: (coverage.totalSkipped || 0) > 0 ? 'warn' : 'good' })}
-            ${renderMetricPill('Policies with no tests', String(gapRows.length), { tone: gapRows.length > 0 ? 'warn' : 'good' })}
+            ${renderMetricPill('Policies without evidence', String(gapRows.length), { tone: gapRows.length > 0 ? 'warn' : 'good' })}
             ${renderMetricPill('Total cases', formatNumber(rows.reduce((sum, row) => sum + (row.caseCount || 0), 0)), { tone: 'accent' })}
           </div>
         </div>
@@ -9600,6 +9633,7 @@
   function renderDebt(snapshot) {
     const debt = snapshot.debt || { entries: [], metrics: {}, rules: [] };
     const metrics = debt.metrics || {};
+    const gameNotes = Array.isArray(debt.lastGameScanNotes) ? debt.lastGameScanNotes : [];
     const entries = debt.entries || [];
     const scanScope = Array.isArray(debt.lastScanScope) ? debt.lastScanScope : [];
     const visibleScopeCount = scanScope.filter(component => component.visibility === 'visible').length;
@@ -9687,6 +9721,7 @@
             <span class="tag ${DEBT_STATUS_TONE[entry.status] || ''}">${escapeHtml(entry.status)}</span>
           </span>
         </div>
+        ${entry.evidenceDetail ? `<p class="stat-detail">${escapeHtml(entry.evidenceDetail)}</p>` : ''}
         <div class="list-meta">${entry.componentLabel ? `<strong>${escapeHtml(entry.componentLabel)}</strong> · ` : ''}<code>${escapeHtml(entry.evidencePath)}${entry.evidenceLine ? ':' + entry.evidenceLine : ''}</code> · ${escapeHtml(entry.domain)} · since ${escapeHtml((entry.detectedAt || '').slice(0, 10))} · graded by <code>${escapeHtml(entry.rule)}</code></div>
         <div class="tag-row">
           ${renderDirectorOwnerControl('debt', entry.id)}
@@ -9698,7 +9733,8 @@
         </div>
       </div>`).join('');
 
-    return pageSectionOpen('debt') + intro + scanScopeCard + `
+    const gameNoteCard = gameNotes.length ? `<article class="panel-card game-debt-coverage"><p class="card-kicker">Game signal coverage</p><ul>${gameNotes.map(note => `<li>${escapeHtml(note)}</li>`).join('')}</ul></article>` : '';
+    return pageSectionOpen('debt') + intro + scanScopeCard + gameNoteCard + `
       <div class="panel-grid">
         <article class="panel-card">
           <p class="card-kicker">Where it is${help.button}</p>
@@ -13736,7 +13772,7 @@
           <p class="card-kicker">Compare against a baseline</p>
           <button type="button" class="action-link" data-action="baseline-capture-open" data-payload="">${state.baselineCaptureOpen ? 'Close' : 'Capture one now'}</button>
         </div>
-        <p class="stat-detail">The card above always answers <em>since you last looked</em>. A named baseline answers the same question about a moment you chose — the release, the start of a branch, before a migration.</p>
+        <p class="stat-detail">The card above always answers <em>since you last looked</em>. Choose a saved baseline to compare with the current project, or compare two saved moments. Saved comparisons use only what was observed at both capture dates.</p>
         ${state.baselineCaptureOpen ? `
           <div class="stage-edit-grid" id="baseline-capture-form">
             ${edText('Name it', 'label', '', 'Before the migration')}
@@ -13749,10 +13785,17 @@
         ${baselines.entries.length ? `
           <div class="row-head">
             <label class="stage-edit-field" style="flex:1">
-              <span>Baseline</span>
+              <span>From baseline</span>
               <select class="baseline-select">
                 <option value="" ${baselines.selectedId ? '' : 'selected'}>None chosen</option>
                 ${baselineOptions}
+              </select>
+            </label>
+            <label class="stage-edit-field" style="flex:1">
+              <span>Compare to</span>
+              <select class="baseline-select" data-baseline-target="comparison" aria-label="Compare baseline to">
+                <option value=""${baselines.targetId ? '' : ' selected'}>Current project</option>
+                ${baselines.entries.map(entry => `<option value="${escapeAttr(entry.id)}"${entry.id === baselines.targetId ? ' selected' : ''}>${escapeHtml(entry.label)} (${escapeHtml(entry.takenAt)})</option>`).join('')}
               </select>
             </label>
             ${chosenEntry ? `<button type="button" class="action-link danger" data-action="baseline-remove" data-payload="${escapeAttr(chosenEntry.id)}">Remove</button>` : ''}
@@ -13760,12 +13803,13 @@
           ${chosenEntry && chosenEntry.reason ? `<p class="stat-detail">${escapeHtml(chosenEntry.reason)}</p>` : ''}
           ${chosen ? `
             <p class="section-copy"><strong>${escapeHtml(chosen.span)}</strong></p>
-            ${chosen.staleness === 'old' ? '<p class="stat-detail">This baseline is over a month old, so what follows describes a long span rather than recent activity.</p>' : ''}
+            ${chosen.staleness === 'old' && !baselines.targetId ? '<p class="stat-detail">This baseline is over a month old, so what follows describes a long span rather than recent activity.</p>' : ''}
             ${chosen.status === 'changed' ? `<div class="stack-list">${chosen.changes.map(change => `
               <div class="row-head">
                 <span>
                   <strong>${escapeHtml(change.label)}</strong>
                   <span class="section-copy">${escapeHtml(change.summary)}</span>
+                  <span class="list-meta">Before: ${escapeHtml(change.before === undefined ? 'not observed' : change.before)} → After: ${escapeHtml(change.after === undefined ? 'not observed' : change.after)}</span>
                 </span>
                 <span class="tag ${DELTA_TAG[change.kind] || ''}">${escapeHtml(DELTA_WORD[change.kind] || change.kind)}</span>
               </div>`).join('')}</div>` : ''}
@@ -14690,6 +14734,13 @@
     return graph;
   }
 
+  function roadmapCanvasOrientation() {
+    const graph = roadmapGraph();
+    return state.roadmapView === 'completed'
+      ? (graph.completionLayout === 'vertical' ? 'vertical' : 'horizontal')
+      : graph.orientation;
+  }
+
   /** The nodes the current canvas draws, before the route filter narrows them. */
   function roadmapCanvasNodes() {
     const graph = roadmapGraph();
@@ -14776,7 +14827,7 @@
    * convention.
    */
   function roadmapRouteFilter() {
-    if (!state.roadmapFocusNodeId || state.roadmapView === 'completed') {
+    if (!state.roadmapFocusNodeId) {
       return null;
     }
     const route = roadmapGraph().routes[state.roadmapFocusNodeId];
@@ -14838,8 +14889,7 @@
     // Delivered work is emphasised the same way. "When did the auth work ship",
     // "which of the MVP has landed" and "what did Sam deliver" are questions
     // about history, and they were unanswerable because the lenses stopped at
-    // the outstanding plan. The *authoring* controls stay off there, since
-    // nothing is added to a record of what already happened.
+    // the outstanding plan. Delivered layout controls use their own pins.
     const delivered = state.roadmapView === 'completed';
     const all = roadmapCanvasNodes();
     const lenses = [];
@@ -15663,6 +15713,8 @@
   }
 
   function renderRoadmapCanvasToolbar(graph, filter, focusNode, totalCount, shownCount) {
+    const delivered = state.roadmapView === 'completed';
+    const orientation = delivered ? graph.completionLayout : graph.orientation;
     const zoomPercent = Math.round(state.roadmapZoom * 100);
     const linking = state.roadmapLinkFrom
       ? (roadmapCanvasNodes().find(node => node.id === state.roadmapLinkFrom) || { text: 'an item' })
@@ -15697,22 +15749,21 @@
               title="${escapeAttr('Whether AtlasMind draws links nobody has accepted. This control only shows and hides the dashed arrows — a suggestion never moves an item and never blocks one, so turning it on will not rearrange the tree. Accept a suggestion and it becomes a real link, which does. It can never contradict a link you drew, and can never make the plan circular.')}">
               ${graph.suggestLinks ? 'Showing suggestions' : 'Suggestions hidden'}${graph.suggestLinks && (graph.suggested || []).length ? ` <span class="rm-count">${(graph.suggested || []).length}</span>` : ''}
             </button>`}
-          ${state.roadmapView === 'completed' ? '' : `
-            <span class="rm-control-group" role="group" aria-label="Arrange the plan as a tree">
+          <span class="rm-control-group" role="group" aria-label="${delivered ? 'Arrange delivered work as a tree' : 'Arrange the plan as a tree'}">
               <button type="button" class="action-link rm-auto-tree" data-action="roadmap-auto-align" data-payload=""
-                title="${escapeAttr('Lay the plan out as a tree and fit it on screen. Each prerequisite sits just before the first thing it unlocks, connected work is grouped into its own block, and items with no links park in a compact block of their own. Releases every node you have positioned by hand — drag one again to pin it. Only links you have accepted shape the tree; suggestions never move a node.')}">
+                title="${escapeAttr(delivered ? 'Arrange delivered items as a dependency tree and fit them on screen. Releases delivered pins; the outstanding plan keeps its own positions.' : 'Lay the plan out as a tree and fit it on screen. Each prerequisite sits just before the first thing it unlocks, connected work is grouped into its own block, and items with no links park in a compact block of their own. Releases every node you have positioned by hand — drag one again to pin it. Only links you have accepted shape the tree; suggestions never move a node.')}">
                 <span aria-hidden="true">⌗</span> Auto tree
               </button>
-              <button type="button" class="action-link rm-orientation${graph.orientation !== 'vertical' ? ' is-on' : ''}"
+              <button type="button" class="action-link rm-orientation${orientation !== 'vertical' ? ' is-on' : ''}"
                 data-action="roadmap-auto-align" data-payload="horizontal"
-                aria-pressed="${graph.orientation !== 'vertical' ? 'true' : 'false'}"
+                aria-pressed="${orientation !== 'vertical' ? 'true' : 'false'}"
                 aria-label="Run the tree left to right"
                 title="${escapeAttr('Run the tree left to right, and re-fit. Reads best on a long chain with little branching.')}">
                 <span aria-hidden="true">→</span>
               </button>
-              <button type="button" class="action-link rm-orientation${graph.orientation === 'vertical' ? ' is-on' : ''}"
+              <button type="button" class="action-link rm-orientation${orientation === 'vertical' ? ' is-on' : ''}"
                 data-action="roadmap-auto-align" data-payload="vertical"
-                aria-pressed="${graph.orientation === 'vertical' ? 'true' : 'false'}"
+                aria-pressed="${orientation === 'vertical' ? 'true' : 'false'}"
                 aria-label="Run the tree top to bottom"
                 title="${escapeAttr('Run the tree top to bottom, and re-fit. Reads best on a wide, shallow plan.')}">
                 <span aria-hidden="true">↓</span>
@@ -15722,7 +15773,9 @@
               data-action="roadmap-snap-toggle" aria-pressed="${state.roadmapSnapToGrid ? 'true' : 'false'}"
               title="${escapeAttr('Snap a dragged node to the canvas grid, so hand-placed nodes line up with auto-aligned ones instead of sitting a few pixels off.')}">
               ${state.roadmapSnapToGrid ? 'Snap on' : 'Snap off'}
-            </button>`}
+            </button>
+          ${delivered ? `<button type="button" class="action-link" data-action="roadmap-completion-chronological"
+            title="Arrange delivered items by completion month and release delivered pins.">By completion month</button>` : ''}
           <button type="button" class="action-link" data-action="roadmap-zoom-out" aria-label="Zoom out">−</button>
           <button type="button" class="action-link" data-action="roadmap-zoom-reset" title="Reset the view to 100% and re-centre">${zoomPercent}%</button>
           <button type="button" class="action-link" data-action="roadmap-zoom-in" aria-label="Zoom in">+</button>
@@ -15960,7 +16013,7 @@
     }
     const a = roadmapNodePosition(from);
     const b = roadmapNodePosition(to);
-    const vertical = roadmapGraph().orientation === 'vertical';
+    const vertical = roadmapCanvasOrientation() === 'vertical';
     // Measured heights where the DOM has been measured, the nominal constant
     // until it has: cards vary with their chips, and anchoring every edge at
     // the constant put arrows above a tall card's middle — and, in a vertical

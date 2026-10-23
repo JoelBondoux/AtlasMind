@@ -1,3 +1,4 @@
+import { collectPerformanceReport } from '../core/performanceReport.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { execFile, spawn } from 'node:child_process';
@@ -7229,6 +7230,8 @@ export function collectTestingDashboardSnapshot(
       : {}),
     ...(newestTestFileMs > 0 ? { newestTestFileMs } : {}),
     frameworkLabel,
+    ...(enabledMethodologies.includes('performance')
+      ? { performanceReport: collectPerformanceReport(policyUnreadable ? undefined : ssotRoot, new Date().toISOString()) } : {}),
   } satisfies Parameters<typeof deriveTestingPolicyCoverage>[0];
 
   // Two passes, and the order is still forced — but for a much weaker reason

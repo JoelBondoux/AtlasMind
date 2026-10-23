@@ -189,6 +189,8 @@ export interface RoadmapNodeRecord {
   planPath?: string;
   /** Canvas position. Absent means the layout pass places it. */
   position?: { x: number; y: number };
+  /** Delivered-canvas position, independent of the outstanding plan. */
+  completionPosition?: { x: number; y: number };
   /**
    * The register finding this item was raised from, where there is one.
    *
@@ -2002,9 +2004,9 @@ function completionOrder(left: RoadmapGraphNode, right: RoadmapGraphNode): numbe
 }
 
 /**
- * Lay the completion canvas out chronologically.
+ * Lay delivered work out by month or as its own dependency tree.
  *
- * Columns are *months*, not depths: the question this canvas answers is "when
+ * The default columns are *months*, not depths: the question this canvas answers is "when
  * did this land, and what did it come after", and a dependency depth would
  * re-tell the plan rather than the history. Rows keep parallel tracks apart, so
  * two streams of work that ran at once read as two streams.
@@ -2012,10 +2014,37 @@ function completionOrder(left: RoadmapGraphNode, right: RoadmapGraphNode): numbe
  * Nodes with no completion date are given their own trailing column labelled as
  * undated, rather than being scattered through the timeline at a guessed point.
  */
-export function layoutRoadmapCompletion(nodes: readonly RoadmapGraphNode[]): {
+export function layoutRoadmapCompletion(
+  nodes: readonly RoadmapGraphNode[],
+  options: { records?: readonly RoadmapNodeRecord[]; layout?: 'chronological' | RoadmapLayoutOrientation } = {},
+): {
   nodes: RoadmapGraphNode[];
   columns: Array<{ label: string; key: string }>;
 } {
+  const records = new Map((options.records ?? []).map(record => [record.id, record]));
+  if (options.layout === 'horizontal' || options.layout === 'vertical') {
+    const ids = new Set(nodes.map(node => node.id));
+    // Reuse the plan's layout on the delivered subgraph only. Its pins and
+    // orientation are separate; drawing history must never rearrange the plan.
+    const tree = resolveRoadmapGraph({
+      items: nodes.map((node, order) => ({ ...node, order })),
+      records: nodes.map(node => ({
+        id: node.id, normalizedText: normalizeRoadmapNodeText(node.text),
+        ...(records.get(node.id)?.completionPosition === undefined ? {} : { position: records.get(node.id)!.completionPosition }),
+      })),
+      declaredEdges: nodes.flatMap(node => node.prerequisites
+        .filter(id => ids.has(id))
+        .map(from => ({ from, to: node.id, origin: 'declared' as const }))),
+      deriveSuggestions: false,
+      orientation: options.layout,
+      now: new Date(0),
+    });
+    const positions = new Map(tree.nodes.map(node => [node.id, node]));
+    return {
+      nodes: nodes.map(node => ({ ...node, position: positions.get(node.id)!.position, positionSource: positions.get(node.id)!.positionSource })),
+      columns: [],
+    };
+  }
   const columnKey = (node: RoadmapGraphNode): string => (
     typeof node.completedAt === 'string' && /^\d{4}-\d{2}/.test(node.completedAt)
       ? node.completedAt.slice(0, 7)
@@ -2034,13 +2063,15 @@ export function layoutRoadmapCompletion(nodes: readonly RoadmapGraphNode[]): {
     const key = columnKey(node);
     const row = rowByColumn.get(key) ?? 0;
     rowByColumn.set(key, row + 1);
+    const stored = records.get(node.id)?.completionPosition;
+    const pinned = stored !== undefined && Number.isFinite(stored.x) && Number.isFinite(stored.y);
     return {
       ...node,
-      position: {
+      position: pinned ? { x: clampCoordinate(stored.x), y: clampCoordinate(stored.y) } : {
         x: ROADMAP_CANVAS_MARGIN + (columnIndex.get(key) ?? 0) * ROADMAP_COLUMN_WIDTH,
         y: ROADMAP_CANVAS_MARGIN + row * ROADMAP_ROW_HEIGHT,
       },
-      positionSource: 'derived' as const,
+      positionSource: pinned ? 'declared' as const : 'derived' as const,
     };
   });
 

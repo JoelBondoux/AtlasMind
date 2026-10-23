@@ -753,16 +753,36 @@ describe('arranging the canvas', () => {
     expect(harness.posted).toEqual([{ type: 'roadmapDeriveLinks' }]);
   });
 
-  it('hides arranging controls on the delivered canvas, where they mean nothing', () => {
+  it('uses the delivered tree direction for edges and supports its Route control', () => {
+    const harness = mount();
+    const one = node('one', { completed: true, position: { x: 100, y: 100 }, dependents: ['two'] });
+    const two = node('two', { completed: true, position: { x: 100, y: 500 }, prerequisites: ['one'] });
+    harness.send(snapshot({ completionLayout: 'vertical', orientation: 'horizontal', completed: [one, two, node('other', { completed: true })],
+      edges: [{ from: 'one', to: 'two', origin: 'declared' }],
+      routes: { two: { nodeIds: ['one', 'two'], edgeKeys: ['one->two'], routeDays: 0, completedCount: 2 } },
+    }));
+    harness.click('[data-action="roadmap-view"][data-payload="completed"]');
+    // A vertical edge leaves the node's lower face (x at its centre).
+    const curve = harness.root().querySelector('.rm-edge').getAttribute('d');
+    const coordinates = curve.match(/M ([0-9.]+) ([0-9.]+) C ([0-9.]+) ([0-9.]+)/);
+    expect(coordinates[1]).toBe(coordinates[3]);
+    harness.click('[data-action="roadmap-focus-node"][data-payload="two"]');
+    expect(harness.root().querySelectorAll('[data-rm-node]').length).toBe(2);
+    expect(harness.root().querySelector('[data-rm-node="other"]')).toBeNull();
+  });
+
+  it('offers arranging and snap controls on the delivered canvas', () => {
     const harness = mount();
     harness.send(snapshot());
     harness.click('[data-action="roadmap-view"][data-payload="completed"]');
-
-    expect(harness.root().querySelector('[data-action="roadmap-auto-align"]')).toBeNull();
-    expect(harness.root().querySelector('[data-action="roadmap-derive-links"]')).toBeNull();
-    expect(harness.root().querySelector('[data-action="roadmap-snap-toggle"]')).toBeNull();
-    // Fit and zoom still apply — a delivered plan is still something you look at.
+    harness.posted.length = 0;
+    expect(harness.root().querySelector('[data-action="roadmap-snap-toggle"]')).not.toBeNull();
     expect(harness.root().querySelector('[data-action="roadmap-fit"]')).not.toBeNull();
+    harness.click('[data-action="roadmap-auto-align"][data-payload="vertical"]');
+    expect(harness.posted).toEqual([{ type: 'roadmapAutoLayout', payload: 'vertical', view: 'completed' }]);
+    harness.posted.length = 0;
+    harness.click('[data-action="roadmap-completion-chronological"]');
+    expect(harness.posted).toEqual([{ type: 'roadmapAutoLayout', payload: 'chronological', view: 'completed' }]);
   });
 });
 
@@ -869,6 +889,21 @@ describe('dragging survives the host', () => {
   ): void => {
     target.dispatchEvent(new harness.window.MouseEvent(type, { bubbles: true, button: 0, ...init }));
   };
+
+  it('scopes a delivered drag and keeps its preview off the plan', () => {
+    const harness = mount();
+    const shared = node('gamma', { completed: true, position: { x: 100, y: 100 } });
+    harness.send(snapshot({ active: [shared], completed: [shared] }));
+    harness.click('[data-action="roadmap-view"][data-payload="completed"]');
+    harness.posted.length = 0;
+    const card = harness.root().querySelector('[data-rm-node="gamma"]');
+    pointer(harness, card.querySelector('.rm-node-head'), 'pointerdown', { clientX: 10, clientY: 10 });
+    pointer(harness, card, 'pointermove', { clientX: 60, clientY: 30 });
+    harness.window.dispatchEvent(new harness.window.MouseEvent('pointerup', { button: 0 }));
+    expect(harness.posted).toContainEqual({ type: 'roadmapNodeMove', payload: { nodeId: 'gamma', x: 150, y: 120, view: 'completed' } });
+    harness.click('[data-action="roadmap-view"][data-payload="canvas"]');
+    expect(harness.root().querySelector('[data-rm-node="gamma"]').style.left).toBe('100px');
+  });
 
   it('defers a snapshot that arrives mid-drag, and applies it on release with the drop kept', () => {
     const harness = mount();
@@ -1210,10 +1245,9 @@ describe('reading a dense plan', () => {
     harness.send(snapshot());
     harness.click('[data-action="roadmap-view"][data-payload="completed"]');
 
-    // Parity is about the ways of *looking*. Nothing is added to a record of
-    // what already happened, and the chart is columned by month, so a tree
-    // layout would fight the columns rather than arrange them.
-    for (const action of ['roadmap-add', 'roadmap-import', 'roadmap-derive-links', 'roadmap-auto-align', 'roadmap-suggest-toggle']) {
+    // Intake creates outstanding work. Delivered positions and tree layout
+    // have their own controls without moving the outstanding plan.
+    for (const action of ['roadmap-add', 'roadmap-import', 'roadmap-derive-links', 'roadmap-suggest-toggle']) {
       expect(
         harness.root().querySelector(`[data-action="${action}"]`),
         `${action} must not appear on the Delivered chart`,
@@ -1912,5 +1946,93 @@ describe('collapsible sections across a refresh', () => {
     harness.send(snapshot());
     const again = Array.from(harness.root().querySelectorAll('details')).map((el: Mounted) => el.open);
     expect(again).toEqual(defaults);
+  });
+});
+
+describe('saved baseline comparisons in the real dashboard', () => {
+  function baselineSnapshot() {
+    const message = snapshot();
+    Object.assign(message.payload.guidedWorkflow, { baselines: {
+      entries: [{ id: 'one', label: '<img src=x onerror=alert(1)>', takenAt: '2026-08-01T00:00:00Z', ageDays: 40, staleness: 'old' },
+        { id: 'two', label: 'Release 2', takenAt: '2026-08-15T00:00:00Z', ageDays: 26, staleness: 'recent' }],
+      selectedId: 'one', targetId: 'two', remaining: 10, rules: [],
+      comparison: { span: 'Release 1 → Release 2, 14 days apart', status: 'changed', staleness: 'old', droppedByCap: 0,
+        changes: [{ label: 'Open issues', kind: 'improved', summary: '4 fewer issues', before: '7', after: '3' },
+          { label: 'Version', kind: 'moved', summary: 'changed', before: '<script>bad()</script>' }],
+      },
+    } });
+    return message;
+  }
+  it('shows both endpoints and escaped before/after values', () => {
+    const harness = mount();
+    harness.send(baselineSnapshot());
+    const card = harness.root().querySelector('[data-baseline-target="comparison"]').closest('article');
+    expect(card.textContent).toContain('14 days apart');
+    expect(card.textContent).toContain('Before: 7 → After: 3');
+    expect(card.textContent).toContain('After: not observed');
+    expect(card.querySelector('img')).toBeNull();
+    expect(card.querySelector('script')).toBeNull();
+    expect(card.textContent).not.toContain('baseline is over a month old');
+  });
+  it('posts only the selected target id and can return to current project', () => {
+    const harness = mount();
+    harness.send(baselineSnapshot());
+    harness.posted.length = 0;
+    const select = harness.root().querySelector('[data-baseline-target="comparison"]');
+    select.value = 'two';
+    select.dispatchEvent(new harness.window.Event('change', { bubbles: true }));
+    select.value = '';
+    select.dispatchEvent(new harness.window.Event('change', { bubbles: true }));
+    expect(harness.posted).toEqual([
+      { type: 'selectBaseline', payload: 'two', target: 'comparison' },
+      { type: 'selectBaseline', payload: '', target: 'comparison' },
+    ]);
+  });
+});
+
+
+describe('performance evidence on Testing', () => {
+  it('renders reported metrics with units, statistics and date while withholding budget verdicts', () => {
+    const harness = mount();
+    const message = snapshot();
+    const evidence = { status: 'measured', capturedAt: '2026-10-18T10:00:00.000Z', target: 'windows-shipping',
+      relativePath: 'test-results/performance.json', budgetVerdict: 'not-assessed', measurements: [
+        { scenario: '<img src=x onerror=alert(1)>', metric: 'frameTimeMs', unit: 'ms', statistic: 'p95', value: 16.2, sampleCount: 600 },
+      ] };
+    Object.assign(message.payload.testing.policyCoverage, { rows: [{ id: 'performance', label: 'Performance', category: 'quality',
+      status: 'covered', statusLabel: 'Measured', fileCount: 0, caseCount: 0, skippedCount: 0, failedCount: 0,
+      toolingSignals: [], files: [], failures: [], detail: 'Budget not assessed.', actionPrompt: 'Review evidence', performanceReport: evidence,
+    }] });
+    harness.send(message);
+    harness.click('[data-action="testing-policy-toggle"][data-payload="performance"]');
+    const table = harness.root().querySelector('.performance-measurements');
+    expect(table).not.toBeNull();
+    expect(table.textContent).toContain('16.2');
+    expect(table.textContent).toContain('ms');
+    expect(table.textContent).toContain('p95');
+    expect(table.textContent).toContain('600');
+    expect(table.querySelector('img')).toBeNull();
+    expect(table.closest('.performance-evidence').textContent).toContain('2026-10-18');
+    expect(table.closest('.performance-evidence').textContent).toContain('Budget not assessed');
+  });
+});
+
+
+describe('game debt evidence on the dashboard', () => {
+  it('shows escaped measured details and unassessed-signal notes beside debt', () => {
+    const harness = mount();
+    const message = snapshot();
+    Object.assign(message.payload.debt, { lastGameScanNotes: ['LFS not-visible <img src=x>'], entries: [{
+      id: 'game-debt-one', title: 'Fork threshold exceeded', domain: 'infrastructure', status: 'open',
+      evidencePath: 'project_memory/domain/game.json', detectedAt: '2026-10-19T00:00:00Z', severity: 'high',
+      rule: 'game-fork-threshold', transitions: [], evidenceDetail: 'commitsBehind: 11; maximum: 10 <script>bad()</script>',
+    }] });
+    harness.send(message);
+    const section = harness.root().querySelector('[data-page="debt"]') || harness.root();
+    expect(section.textContent).toContain('commitsBehind: 11; maximum: 10');
+    const coverage = harness.root().querySelector('.game-debt-coverage');
+    expect(coverage.textContent).toContain('not-visible');
+    expect(coverage.querySelector('img')).toBeNull();
+    expect(section.querySelector('script')).toBeNull();
   });
 });

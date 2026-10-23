@@ -125,6 +125,7 @@ export const GAME_PROFILE_LIMITS = Object.freeze({
   platformTargets: 24,
   buildConfigurations: 24,
   performanceBudgets: 48,
+  forkDebtThresholds: 48,
   contentRoots: 64,
   disciplineOwnership: GAME_DISCIPLINES.length,
   storeTargets: GAME_STORES.length,
@@ -183,12 +184,23 @@ export interface GameStoreTarget {
   [unknownField: string]: unknown;
 }
 
+export const GAME_FORK_DEBT_METRICS = ['commitsAhead', 'commitsBehind', 'filesDiverged', 'conflictPronePathCount'] as const;
+export type GameForkDebtMetric = typeof GAME_FORK_DEBT_METRICS[number];
+export interface GameForkDebtThreshold {
+  componentId: string;
+  metric: GameForkDebtMetric;
+  /** Explicit non-negative safe integer; zero is an intentional limit. */
+  maximum: number;
+  [unknownField: string]: unknown;
+}
+
 export interface GameProfile {
   version: 1;
   engine?: GameEngineDeclaration & { [unknownField: string]: unknown };
   platformTargets?: GamePlatformTarget[];
   buildConfigurations?: GameBuildConfiguration[];
   performanceBudgets?: GamePerformanceBudget[];
+  forkDebtThresholds?: GameForkDebtThreshold[];
   contentRoots?: GameContentRoot[];
   disciplineOwnership?: GameDisciplineOwnership[];
   storeTargets?: GameStoreTarget[];
@@ -476,6 +488,22 @@ const LIST_SPECS: Readonly<Record<string, ListSpec>> = {
       return undefined;
     },
   },
+  forkDebtThresholds: {
+    field: 'forkDebtThresholds', noun: 'fork debt thresholds', max: GAME_PROFILE_LIMITS.forkDebtThresholds,
+    identity: entry => `${String(entry['componentId'])}:${String(entry['metric'])}`,
+    check: (entry, at) => {
+      if (typeof entry['componentId'] !== 'string' || !COMPONENT_ID.test(entry['componentId'])) {
+        return invalid('fork-threshold-component', `${at}.componentId`, 'A fork threshold needs a declared engine component id.');
+      }
+      if (!isMember(GAME_FORK_DEBT_METRICS, entry['metric'])) {
+        return invalid('fork-threshold-metric', `${at}.metric`, 'Use an exact Git divergence count, never a burden label or displayed-path length.');
+      }
+      if (typeof entry['maximum'] !== 'number' || !Number.isSafeInteger(entry['maximum']) || entry['maximum'] < 0) {
+        return invalid('fork-threshold-maximum', `${at}.maximum`, 'A fork threshold is a non-negative safe integer. No default is inferred.');
+      }
+      return undefined;
+    },
+  },
   performanceBudgets: {
     field: 'performanceBudgets',
     noun: 'performance budgets',
@@ -685,6 +713,13 @@ export function validateGameProfile(
       });
     }
   });
+  profile.forkDebtThresholds?.forEach((threshold, index) => {
+    const component = components?.find(c => c.id === threshold.componentId);
+    if (!component || component.role !== 'engine' || !component.upstream) {
+      findings.push({ kind: 'unresolved', rule: 'fork-threshold-engine', path: `forkDebtThresholds[${index}].componentId`,
+        detail: 'A fork threshold must name a declared engine component with an upstream. The declaration is kept.' });
+    }
+  });
   return findings;
 }
 
@@ -718,7 +753,7 @@ export function serializeGameProfile(profile: GameProfile): string {
 
 const KNOWN_FIELDS = new Set([
   'version', 'engine', 'platformTargets', 'buildConfigurations', 'performanceBudgets',
-  'contentRoots', 'disciplineOwnership', 'storeTargets', 'updatedAt',
+  'contentRoots', 'disciplineOwnership', 'storeTargets', 'updatedAt', 'forkDebtThresholds',
 ]);
 
 /** A table cell: backslashes first, so an escaped pipe in the input cannot un-escape ours. */
@@ -773,6 +808,10 @@ export function renderGameProfileMarkdown(profile: GameProfile, findings: readon
     '| Target | Frame time | Memory | Load time |',
     '|---|---|---|---|',
     ...items.map(budget => `| ${cell(budget.label ? `${budget.platform} — ${budget.label}` : budget.platform)} | ${metric(budget.frameTimeMs, 'ms')} | ${metric(budget.memoryMb, 'MB')} | ${metric(budget.loadTimeS, 's')} |`),
+  ]);
+  listSection(lines, 'Fork debt thresholds', profile.forkDebtThresholds, items => [
+    '| Engine component | Metric | Maximum |', '|---|---|---|',
+    ...items.map(entry => `| ${cell(entry.componentId)} | ${cell(entry.metric)} | ${entry.maximum} |`),
   ]);
   listSection(lines, 'Content roots', profile.contentRoots, items => items.map(root =>
     `- \`${root.location}\` in ${root.componentId ? `component \`${root.componentId}\`` : 'the home component'}`));
