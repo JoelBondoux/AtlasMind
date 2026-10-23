@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.509.0 -- CI runner switch and panels that stay open
+
+Workflows that opt in read the `ATLASMIND_CI_RUNNER` repository variable in `runs-on`. AtlasMind
+points it at your local runner when GitHub refuses runs for billing (read from the job annotation,
+so the billing token scope is not needed) and clears it when the allowance is readable again.
+Pull requests from other repositories and bot-started runs always use GitHub-hosted runners. The
+Pipeline page offers Automatic, Always GitHub and Always this computer, checks by itself every 15
+minutes while the switch is on, and saves local CI limits as they move. Collapsible sections on
+every dashboard page now keep the state you gave them across a refresh.
+
 ## v0.508.1 -- ACP runtime recovery and honest failures
 
 Failed ACP probes are excluded per agent; unknown agent ids cannot fall through to another
@@ -52,6 +62,7 @@ Failed ACP probes are excluded per agent; unknown agent ids cannot fall through 
 subscription. The observed legacy Codex warning-plus-HTTP-error response fails the turn even when
 the adapter reports `end_turn`. Repository settings leave ACP agent commands and runtime pins to
 User settings. See [Model Routing](Model-Routing.md) for runtime and sign-in checks.
+
 
 ## v0.505.0 -- Ask, Auto and Bypass
 

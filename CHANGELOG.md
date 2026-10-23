@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.509.0] - 2026-10-23
+
+### Added
+
+- **CI runner switch** on the Pipeline page: choose Automatic, Always GitHub or Always this computer.
+  Workflows opt in by reading the `ATLASMIND_CI_RUNNER` repository variable in `runs-on`; AtlasMind
+  sets it to the local runner when GitHub refuses runs for billing and clears it when the allowance
+  is readable again. Pull requests from other repositories and runs started by a bot (such as Dependabot) always stay on GitHub-hosted runners.
+  New settings `atlasmind.ci.runnerSwitch.mode` and `atlasmind.ci.runnerSwitch.localLabel`.
+- GitHub's "job was not started ... spending limit" annotation is now read as an exhausted
+  allowance, so the meter works without the billing token scope.
+- Local CI limits (share of this computer, max CPUs, max memory) can be changed on the Pipeline
+  page and save as they move.
+
+### Fixed
+
+- Collapsible sections on every dashboard page no longer close when the page refreshes. A section
+  keeps the state you gave it; one you never touched keeps its own default.
+
 ## [0.508.1] - 2026-10-19
 
 ### Fixed
@@ -59,7 +78,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Delivered nodes retain their dragged positions after refresh. Their Route controls now filter
   the delivered canvas, and temporary drag previews cannot leak into the outstanding plan.
 
-
 ## [0.505.1] - 2026-10-19
 
 ### Fixed
@@ -69,6 +87,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The observed legacy Codex warning-plus-JSON HTTP error is rejected even when its adapter reports
   `end_turn`; quoted examples, bare JSON and other agents are not treated as this compatibility case.
 - Repository settings no longer shadow machine-specific ACP agent commands and runtime pins in User settings.
+
 
 ## [0.505.0] - 2026-10-18
 

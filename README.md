@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.508.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.509.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,14 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.509.0
+
+**CI that falls over to your own computer.** On the Pipeline page, choose Automatic, Always GitHub
+or Always this computer. In Automatic, switched workflows run on GitHub until it refuses runs for
+billing, then on your local runner. Pull requests from other repositories and bot-started runs
+always stay on GitHub. Local CI limits now change on the page, and open sections no longer close
+every time the dashboard refreshes.
+
 ## What's new in 0.508.1
 
 **ACP failures stay failures.** Failed agent probes no longer become routing candidates through a
@@ -192,13 +200,6 @@ shadows them. See [ACP troubleshooting](docs/model-routing.md#acp-runtime-and-si
 Git LFS, import-error markers, author-marked tuning points, and engine-fork counts over project-declared
 limits. Each finding uses the published debt rules. Missing or partial evidence keeps previous findings;
 nothing launches an engine, build, profiler or fetch.
-
-## What's new in 0.507.0
-
-**Performance captures count as evidence.** Testing reads a project-produced v1 performance report
-and displays its measurements, statistics, units, sample counts and capture date. A capture is marked
-**Measured**; budget compliance remains **Not assessed**. Missing or unreadable reports give no verdict.
-Nothing starts a profiler. See [the report format](docs/game-engine-integration.md#44-performance-evidence).
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.504.4**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in

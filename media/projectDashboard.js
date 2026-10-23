@@ -2480,6 +2480,16 @@
       vscode.postMessage({ type: 'refreshCiCredit' });
       return;
     }
+    if (action === 'pipeline-switch-mode') {
+      if (['off', 'auto', 'hosted', 'local'].includes(payload)) {
+        vscode.postMessage({ type: 'setCiRunnerSwitchMode', payload: payload });
+      }
+      return;
+    }
+    if (action === 'pipeline-switch-copy-line') {
+      vscode.postMessage({ type: 'copyCiRunnerSwitchLine' });
+      return;
+    }
     if (action === 'pipeline-queue-command-copy') {
       vscode.postMessage({ type: 'copyLocalCiQueueCommand' });
       return;
@@ -5165,6 +5175,86 @@
     return `Fix TDD compliance gaps: ${issues.join(' and ')}.`;
   }
 
+  /**
+   * Which collapsible sections the user has opened or closed, by a key that
+   * survives a rebuild.
+   *
+   * render() replaces every page's innerHTML on each refresh, including host
+   * pushes nobody asked for, so a native `<details open>` snapped back to its
+   * default every few seconds and an open panel closed mid-read. Only sections
+   * the user actually toggled are remembered: one they never touched keeps
+   * following its own default (for example, opening when something fails).
+   */
+  const detailsUserState = new Map();
+
+  function detailsKeys(scope) {
+    const seen = new Map();
+    return Array.from(scope.querySelectorAll('details')).map(el => {
+      const summary = el.querySelector(':scope > summary');
+      // Numbers are dropped so "3 notes" and "4 notes" are the same section.
+      const label = (summary ? summary.textContent || '' : '').replace(/\d+/g, '#').replace(/\s+/g, ' ').trim().slice(0, 120);
+      const base = `${el.className}|${label}`;
+      const index = seen.get(base) || 0;
+      seen.set(base, index + 1);
+      return { el, key: `${base}|${index}` };
+    });
+  }
+
+  function restoreDetailsState() {
+    if (!root || !detailsUserState.size) {
+      return;
+    }
+    for (const { el, key } of detailsKeys(root)) {
+      if (detailsUserState.has(key)) {
+        el.open = detailsUserState.get(key);
+      }
+    }
+  }
+
+  // A click on a summary, not the `toggle` event: browsers also fire `toggle`
+  // when a section is inserted already open, which would record a default as
+  // a choice. Enter and Space on a focused summary arrive as clicks too. The
+  // click runs before the browser flips `open`, so the choice is its inverse.
+  root?.addEventListener('click', event => {
+    const summary = event.target instanceof Element ? event.target.closest('summary') : null;
+    const details = summary ? summary.parentElement : null;
+    if (!(details instanceof HTMLElement) || details.tagName !== 'DETAILS' || !root.contains(details)) {
+      return;
+    }
+    // A control inside the summary (a button, a link) is not a toggle.
+    const control = event.target instanceof Element ? event.target.closest('button, a, input, select, textarea') : null;
+    if (control && summary.contains(control)) {
+      return;
+    }
+    const match = detailsKeys(root).find(entry => entry.el === details);
+    if (match) {
+      detailsUserState.set(match.key, !details.open);
+    }
+  }, true);
+
+  // Local CI limits save as they change: no Save button to forget. The slider
+  // label follows the thumb while it moves; the value is sent when it settles.
+  function readCiLimits() {
+    const value = name => Number((root.querySelector(`[data-ci-limit="${name}"]`) || {}).value);
+    return { maxCpus: value('maxCpus'), maxMemoryGb: value('maxMemoryGb'), resourceShare: value('resourceShare') };
+  }
+  root?.addEventListener('input', event => {
+    const target = event.target;
+    if (target instanceof HTMLInputElement && target.dataset.ciLimit === 'resourceShare') {
+      const label = root.querySelector('[data-ci-share-label]');
+      if (label) { label.textContent = `${target.value}%`; }
+    }
+  });
+  root?.addEventListener('change', event => {
+    if (!(event.target instanceof HTMLInputElement) || !event.target.dataset.ciLimit) {
+      return;
+    }
+    const limits = readCiLimits();
+    if (Object.values(limits).every(value => Number.isFinite(value) && value > 0)) {
+      vscode.postMessage({ type: 'saveLocalCiResources', payload: limits });
+    }
+  });
+
   function render() {
     if (!root) {
       return;
@@ -5316,6 +5406,10 @@
           tabEl.focus({ preventScroll: true });
         }
       }
+
+      // Put back every section the user opened or closed, before scrolling, so
+      // the page is the height it was when the scroll position was taken.
+      restoreDetailsState();
 
       // Restore scroll positions captured before the innerHTML swap.
       document.querySelectorAll('[data-scroll-key]').forEach(el => {
@@ -11156,6 +11250,75 @@
   const CI_CELL_MARK = { preferred: '●', fallback: '○', available: '+', blocked: '✕', unimplemented: '·' };
 
   /**
+   * The runner switch and this computer's local CI limits, under the allowance
+   * row. Everything here is a request: the host validates, clamps and writes.
+   */
+  function renderCiRunnerSwitch(runnerSwitch) {
+    if (!runnerSwitch) {
+      return '';
+    }
+    // Three plain choices. Off is the default but not a choice anyone needs to
+    // look at once they have picked one, so it is a small link, not a button.
+    const choices = [
+      { id: 'auto', label: 'Automatic', hint: 'GitHub while your free minutes last, then this computer.' },
+      { id: 'hosted', label: 'Always GitHub', hint: 'Every switched job runs on GitHub.' },
+      { id: 'local', label: 'Always this computer', hint: 'Every switched job runs here, free.' },
+    ];
+    const buttons = choices.map(choice => `<button type="button"
+        class="action-link${runnerSwitch.mode === choice.id ? ' primary' : ''}"
+        data-action="pipeline-switch-mode" data-payload="${escapeAttr(choice.id)}"
+        title="${escapeAttr(choice.hint)}"
+        aria-pressed="${runnerSwitch.mode === choice.id ? 'true' : 'false'}">${escapeHtml(choice.label)}</button>`).join('');
+    const where = runnerSwitch.mode === 'off'
+      ? 'Not managed'
+      : !runnerSwitch.variableKnown
+        ? 'Checking…'
+        : runnerSwitch.variableValue ? 'This computer' : 'GitHub';
+    const why = runnerSwitch.mode === 'off'
+      ? 'Pick one below and AtlasMind looks after where CI runs.'
+      : (runnerSwitch.lastAction || runnerSwitch.decisionSentence || '');
+
+    // Setup only shows while something is missing, as one line each.
+    const following = runnerSwitch.workflowsFollowing || [];
+    const todo = [];
+    if (runnerSwitch.mode !== 'off' && !following.length) {
+      todo.push(`<li>No workflow uses the switch yet.
+        <button type="button" class="action-link" data-action="pipeline-switch-copy-line">Copy the line to add</button></li>`);
+    }
+    if (runnerSwitch.mode !== 'off' && runnerSwitch.mode !== 'hosted' && !runnerSwitch.localLabelValid) {
+      todo.push('<li>No local runner chosen yet. Pick Automatic or Always this computer again to name it.</li>');
+    }
+
+    const limits = runnerSwitch.resources || {};
+    const share = Number(limits.resourceShare) || 50;
+    return `<div class="ci-rules-switch" style="margin-top:12px">
+      <p class="card-kicker">Where CI runs</p>
+      <h3 style="margin:2px 0 4px">${escapeHtml(where)}</h3>
+      <p class="list-meta">${escapeHtml(why)}</p>
+      <div class="tag-row">${buttons}</div>
+      ${runnerSwitch.mode !== 'off' ? '<div class="tag-row"><button type="button" class="action-link" data-action="pipeline-switch-mode" data-payload="off">Stop managing this</button></div>' : ''}
+      ${todo.length ? `<ul class="list-meta" style="margin:8px 0 0 16px">${todo.join('')}</ul>` : ''}
+      ${following.length ? `<p class="list-meta">Switched workflows: ${escapeHtml(following.join(', '))}.</p>` : ''}
+      <label style="display:block;margin-top:14px">
+        <span class="card-kicker">How much of this computer local CI may use</span>
+        <span style="display:flex;gap:10px;align-items:center">
+          <input type="range" min="10" max="90" step="5" value="${escapeAttr(String(share))}"
+            data-ci-limit="resourceShare" aria-label="Share of this computer for local CI" style="flex:1">
+          <strong data-ci-share-label>${escapeHtml(String(share))}%</strong>
+        </span>
+      </label>
+      <p class="list-meta">Saved as you move it. A quarter of the computer always stays free for you.</p>
+      <details class="ci-progressive-details">
+        <summary><span>Fine-tune limits</span></summary>
+        <label style="display:inline-flex;gap:6px;align-items:center;margin-right:14px">Max CPUs
+          <input type="number" min="2" max="128" step="1" value="${escapeAttr(String(limits.maxCpus))}" data-ci-limit="maxCpus" style="width:5em"> cores</label>
+        <label style="display:inline-flex;gap:6px;align-items:center">Max memory
+          <input type="number" min="4" max="512" step="1" value="${escapeAttr(String(limits.maxMemoryGb))}" data-ci-limit="maxMemoryGb" style="width:5em"> GB</label>
+      </details>
+    </div>`;
+  }
+
+  /**
    * Rules — the whole routing policy as one grid, and what it would decide now.
    *
    * Prose cards could describe one rule at a time. A team deciding where work
@@ -11359,7 +11522,7 @@
       <span class="tag ${creditTone}">${escapeHtml(routing.creditState || 'unknown')}</span>
       <span>${escapeHtml(routing.creditSentence || 'The hosted allowance has not been checked.')}</span>
       <button type="button" class="action-link" data-action="pipeline-refresh-credit">Check the allowance</button>
-    </div>`;
+    </div>${renderCiRunnerSwitch(routing.runnerSwitch)}`;
 
     if (!routing.configPresent) {
       const intro = `<article class="panel-card">

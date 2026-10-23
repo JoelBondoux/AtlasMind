@@ -1911,6 +1911,43 @@ describe('release gate dots', () => {
   });
 });
 
+/**
+ * A refresh must not close what the user opened.
+ *
+ * render() rebuilds every page's innerHTML on each host push, so a native
+ * `<details>` used to snap back to its default every few seconds — the bug that
+ * made the Pipeline page's panels unusable. Executed, not asserted against
+ * source: the failure was a behaviour, and only a render can show it.
+ */
+describe('collapsible sections across a refresh', () => {
+  it('keeps a section the user opened open when the host pushes new state', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    const before = harness.root().querySelector('details');
+    expect(before, 'the roadmap page should render a collapsible section').not.toBeNull();
+    const wanted = !before.open;
+
+    before.querySelector('summary').dispatchEvent(new harness.window.MouseEvent('click', { bubbles: true }));
+    // jsdom's summary activation is not something this test should depend on;
+    // what is under test is that the user's choice survives the rebuild.
+    before.open = wanted;
+
+    harness.send(snapshot());
+    const after = harness.root().querySelector('details');
+    expect(after, 'the section should still be there after the push').not.toBeNull();
+    expect(after).not.toBe(before);
+    expect(after.open).toBe(wanted);
+  });
+
+  it('leaves a section nobody touched on its own default', () => {
+    const harness = mount();
+    harness.send(snapshot());
+    const defaults = Array.from(harness.root().querySelectorAll('details')).map((el: Mounted) => el.open);
+    harness.send(snapshot());
+    const again = Array.from(harness.root().querySelectorAll('details')).map((el: Mounted) => el.open);
+    expect(again).toEqual(defaults);
+  });
+});
 
 describe('saved baseline comparisons in the real dashboard', () => {
   function baselineSnapshot() {
