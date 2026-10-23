@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.506.0] - 2026-10-23
+
+### Added
+
+- **CI runner switch** on the Pipeline page: choose Automatic, Always GitHub or Always this computer.
+  Workflows opt in by reading the `ATLASMIND_CI_RUNNER` repository variable in `runs-on`; AtlasMind
+  sets it to the local runner when GitHub refuses runs for billing and clears it when the allowance
+  is readable again. Pull requests from other repositories and runs started by a bot (such as Dependabot) always stay on GitHub-hosted runners.
+  New settings `atlasmind.ci.runnerSwitch.mode` and `atlasmind.ci.runnerSwitch.localLabel`.
+- GitHub's "job was not started ... spending limit" annotation is now read as an exhausted
+  allowance, so the meter works without the billing token scope.
+- Local CI limits (share of this computer, max CPUs, max memory) can be changed on the Pipeline
+  page and save as they move.
+
+### Fixed
+
+- Collapsible sections on every dashboard page no longer close when the page refreshes. A section
+  keeps the state you gave it; one you never touched keeps its own default.
+
 ## [0.505.1] - 2026-10-19
 
 ### Fixed

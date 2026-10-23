@@ -593,6 +593,19 @@ import {
   type CiCreditReading,
 } from '../core/ciCreditMeter.js';
 import {
+  CI_RUNNER_VARIABLE,
+  buildRunsOnExpression,
+  decideCiRunnerTarget,
+  describeRunnerVariable,
+  findBillingRefusal,
+  isValidRunnerLabel,
+  runnerVariableValue,
+  sanitizeRunnerSwitchMode,
+  targetOfRunnerVariable,
+  workflowFollowsRunnerSwitch,
+  type CiRunnerSwitchMode,
+} from '../core/ciRunnerSwitch.js';
+import {
   planGitHubCliInstall,
   runGitHubCliInstallPlan,
   GITHUB_CLI_INSTALL_URL,
@@ -1377,6 +1390,12 @@ type ProjectDashboardMessage =
   | { type: 'createCiRoutingConfig' }
   /** Read the hosted allowance. Costs a `gh` request, so it is asked for. */
   | { type: 'refreshCiCredit' }
+  /** Choose where switched workflows run. A closed mode id; the host clamps it. */
+  | { type: 'setCiRunnerSwitchMode'; payload: CiRunnerSwitchMode }
+  /** Copy the `runs-on` line that makes a workflow follow the switch. */
+  | { type: 'copyCiRunnerSwitchLine' }
+  /** Change the local CI resource limits. Numbers only; the host clamps each one. */
+  | { type: 'saveLocalCiResources'; payload: { maxCpus: number; maxMemoryGb: number; resourceShare: number } }
   /**
    * Run a workflow locally with `act`. Carries an opaque workflow filename the
    * host re-resolves against the workflows directory — the same rule
@@ -2266,6 +2285,29 @@ interface DashboardPackageFormat {
   manifest: string;
   lockfile?: string;
   registryConfig?: string;
+}
+
+/**
+ * The runner switch as the Pipeline page shows it, plus the three local
+ * resource limits the borrowed-machine card lets somebody change in place.
+ */
+interface DashboardCiRunnerSwitchSnapshot {
+  mode: CiRunnerSwitchMode;
+  localLabel: string;
+  localLabelValid: boolean;
+  /** Whether the repository variable has been read this session. */
+  variableKnown: boolean;
+  variableValue?: string;
+  /** What switched workflows will do right now, or why that is not known. */
+  currentSentence: string;
+  /** What the switch would do next, and why. */
+  decisionSentence: string;
+  lastAction?: string;
+  /** The exact `runs-on` line a workflow uses to follow the switch. */
+  runsOnLine: string;
+  workflowsFollowing: string[];
+  workflowsNotFollowing: string[];
+  resources: { maxCpus: number; maxMemoryGb: number; resourceShare: number };
 }
 
 interface DashboardSupplyChainSnapshot {
@@ -3612,6 +3654,8 @@ interface DashboardSnapshot {
       decisions: CiRouteDecision[];
       creditSentence: string;
       creditState: 'remaining' | 'exhausted' | 'unknown';
+      /** The runner switch and the local resource limits. Added after collection. */
+      runnerSwitch?: DashboardCiRunnerSwitchSnapshot;
     };
     ciSignals: Array<{ label: string; ok: boolean }>;
     reviewReadiness: Array<{ label: string; ok: boolean }>;
@@ -5530,6 +5574,15 @@ export class ProjectDashboardPanel {
     state: 'unknown',
     reason: 'the hosted allowance has not been checked on this machine yet.',
   };
+
+  /**
+   * The repository's runner variable as last read, and what AtlasMind last did
+   * to it. Read on an explicit allowance check, never on render.
+   */
+  private ciRunnerSwitchState: { known: boolean; value?: string; lastAction?: string } = { known: false };
+  /** When the switch last checked the allowance by itself, and whether one is in flight. */
+  private ciCreditAutoCheckedAt = 0;
+  private ciCreditAutoCheckRunning = false;
   private disposed = false;
 
   /**
@@ -6390,6 +6443,16 @@ export class ProjectDashboardPanel {
       case 'refreshCiCredit':
         await this.handleRefreshCiCredit();
         return;
+      case 'setCiRunnerSwitchMode':
+        await this.handleSetCiRunnerSwitchMode(message.payload);
+        return;
+      case 'copyCiRunnerSwitchLine':
+        await vscode.env.clipboard.writeText(`runs-on: ${buildRunsOnExpression('ubuntu-24.04')}`);
+        void vscode.window.showInformationMessage('Copied the runs-on line. Replace the hosted label if your workflow pins a different one.');
+        return;
+      case 'saveLocalCiResources':
+        await this.handleSaveLocalCiResources(message.payload);
+        return;
       case 'runWorkflowWithAct':
         await this.handleRunWorkflowWithAct(message.payload);
         return;
@@ -7197,8 +7260,12 @@ export class ProjectDashboardPanel {
       // assessment the page is showing, rather than against a fresh one that
       // may already disagree with what the button was drawn from.
       this.lastWorkflowStages = snapshot.guidedWorkflow?.stages ?? [];
+      // Added here rather than threaded through the collector: it reads this
+      // panel's switch state, which the free collector function cannot see.
+      snapshot.delivery.routing.runnerSwitch = await this.describeCiRunnerSwitch(defaultWorkspaceRootPath());
       this.lastSnapshot = snapshot;
       await this.postMessage({ type: 'state', payload: snapshot });
+      this.maybeAutoCheckCiCredit();
       if (this.pendingNavigationTarget) {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
         this.pendingNavigationTarget = undefined;
@@ -9550,7 +9617,252 @@ export class ProjectDashboardPanel {
         reason: `${failure.detail} Reading the allowance needs a token with the billing scope; AtlasMind will use the preferred route until it can read one.`,
       };
     }
+    // GitHub's own refusal is the other way to learn the allowance is gone, and
+    // the only way when the billing scope was never granted. Only the most
+    // recent completed run counts, so last month's refusal cannot empty the
+    // meter today.
+    if (this.ciCreditState.state !== 'exhausted') {
+      const refusal = await this.readLatestBillingRefusal(workspaceRoot);
+      if (refusal) {
+        this.ciCreditState = refusal;
+      }
+    }
+    await this.syncCiRunnerSwitch(workspaceRoot);
     await this.syncState();
+  }
+
+  /**
+   * Whenever the switch is on, check the allowance and the switch without
+   * being asked: a switch is only automatic if nobody has to press a button
+   * for it, and the page should never sit on "Checking…". At most once every
+   * fifteen minutes, one at a time, and never when the switch is off.
+   */
+  private maybeAutoCheckCiCredit(): void {
+    if (this.disposed || this.ciCreditAutoCheckRunning) {
+      return;
+    }
+    if (this.readCiRunnerSwitchSettings().mode === 'off') {
+      return;
+    }
+    if (Date.now() - this.ciCreditAutoCheckedAt < 15 * 60 * 1000) {
+      return;
+    }
+    this.ciCreditAutoCheckedAt = Date.now();
+    this.ciCreditAutoCheckRunning = true;
+    void this.handleRefreshCiCredit()
+      .catch(() => undefined)
+      .finally(() => {
+        this.ciCreditAutoCheckRunning = false;
+      });
+  }
+
+  /** The switch settings for this workspace, sanitised. */
+  private readCiRunnerSwitchSettings(): { mode: CiRunnerSwitchMode; localLabel: string } {
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const localLabel = String(configuration.get<string>('ci.runnerSwitch.localLabel', '') ?? '').trim();
+    return {
+      mode: sanitizeRunnerSwitchMode(configuration.get<string>('ci.runnerSwitch.mode', 'off')),
+      localLabel,
+    };
+  }
+
+  private async readRepositorySlug(workspaceRoot: string): Promise<string | undefined> {
+    const slug = (await runGhOrThrow(workspaceRoot, ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'])).trim();
+    return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/.test(slug) ? slug : undefined;
+  }
+
+  /**
+   * Whether the most recent completed workflow run was refused for billing.
+   *
+   * GitHub reports this as a job annotation ("the job was not started because
+   * ... spending limit"), not through the billing API. Every failure to read
+   * returns `undefined`, so the meter keeps the reading it had.
+   */
+  private async readLatestBillingRefusal(workspaceRoot: string): Promise<CiCreditReading | undefined> {
+    try {
+      const slug = await this.readRepositorySlug(workspaceRoot);
+      if (!slug) {
+        return undefined;
+      }
+      const runs = JSON.parse(await runGhOrThrow(workspaceRoot, [
+        'api', `repos/${slug}/actions/runs?per_page=1&status=completed`,
+      ])) as { workflow_runs?: Array<{ id?: unknown; conclusion?: unknown }> };
+      const latest = runs.workflow_runs?.[0];
+      if (!latest || typeof latest.id !== 'number' || latest.conclusion !== 'failure') {
+        return undefined;
+      }
+      const jobs = JSON.parse(await runGhOrThrow(workspaceRoot, [
+        'api', `repos/${slug}/actions/runs/${latest.id}/jobs?per_page=5`,
+      ])) as { jobs?: Array<{ id?: unknown }> };
+      for (const job of (jobs.jobs ?? []).slice(0, 5)) {
+        if (typeof job.id !== 'number') {
+          continue;
+        }
+        const reading = findBillingRefusal(JSON.parse(await runGhOrThrow(workspaceRoot, [
+          'api', `repos/${slug}/check-runs/${job.id}/annotations`,
+        ])));
+        if (reading) {
+          return reading;
+        }
+      }
+    } catch {
+      return undefined;
+    }
+    return undefined;
+  }
+
+  /**
+   * Point the repository's runner variable where the switch says, writing only
+   * when it is somewhere else. Off never reads or writes it.
+   */
+  private async syncCiRunnerSwitch(workspaceRoot: string): Promise<void> {
+    const { mode, localLabel } = this.readCiRunnerSwitchSettings();
+    if (mode === 'off') {
+      return;
+    }
+    let slug: string | undefined;
+    try {
+      slug = await this.readRepositorySlug(workspaceRoot);
+    } catch (error) {
+      this.ciRunnerSwitchState = { known: false, lastAction: `Could not find this repository on GitHub: ${ghFailureOf(error).detail}` };
+      return;
+    }
+    if (!slug) {
+      this.ciRunnerSwitchState = { known: false, lastAction: 'GitHub did not return a usable repository name.' };
+      return;
+    }
+    let current: string | undefined;
+    try {
+      current = (await runGhOrThrow(workspaceRoot, ['variable', 'get', CI_RUNNER_VARIABLE, '--repo', slug])).trim() || undefined;
+    } catch (error) {
+      const failure = ghFailureOf(error);
+      if (failure.kind !== 'not-found' && !/not found/i.test(failure.detail)) {
+        this.ciRunnerSwitchState = { known: false, lastAction: `Could not read the switch: ${failure.detail}` };
+        return;
+      }
+      current = undefined;
+    }
+    this.ciRunnerSwitchState = { known: true, ...(current ? { value: current } : {}) };
+
+    const decision = decideCiRunnerTarget({ mode, credit: this.ciCreditState, localRunnerLabel: localLabel });
+    if (!decision.target) {
+      this.ciRunnerSwitchState = { ...this.ciRunnerSwitchState, lastAction: decision.reason };
+      return;
+    }
+    const alreadyThere = decision.target === 'hosted'
+      ? targetOfRunnerVariable(current) === 'hosted'
+      : current === localLabel;
+    if (alreadyThere) {
+      return;
+    }
+    try {
+      const value = runnerVariableValue(decision.target, localLabel);
+      if (value === undefined) {
+        await runGhOrThrow(workspaceRoot, ['variable', 'delete', CI_RUNNER_VARIABLE, '--repo', slug]);
+      } else {
+        await runGhOrThrow(workspaceRoot, ['variable', 'set', CI_RUNNER_VARIABLE, '--repo', slug, '--body', value]);
+      }
+      this.ciRunnerSwitchState = { known: true, ...(value ? { value } : {}), lastAction: decision.reason };
+      void vscode.window.showInformationMessage(`CI runner switch: ${decision.reason}`);
+    } catch (error) {
+      this.ciRunnerSwitchState = {
+        ...this.ciRunnerSwitchState,
+        lastAction: `Could not change the switch: ${ghFailureOf(error).detail}`,
+      };
+    }
+  }
+
+  private async handleSetCiRunnerSwitchMode(mode: CiRunnerSwitchMode): Promise<void> {
+    const workspaceRoot = defaultWorkspaceRootPath();
+    if (!workspaceRoot) {
+      return;
+    }
+    const next = sanitizeRunnerSwitchMode(mode);
+    const { localLabel } = this.readCiRunnerSwitchSettings();
+    if ((next === 'local' || next === 'auto') && !isValidRunnerLabel(localLabel)) {
+      const label = await vscode.window.showInputBox({
+        title: 'Local runner label',
+        prompt: 'The label of a self-hosted runner registered for this repository that can run the whole job.',
+        placeHolder: 'e.g. hireline-local',
+        validateInput: value => isValidRunnerLabel(value.trim()) ? undefined : 'Letters, numbers, dots, dashes and underscores only.',
+      });
+      if (!label) {
+        return;
+      }
+      await vscode.workspace.getConfiguration('atlasmind')
+        .update('ci.runnerSwitch.localLabel', label.trim(), vscode.ConfigurationTarget.Workspace);
+    }
+    await vscode.workspace.getConfiguration('atlasmind')
+      .update('ci.runnerSwitch.mode', next, vscode.ConfigurationTarget.Workspace);
+    if (next === 'off') {
+      this.ciRunnerSwitchState = { ...this.ciRunnerSwitchState, lastAction: 'The switch is off. The repository variable was left as it was.' };
+      await this.syncState();
+      return;
+    }
+    // The manual modes act now; auto reads the allowance first.
+    if (next === 'auto') {
+      await this.handleRefreshCiCredit();
+      return;
+    }
+    await this.syncCiRunnerSwitch(workspaceRoot);
+    await this.syncState();
+  }
+
+  /**
+   * Save the three local resource limits. Each is clamped to the range its
+   * setting declares, so a crafted message cannot ask for more than the
+   * settings editor would allow. Machine scope: these describe this computer.
+   */
+  private async handleSaveLocalCiResources(payload: { maxCpus: number; maxMemoryGb: number; resourceShare: number }): Promise<void> {
+    const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, Math.round(value)));
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    await configuration.update('ci.localRunner.maxCpus', clamp(payload.maxCpus, 2, 128), vscode.ConfigurationTarget.Global);
+    await configuration.update('ci.localRunner.maxMemoryGb', clamp(payload.maxMemoryGb, 4, 512), vscode.ConfigurationTarget.Global);
+    await configuration.update('testing.resourceShare', clamp(payload.resourceShare, 10, 90), vscode.ConfigurationTarget.Global);
+    // No toast: the controls save as they move, and the page redraws with the
+    // saved (clamped) values, which is the confirmation.
+    await this.syncState();
+  }
+
+  /** The switch section of the Pipeline page, built from settings and the last read. */
+  private async describeCiRunnerSwitch(workspaceRoot: string | undefined): Promise<DashboardCiRunnerSwitchSnapshot> {
+    const { mode, localLabel } = this.readCiRunnerSwitchSettings();
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const following: string[] = [];
+    const notFollowing: string[] = [];
+    if (workspaceRoot) {
+      try {
+        const workflowsDir = path.join(workspaceRoot, '.github', 'workflows');
+        const entries = await fs.readdir(workflowsDir, { withFileTypes: true });
+        for (const entry of entries.filter(item => item.isFile() && /\.ya?ml$/i.test(item.name)).slice(0, 50)) {
+          const contents = await fs.readFile(path.join(workflowsDir, entry.name), 'utf8').catch(() => '');
+          (workflowFollowsRunnerSwitch(contents) ? following : notFollowing).push(entry.name);
+        }
+      } catch {
+        // The list is a convenience; the switch itself does not depend on it.
+      }
+    }
+    const decision = decideCiRunnerTarget({ mode, credit: this.ciCreditState, localRunnerLabel: localLabel });
+    return {
+      mode,
+      localLabel,
+      localLabelValid: isValidRunnerLabel(localLabel),
+      variableKnown: this.ciRunnerSwitchState.known,
+      ...(this.ciRunnerSwitchState.value ? { variableValue: this.ciRunnerSwitchState.value } : {}),
+      currentSentence: this.ciRunnerSwitchState.known
+        ? describeRunnerVariable(this.ciRunnerSwitchState.value)
+        : mode === 'off' ? 'The switch is off.' : 'Not read yet. Check the allowance to read it.',
+      decisionSentence: decision.reason,
+      ...(this.ciRunnerSwitchState.lastAction ? { lastAction: this.ciRunnerSwitchState.lastAction } : {}),
+      runsOnLine: `runs-on: ${buildRunsOnExpression('ubuntu-24.04')}`,
+      workflowsFollowing: following,
+      workflowsNotFollowing: notFollowing,
+      resources: {
+        maxCpus: Number(configuration.get<number>('ci.localRunner.maxCpus', 8)),
+        maxMemoryGb: Number(configuration.get<number>('ci.localRunner.maxMemoryGb', 16)),
+        resourceShare: Number(configuration.get<number>('testing.resourceShare', 50)),
+      },
+    };
   }
 
   /**
@@ -18259,8 +18571,26 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     || candidate['type'] === 'installGitHubCli'
     || candidate['type'] === 'runDirectLocalChecks'
     || candidate['type'] === 'createCiRoutingConfig'
-    || candidate['type'] === 'refreshCiCredit') {
+    || candidate['type'] === 'refreshCiCredit'
+    || candidate['type'] === 'copyCiRunnerSwitchLine') {
     return candidate['payload'] === undefined;
+  }
+
+  if (candidate['type'] === 'setCiRunnerSwitchMode') {
+    return typeof candidate['payload'] === 'string'
+      && sanitizeRunnerSwitchMode(candidate['payload']) === candidate['payload'];
+  }
+
+  if (candidate['type'] === 'saveLocalCiResources') {
+    const payload = candidate['payload'];
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return false;
+    }
+    const record = payload as Record<string, unknown>;
+    const keys = Object.keys(record);
+    return keys.length === 3
+      && ['maxCpus', 'maxMemoryGb', 'resourceShare'].every(key =>
+        typeof record[key] === 'number' && Number.isFinite(record[key]));
   }
 
   if (candidate['type'] === 'copyLocalCiCancelCommand'
