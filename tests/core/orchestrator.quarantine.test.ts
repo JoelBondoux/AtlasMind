@@ -130,6 +130,21 @@ function makeProvider(responses: CompletionResponse[], reader: Reader = readerAn
 /** Low enough that the router still counts the model as cheap, so the reader can be routed to it. */
 const PRICE_PER_1K = 0.0005;
 
+describe('approval reviewer isolation', () => {
+  it('uses no tools and records review spend separately', async () => {
+    const { provider, privileged } = makeProvider([{
+      content: '{"decision":"approve","reason":"Requested edit."}', model: 'local/echo-1',
+      inputTokens: 100, outputTokens: 20, finishReason: 'stop',
+    }]);
+    const { orchestrator, costs } = makeOrchestrator(provider, [], undefined, undefined, { pricingModel: 'pay-per-token' });
+    await orchestrator.reviewApproval('task-review', 'Review this action.', JSON.stringify({ name: 'file-edit', args: { path: 'src/example.ts' } }));
+    expect(privileged).toHaveLength(1);
+    expect(privileged[0].tools).toEqual([]);
+    expect(privileged[0].maxTokens).toBe(300);
+    expect(costs.getRecords()).toEqual(expect.arrayContaining([expect.objectContaining({ taskId: 'task-review', agentId: 'approval-reviewer' })]));
+  });
+});
+
 function makeOrchestrator(
   provider: ProviderAdapter,
   skills: SkillDefinition[],

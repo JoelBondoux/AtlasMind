@@ -345,6 +345,24 @@ export interface ToolApprovalState {
   autopilot: boolean;
 }
 
+export type SessionApprovalMode = 'ask' | 'auto' | 'bypass';
+
+/** Host-owned evidence for a single prompt waiver; never execution instructions. */
+export interface ApprovalReviewInput {
+  kind: 'tool' | 'workflow';
+  name: string;
+  intent: string;
+  args: Record<string, unknown>;
+  policy: ToolInvocationPolicy;
+  freshApproval?: boolean;
+  workflowLevel?: string;
+}
+
+export interface ApprovalReviewResult {
+  decision: 'allow' | 'ask';
+  rule: string;
+}
+
 export type ToolRiskCategory =
   | 'read'
   | 'workspace-write'
@@ -1631,6 +1649,9 @@ export interface OrchestratorHooks {
    * grant cannot outlive the task it was given for.
    */
   onTaskSettled?: (taskId: string) => void;
+
+  /** Host-only intent for approval review; not part of a tool's arguments or authority. */
+  onToolApprovalIntent?: (taskId: string, userIntent: string) => void;
 
   /**
    * Dry run answered a tool call with a description instead of running it, or

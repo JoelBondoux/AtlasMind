@@ -4,6 +4,7 @@ import { buildModelSummary, collapseAtlasMindSidebarTrees, registerCommands } fr
 import { RECOMMENDED_MCP_SERVERS, getRecommendedMcpStarterDetails } from '../src/constants.ts';
 import { ModelProviderTreeItem } from '../src/views/treeViews.ts';
 import type { ProviderConfig } from '../src/types.ts';
+import { ToolApprovalManager } from '../src/core/toolApprovalManager.ts';
 
 vi.mock('vscode');
 
@@ -97,6 +98,29 @@ describe('collapseAtlasMindSidebarTrees', () => {
 });
 
 describe('registerCommands', () => {
+  it('requires activation confirmation for Auto/Bypass and can revoke them without a prompt', async () => {
+    const manager = new ToolApprovalManager();
+    const registerCommand = vi.fn().mockReturnValue({ dispose: () => undefined });
+    (vscode as unknown as { commands: { registerCommand: typeof registerCommand } }).commands = { registerCommand };
+    const warning = vi.fn().mockResolvedValue(undefined);
+    const info = vi.fn();
+    Object.assign(vscode.window, { showWarningMessage: warning, showInformationMessage: info });
+    registerCommands({ subscriptions: [] } as never, () => ({ toolApprovalManager: manager }) as never);
+    const select = registerCommand.mock.calls.find(call => call[0] === 'atlasmind.setApprovalMode')?.[1] as (mode: unknown) => Promise<void>;
+    await select('auto');
+    expect(manager.getApprovalMode()).toBe('ask');
+    warning.mockResolvedValue('Enable for this session');
+    await select('auto');
+    expect(manager.getApprovalMode()).toBe('auto');
+    await select('bypass');
+    expect(manager.getApprovalMode()).toBe('bypass');
+    const count = warning.mock.calls.length;
+    await select({ mode: 'bypass' });
+    await select('ask');
+    expect(manager.getApprovalMode()).toBe('ask');
+    expect(warning).toHaveBeenCalledTimes(count);
+  });
+
   it('registers the recommended MCP quick-add command used by the sidebar', () => {
     const registerCommand = vi.fn().mockReturnValue({ dispose: () => undefined });
     (vscode as { commands: { registerCommand: typeof registerCommand } }).commands = { registerCommand };

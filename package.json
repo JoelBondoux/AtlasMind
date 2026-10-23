@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.504.4",
+  "version": "0.509.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -45,6 +45,7 @@
   "icon": "media/icon.png",
   "activationEvents": [
     "onStartupFinished",
+    "onWebviewPanel:atlasmind.projectDashboard",
     "onChatParticipant:atlasmind.orchestrator"
   ],
   "main": "./out/extension.js",
@@ -55,6 +56,14 @@
   },
   "contributes": {
     "jsonValidation": [
+      {
+        "fileMatch": "**/test-results/performance.json",
+        "url": "./schemas/performance-report.schema.json"
+      },
+      {
+        "fileMatch": "**/reports/performance.json",
+        "url": "./schemas/performance-report.schema.json"
+      },
       {
         "fileMatch": "**/.atlasmind/lens-mappings.json",
         "url": "./schemas/lens-mappings.schema.json"
@@ -416,6 +425,11 @@
         "command": "atlasmind.openCostDashboard",
         "title": "AtlasMind: Open Cost Dashboard",
         "icon": "$(graph)"
+      },
+      {
+        "command": "atlasmind.setApprovalMode",
+        "title": "AtlasMind: Set Approval Mode",
+        "icon": "$(shield)"
       },
       {
         "command": "atlasmind.toggleAutopilot",
@@ -2753,6 +2767,28 @@
           "description": "Maximum memory in GB the local runner container may use. AtlasMind may allocate less to honour the host reserve and the testing resource share.",
           "markdownDescription": "Upper memory limit for the local runner container. AtlasMind reserves at least 25% of the **host's** memory (and never less than 8 GB) for the operating system — measured on the real machine, not on the Docker/WSL VM — then applies `#atlasmind.testing.resourceShare#`, the Docker engine's own capacity, and this cap, using the lowest. It refuses to run below 4 GB and disables container swap."
         },
+        "atlasmind.ci.runnerSwitch.mode": {
+          "type": "string",
+          "scope": "resource",
+          "default": "off",
+          "enum": ["off", "auto", "hosted", "local"],
+          "enumDescriptions": [
+            "AtlasMind never reads or changes the repository's runner variable.",
+            "Use GitHub-hosted runners while the allowance lasts; switch to the local runner when GitHub refuses runs for billing, and back when the allowance is readable again.",
+            "Always use GitHub-hosted runners.",
+            "Always use the local runner."
+          ],
+          "description": "Where workflows that opt in to the runner switch run. Workflows opt in by reading the ATLASMIND_CI_RUNNER repository variable in runs-on.",
+          "markdownDescription": "Where workflows that opt in to the runner switch run. A workflow opts in by writing its `runs-on` to read the `ATLASMIND_CI_RUNNER` repository variable (the Pipeline view can show the exact line). AtlasMind sets that variable to `#atlasmind.ci.runnerSwitch.localLabel#` to use this computer, and deletes it to use GitHub-hosted runners.\n\nPull requests from other repositories, and runs a bot such as Dependabot started, always use GitHub-hosted runners whatever this says: the rule is in the workflow line itself."
+        },
+        "atlasmind.ci.runnerSwitch.localLabel": {
+          "type": "string",
+          "scope": "resource",
+          "default": "",
+          "pattern": "^$|^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$",
+          "description": "The self-hosted runner label switched workflows use when running locally, for example hireline-local.",
+          "markdownDescription": "The self-hosted runner label switched workflows use when running locally. It must match a runner registered for this repository that can run the whole job. Empty means the switch can never send work to this computer."
+        },
         "atlasmind.testing.resourceShare": {
           "type": "number",
           "scope": "machine",
@@ -2848,14 +2884,14 @@
         "atlasmind.workflow.allowIssueWrites": {
           "type": "boolean",
           "default": false,
-          "description": "Allow AtlasMind to create, comment on, edit, close or reopen GitHub issues. Off by default; every write still asks for confirmation naming the repository and the exact action.",
-          "markdownDescription": "**Off by default.** Permits stage 1 (Planning & Issue Intake) and stage 7 (Maintenance) to write to your issue tracker.\n\nEven with this on, every write is outward-facing and public, so each one asks for a confirmation naming the repository and the exact action. AtlasMind never auto-closes an issue — closing somebody's report is a social act, not a cleanup task.\n\nRequires `#atlasmind.workflow.enabled#` and a stage level of `propose` or higher."
+          "description": "Allow AtlasMind issue writes. Off by default. Eligible actions may skip confirmation only with a session Auto/Bypass grant and effective stage level auto; explicit-only actions still ask.",
+          "markdownDescription": "**Off by default.** Permits issue writes only when the workflow master switch, capability, personal ceiling and declared stage all permit them.\n\nAt propose, actions confirm individually. At auto, a session **Auto** mode grant may approve eligible actions through a separate model review; **Bypass** skips eligible prompts. Closing reports, approving or merging pull requests, deletions and release actions remain explicit. Review comments and issue text remain untrusted.\n\nChoose the session mode in Project Dashboard -> Workflow, the chat approval selector, or **AtlasMind: Set Approval Mode**. Changing modes never turns this capability on."
         },
         "atlasmind.workflow.allowPullRequestWrites": {
           "type": "boolean",
           "default": false,
-          "description": "Allow AtlasMind to create pull requests, post reviews, and merge. Off by default; every write still asks for confirmation.",
-          "markdownDescription": "**Off by default.** Permits stage 4 (Pull Requests & Reviews) to write.\n\nA pull request is a public proposal, so every creation, review and merge asks for confirmation first. Note that review comments arriving *from* GitHub are treated as untrusted input regardless of this setting — anyone who can comment can write text designed to be read as an instruction, so review bodies are always sanitized and fenced before an agent sees them.\n\nRequires `#atlasmind.workflow.enabled#` and a stage level of `propose` or higher."
+          "description": "Allow AtlasMind pull request writes. Off by default. Eligible actions may skip confirmation only with a session Auto/Bypass grant and effective stage level auto; explicit-only actions still ask.",
+          "markdownDescription": "**Off by default.** Permits pull request writes only when the workflow master switch, capability, personal ceiling and declared stage all permit them.\n\nAt propose, actions confirm individually. At auto, a session **Auto** mode grant may approve eligible actions through a separate model review; **Bypass** skips eligible prompts. Closing reports, approving or merging pull requests, deletions and release actions remain explicit. Review comments and issue text remain untrusted.\n\nChoose the session mode in Project Dashboard -> Workflow, the chat approval selector, or **AtlasMind: Set Approval Mode**. Changing modes never turns this capability on."
         },
         "atlasmind.workflow.allowReleaseWrites": {
           "type": "boolean",

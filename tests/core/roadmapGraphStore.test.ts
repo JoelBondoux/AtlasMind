@@ -392,3 +392,25 @@ describe('renderRoadmapGraphMarkdown', () => {
     expect(markdown).not.toContain('1970');
   });
 });
+
+
+describe('delivered layout persistence', () => {
+  it('round trips a separate delivered position and tree direction', async () => {
+    const root = workspace();
+    await writeRoadmapGraph(root, 'project_memory', doc({ completionLayout: 'vertical', nodes: [{
+      id: 'kept', normalizedText: 'kept', position: { x: 100, y: 200 }, completionPosition: { x: 800, y: 400 },
+    }] }));
+    const saved = readRoadmapGraph(root, 'project_memory');
+    expect(saved.completionLayout).toBe('vertical');
+    expect(saved.nodes[0]?.position).toEqual({ x: 100, y: 200 });
+    expect(saved.nodes[0]?.completionPosition).toEqual({ x: 800, y: 400 });
+  });
+
+  it('drops malformed delivered layouts and non-finite positions', () => {
+    const saved = sanitizeRoadmapGraphDocument({ ...doc(), completionLayout: 'execute', nodes: [{
+      id: 'kept', normalizedText: 'kept', completionPosition: { x: Infinity, y: 1 },
+    }] });
+    expect(saved?.completionLayout).toBeUndefined();
+    expect(saved?.nodes[0]?.completionPosition).toBeUndefined();
+  });
+});

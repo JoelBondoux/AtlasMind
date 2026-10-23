@@ -1,5 +1,13 @@
 # Architecture Overview
 
+Session approval state is owned by `toolApprovalManager.ts`; `approvalModes.ts` bounds eligible
+actions, payloads (16,000 characters), strict JSON replies and a 20-second wait. Ask, Auto and Bypass
+are distinct, revocable runtime states. `OrchestratorHooks.onToolApprovalIntent` supplies host-owned
+task intent separately from proposed arguments. `Orchestrator.reviewApproval` makes a tool-free call
+through guarded egress, refuses withheld evidence and unpriced/budget-blocked calls, and records
+`approval-reviewer` spend. Dashboard reviews re-check the session revision, declared stage and gates,
+then record their grant in the existing workflow audit ledger before acting. No grants are persisted.
+
 ## System Diagram
 
 ```
@@ -2176,7 +2184,7 @@ In the panel, the webview posts a step id from `BRIEF_CHAIN_STEP_IDS` and nothin
 
 Baselines you can name, so *what changed* can be asked about more than one moment. `observedDelta` answers "what changed since I last looked", and answers it carefully — but it holds exactly one baseline, advanced on every render, so the only span available is the one nobody chose. The questions people actually ask are *what has changed since the release*, *since this branch started*, *since the audit*, and none of them could be asked.
 
-This adds named baselines and nothing else. **The comparison is `compareObservedState`, unchanged**: a second implementation would eventually disagree with the first, and the symptom would be two cards on one dashboard reporting different numbers for the same fortnight. Every rule that module enforces holds here by construction rather than by being restated, and a test asserts no field vocabulary of its own appears.
+Named baselines can be compared with current state or another saved reading. **The comparison is `compareObservedState`, unchanged**: a second implementation would eventually disagree with the first, and the symptom would be two cards on one dashboard reporting different numbers for the same fortnight. Every rule that module enforces holds here by construction rather than by being restated, and a test asserts no field vocabulary of its own appears.
 
 **A named baseline is captured deliberately, never on a render.** The watermark advances by itself because it means *last looked*; a named one means the moment somebody chose, and moving it silently would erase the span it was created to measure. Nothing here writes on read — asserted behaviourally, by comparing the register before and after every read path, rather than by searching the source for words the rule table itself contains.
 
@@ -2782,7 +2790,7 @@ The roadmap as a graph — what has to happen before what. The backlog has alway
 
 `roadmapRouteTo` answers "what has to happen before this?" — ancestors only. A node's dependents are what it *unlocks*, a different question, and folding them in would make "the route to X" include work that happens after X, which is the one thing the filter exists to exclude. Completed prerequisites are **kept**, because the plan is meant to show how you got here.
 
-`partitionRoadmapCompletion` decides which canvas a node belongs on: a completed item leaves the plan — unless something outstanding still depends on it, in which case it stays as the left-hand end of a route somebody is still walking, since removing it would make the dependent node look like it starts from nothing. `retained` is reported separately so those items still appear on the completion canvas — they *were* delivered, and a record of delivery omitting the load-bearing half would be a strange record. `layoutRoadmapCompletion` columns by **month**, not by depth: the question that canvas answers is "when did this land, and what did it come after", and a dependency depth would re-tell the plan rather than the history. Work with no recorded completion date sorts **last**, in its own column — an unknown date is not the beginning of time.
+`partitionRoadmapCompletion` decides which canvas a node belongs on: a completed item leaves the plan — unless something outstanding still depends on it, in which case it stays as the left-hand end of a route somebody is still walking, since removing it would make the dependent node look like it starts from nothing. `retained` is reported separately so those items still appear on the completion canvas — they *were* delivered, and a record of delivery omitting the load-bearing half would be a strange record. `layoutRoadmapCompletion` defaults to **month** columns, with independent tree and pin controls: the question that canvas answers is "when did this land, and what did it come after", and a dependency depth would re-tell the plan rather than the history. Work with no recorded completion date sorts **last**, in its own column — an unknown date is not the beginning of time.
 
 Layout is a small, fully deterministic layered pipeline (a compact Sugiyama), because the naive version of each step is what made a real backlog unreadable. **Sources are tightened down beside their earliest dependent** — longest-path layering alone put every parentless item in one first row wider than the plan, half a canvas from what it unlocks. **The plan is laid out apart from the work it no longer needs**: outstanding items and the delivered items they still wait on form one arrangement, and the rest of the delivered work gets its own blocks beside it — one tree reserved a slot for every finished card inside the plan, and on this repository's roadmap (56 of 96 delivered) that drew the plan with a hole for every one. Both groups use the one definition of *retained* (`holdsOutstandingWork`) that `partitionRoadmapCompletion` uses, so the canvas cannot draw a card where the layout left a gap. **Connected components are laid out as separate blocks** rather than interleaved — an edge never crosses an unrelated plan's cards to reach its own — largest first, backlog order breaking ties. **Crossings are swept out with alternating barycentre passes** (down over prerequisites, up over dependents; stable, so priority survives where the links are silent), and **coordinates are pulled toward each node's neighbours** — children under parents, parents centred over what they unlock, quantised to the grid with order and spacing preserved — instead of packed densely from the margin, so a chain lays out as one straight line. Each pass places a layer by **isotonic regression** (pooling adjacent columns that collide), as close to every column's wish as order and spacing allow in *both* directions; the earlier walk could only push a column further along, and its shifts compounded layer by layer until a plan eight cards at its widest was drawn fourteen wide. **A layer too wide for the frame is folded** into sub-rows, column-major so the sweep order still reads across — one item unlocking forty used to make a layer forty cards wide — but only once the settled block spans more than `ROADMAP_FOLD_THRESHOLD` (two) of `ROADMAP_REFERENCE_FRAME`, and then at the cap whose settled block best fits it. **Items with no links park in a block of their own**, filling along the reading axis first and shaped for the frame: they say nothing about order, carry no arrows, and previously produced the giant first row. **Blocks pack into strips**: they fill along the cross axis and start a new strip further along the reading axis once it is long enough, a block thinner than its strip stacks under the one before it, and the strip length is the one whose whole arrangement best fits the reference frame — blocks used to follow one another in a single strip, so thirty two-item sub-plans drew 18,810 × 560px and Fit all wanted 6%. Nothing folds or wraps while the arrangement already fits two frames, because both cost a reader the simplest order. `ROADMAP_REFERENCE_FRAME` is the canvas as drawn (its 620px height is pinned against the `.rm-frame` rule), and `ROADMAP_BLOCK_GAP` (120px, a grid multiple) replaces the whole empty slot that used to separate blocks. Measured on this repository's roadmap, the outstanding plan went from 9,210 × 2,360px (Fit all 12%) to 4,330 × 1,640px (25%) top to bottom, and from 2,170 × 10,280px (5%) to 3,570 × 1,760px (30%) left to right. `tests/core/roadmapLayoutPacking.test.ts` holds those numbers, plus property tests that no two cards share a slot, blocks never overlap, none is stranded, and the plan never spans more than two and a half times the frame its cards and longest chain need. The row pitch carries headroom for the card as it actually renders (chips and link rows put a busy card past the old 200px, which physically overlapped siblings), and a **stored position always wins**: dragging a node is a statement about how you read the plan, and a layout pass that overrode it would undo the user's work on every refresh. A hand-placed node no longer pulls its unpinned neighbours toward it: blocks are laid out in their own coordinates and then packed, so a drag moves the card dragged and nothing else, and a derived card that would land exactly on a pinned one steps along the cross axis. `RoadmapLayoutOrientation` chooses which way the tree runs — one placement rule with its axes swapped rather than two layouts that could drift apart — and it is carried on the resolved graph rather than left for the canvas to infer from coordinates, because "the trailing face of a node" is a different side in each orientation and guessing would be wrong for exactly the nodes somebody has dragged. `ROADMAP_COLUMN_WIDTH`, `ROADMAP_ROW_HEIGHT` and `ROADMAP_CANVAS_MARGIN` are all multiples of `ROADMAP_GRID_SIZE`, pinned by test: without that, turning the canvas's snap-to-grid on and then auto-aligning would leave every node a few pixels off the grid it claims to be on, and the first drag afterwards would jump.
 
@@ -3686,3 +3694,56 @@ All shared types live in `src/types.ts`. See the [type definitions](../src/types
 | `docs/architecture/orchestrator-flow.md` | `processTaskWithAgent` and `runAgenticLoop` internal flow with Mermaid diagrams |
 
 **A pill can move the checkout, and the guards are what make that acceptable.** A pill naming a branch you are not on is a button; the stage you are standing on carries a coloured outline. The webview posts the pill's **id**, never a ref, resolved against the strip the panel last sent — so a message can name a stage that exists and can never introduce a branch name of its own. The working-tree pill is refused, having no branch by design. The branch must already exist locally, because a click on a version number must not create a stage branch as a side effect. Uncommitted work is counted and named in the confirmation rather than discovered afterwards, and nothing on the path forces, stashes, resets or discards. `git checkout <branch> --` is used rather than `git checkout -- <branch>`: with the disambiguator first the name is read as a pathspec and the command silently becomes "restore the file called main from the index", discarding uncommitted work on that path instead of switching branch. A test pins the argument order, and matches quoted git arguments rather than bare words — the method's own comment contains the word "stashes" precisely because the code does not.
+
+### Delivered roadmap layout and saved baseline endpoints (0.506.0)
+
+Delivered-node management uses independent `completionPosition` pins and an optional
+`completionLayout` (`chronological`, `horizontal`, `vertical`) in the graph overlay. Existing
+files default to month columns. Auto tree and orientation controls reuse the deterministic layout
+on the delivered subgraph; returning to completion month releases only delivered pins. Single and
+group moves carry a validated `view: completed` scope. Unscoped legacy messages still address plan
+positions. Each arrangement preserves the other view, and temporary drag offsets clear when views
+change. The delivered Route control uses the same host-derived route lookup as the plan.
+
+Workflow also compares **two saved baselines** through `compareNamedBaselines`, using the same
+`compareObservedState` engine. Both labels and capture timestamps travel with the result; selecting
+an earlier target states the reverse chronological direction. Repository identity is read from the
+snapshot envelope, component coverage from the captured scope, and incompatible snapshots report
+not comparable. Each changed field exposes its before/after readings; an absent reading is labelled
+not observed. The host resolves both opaque ids from its local register. Selecting or comparing
+never rewrites either observation, and the target can return to **Current project** at any time.
+
+
+### Project-produced performance reports (0.507.0)
+
+`src/core/performanceReport.ts` owns the bounded v1 measurement exchange format and fixed-path local
+reader. The pure parser refuses incomplete reports, unsupported versions, non-finite/non-positive
+values, future dates and duplicate tuples. It retains only closed metric/statistic fields plus
+sanitised scenario text; raw reports and unknown fields never enter the payload. The collector uses
+only the SSOT home and two fixed paths, never scans recursively, rejects symlink descendants and checks
+descriptor identity/size before a capped read. It writes and executes nothing.
+
+`collectTestingDashboardSnapshot` reads reports only when performance is enabled and the home is
+unambiguous. `deriveTestingPolicyCoverage` accepts this evidence on the performance row, labels it
+Measured and leaves test-file/case counts alone. `testingPolicyDetail` recognises this report independently
+of JUnit and invents no passing case mix. The Project Dashboard renders an escaped measurement table;
+budget compliance remains not assessed. `schemas/performance-report.schema.json` is the editor contract.
+The normative format and scope are documented in `docs/game-engine-integration.md` §4.4.
+
+
+### Game-shaped debt derivation (0.508.0)
+
+`src/core/gameDebt.ts` joins a validated `GameProfile`, declared composition, caller-resolved roots,
+existing source reads, confirmed `GameAssetInventoryReport`, and generic `UpstreamDivergenceReport`.
+It applies the same published `DEBT_RULES` as written debt. `collectGameDebtForScan` in the Project
+Dashboard binds the SSOT home and custom SSOT folder, runs only after debt-scan confirmation, and
+passes bounded read-only Git calls. The collector never runs an engine or fetch. Tuning points are
+explicit author markers, not inferred numeric literals.
+
+`GameProfile.forkDebtThresholds` declares component/metric maxima without defaults. Its selector
+validates finite non-negative safe integers, retains unknown entry fields, and reports unresolved
+engine/upstream references. `game.md` mirrors the declarations. The debt overlay optionally stores
+`evidenceDetail` and `lastGameScanNotes`. Game finding ids hash the full evidence identity; measured
+counts are excluded from identity. Reconciliation requires the exact game finding to be assessed
+before obsoleting it; ordinary scanned paths cannot clear it. Manual decisions/history survive count
+changes. The normative bounds, policies and evidence limitations are in game-engine integration §4.5.

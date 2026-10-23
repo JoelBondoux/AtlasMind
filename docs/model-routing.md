@@ -1,5 +1,30 @@
 # Model Routing
 
+## ACP runtime and sign-in checks
+
+ACP adapters may bundle an older CLI than the working desktop app or editor extension. A healthy
+subscription and successful `session/new` do not prove that the adapter's runtime can execute its
+advertised model. Verify a completion-only reply as well as discovery. Keep `atlasmind.acp.agents`
+in User settings: a workspace array shadows it. For an installed Codex runtime, an agent entry's
+`env.CODEX_PATH` can pin the executable known to work; `env.CLAUDE_CODE_EXECUTABLE` is the Claude
+adapter's equivalent. These are local absolute paths, not secrets or shared repository settings.
+Versioned app paths must be checked again after an app update. AtlasMind never substitutes a
+runtime or copies desktop credentials automatically. Sign in through the standalone CLI's own
+flow (`claude auth login --claudeai` for Claude); a working Claude Windows app can have a separate
+sign-in from the CLI used by ACP.
+
+Discovery retains the conservative base row before a probe, but excludes an agent after its own
+probe fails. Provider health still means at least one configured agent can open a session, not that
+every model can answer. Unknown agent ids are refused. For the observed codex-acp 1.1.7 failure,
+warning lines followed only by a JSON HTTP error (status 400–599) fail the turn despite `end_turn`.
+This deliberately narrow compatibility rule does not inspect ordinary prose, fenced examples,
+bare JSON or another agent's output; it is not general-purpose detection of every upstream failure.
+
+Auto approval reviews use the existing synthesis-model override and balanced/fast synthesis routing.
+They are separate, tool-free calls with a 300-token output cap. Normal egress/privacy and daily-budget
+checks apply; unknown pricing or unavailable models fall back to asking. Reviewer usage is recorded
+under `approval-reviewer`. Selecting Auto does not reconfigure providers or select an ACP permission mode.
+
 ## Overview
 
 The Model Router selects the best LLM for each request based on user preferences, agent constraints, inferred task profile, model capabilities, and cost.

@@ -1,3 +1,5 @@
+import { collectGameDebt, type GameDebtSourceFile, type GameDebtResult } from '../core/gameDebt.js';
+import { GameProfileManager } from '../core/gameProfile.js';
 import * as vscode from 'vscode';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -162,6 +164,7 @@ import {
   BASELINE_RULES,
   captureBaseline,
   compareAgainstBaseline,
+  compareNamedBaselines,
   orderedBaselines,
   removeBaseline,
   sanitizeBaselineRegister,
@@ -294,6 +297,7 @@ import {
   deriveDebtFromSignals,
   deriveDebtMetrics,
   isDependencyPullRequest,
+  isGameDebtRule,
   reconcileDebtScan,
   scanForDebtMarkers,
   scopeDebtCandidates,
@@ -592,6 +596,19 @@ import {
   parseGithubBillingUsage,
   type CiCreditReading,
 } from '../core/ciCreditMeter.js';
+import {
+  CI_RUNNER_VARIABLE,
+  buildRunsOnExpression,
+  decideCiRunnerTarget,
+  describeRunnerVariable,
+  findBillingRefusal,
+  isValidRunnerLabel,
+  runnerVariableValue,
+  sanitizeRunnerSwitchMode,
+  targetOfRunnerVariable,
+  workflowFollowsRunnerSwitch,
+  type CiRunnerSwitchMode,
+} from '../core/ciRunnerSwitch.js';
 import {
   planGitHubCliInstall,
   runGitHubCliInstallPlan,
@@ -918,6 +935,7 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   // copy, and nothing pointed back — the only way in was the command palette.
   'atlasmind.openWebsiteStudio',
   'atlasmind.toggleAutopilot',
+  'atlasmind.setApprovalMode',
   'atlasmind.updateProjectMemory',
   'atlasmind.bootstrapProject',
   'atlasmind.importProject',
@@ -1212,7 +1230,7 @@ type ProjectDashboardMessage =
    * roadmap and validates each id against it, so a crafted message can address a
    * node that exists and nothing more.
    */
-  | { type: 'roadmapNodeMove'; payload: { nodeId: string; x: number; y: number } }
+  | { type: 'roadmapNodeMove'; payload: { nodeId: string; x: number; y: number; view?: 'completed' } }
   /**
    * A box-selection dragged as one group.
    *
@@ -1227,7 +1245,7 @@ type ProjectDashboardMessage =
    * the batch, since a group that silently moved nineteen of twenty nodes is
    * worse than one that moves the nineteen it could resolve and says so.
    */
-  | { type: 'roadmapNodesMove'; payload: { moves: Array<{ nodeId: string; x: number; y: number }> } }
+  | { type: 'roadmapNodesMove'; payload: { moves: Array<{ nodeId: string; x: number; y: number }>; view?: 'completed' } }
   | {
     type: 'roadmapNodeUpdate';
     payload: {
@@ -1266,7 +1284,7 @@ type ProjectDashboardMessage =
    * so a webview that sent coordinates would be doing the layout, and two
    * layouts would eventually disagree about the same plan.
    */
-  | { type: 'roadmapAutoLayout'; payload: 'horizontal' | 'vertical' }
+  | { type: 'roadmapAutoLayout'; payload: 'horizontal' | 'vertical' | 'chronological'; view?: 'completed' }
   /**
    * Start a roadmap import. Carries no payload by design: every detail is
    * gathered by the host through the editor's own pickers, so this message
@@ -1376,6 +1394,12 @@ type ProjectDashboardMessage =
   | { type: 'createCiRoutingConfig' }
   /** Read the hosted allowance. Costs a `gh` request, so it is asked for. */
   | { type: 'refreshCiCredit' }
+  /** Choose where switched workflows run. A closed mode id; the host clamps it. */
+  | { type: 'setCiRunnerSwitchMode'; payload: CiRunnerSwitchMode }
+  /** Copy the `runs-on` line that makes a workflow follow the switch. */
+  | { type: 'copyCiRunnerSwitchLine' }
+  /** Change the local CI resource limits. Numbers only; the host clamps each one. */
+  | { type: 'saveLocalCiResources'; payload: { maxCpus: number; maxMemoryGb: number; resourceShare: number } }
   /**
    * Run a workflow locally with `act`. Carries an opaque workflow filename the
    * host re-resolves against the workflows directory — the same rule
@@ -1520,6 +1544,7 @@ type ProjectDashboardMessage =
   | { type: 'markDeltaSeen' }
   | { type: 'setWorkflowGate'; payload: { key: string; enabled: boolean } }
   | { type: 'setAutomationCeiling'; payload: { level: string } }
+  | { type: 'setSessionApprovalMode'; payload: { mode: 'ask' | 'auto' | 'bypass' } }
   | { type: 'createWorkflowConfig'; payload: { profile: string } }
   | { type: 'editWorkflowConfig'; payload: unknown }
   | { type: 'applyTeamRole'; payload: { roleId: string } }
@@ -1559,7 +1584,7 @@ type ProjectDashboardMessage =
   | { type: 'testDataPrivacy'; payload: { kind: 'text' | 'path'; value: string } }
   | { type: 'captureBaseline'; payload: { label: string; reason?: string } }
   | { type: 'removeBaseline'; payload: string }
-  | { type: 'selectBaseline'; payload: string }
+  | { type: 'selectBaseline'; payload: string; target?: 'comparison' }
   | { type: 'saveDirectorConfig'; payload: import('../types.js').ProjectDirectorConfig }
   | { type: 'seedDirectorFromRepo' }
   | { type: 'saveWebsiteDelivery'; payload: { platforms: unknown[]; hostingEnvironments: unknown[]; automations: unknown[] } }
@@ -2266,6 +2291,29 @@ interface DashboardPackageFormat {
   registryConfig?: string;
 }
 
+/**
+ * The runner switch as the Pipeline page shows it, plus the three local
+ * resource limits the borrowed-machine card lets somebody change in place.
+ */
+interface DashboardCiRunnerSwitchSnapshot {
+  mode: CiRunnerSwitchMode;
+  localLabel: string;
+  localLabelValid: boolean;
+  /** Whether the repository variable has been read this session. */
+  variableKnown: boolean;
+  variableValue?: string;
+  /** What switched workflows will do right now, or why that is not known. */
+  currentSentence: string;
+  /** What the switch would do next, and why. */
+  decisionSentence: string;
+  lastAction?: string;
+  /** The exact `runs-on` line a workflow uses to follow the switch. */
+  runsOnLine: string;
+  workflowsFollowing: string[];
+  workflowsNotFollowing: string[];
+  resources: { maxCpus: number; maxMemoryGb: number; resourceShare: number };
+}
+
 interface DashboardSupplyChainSnapshot {
   formats: DashboardPackageFormat[];
   dependencyCount: number;
@@ -2851,6 +2899,7 @@ interface DashboardGithubLinksSnapshot {
 }
 
 interface DashboardGuidedWorkflowSnapshot {
+  approvalMode?: 'ask' | 'auto' | 'bypass';
   stages: WorkflowStageDefinition[];
   progress: WorkflowProgress;
   /**
@@ -2892,12 +2941,14 @@ interface DashboardGuidedWorkflowSnapshot {
     }>;
     /** The chosen baseline's id, when one is chosen. */
     selectedId?: string;
+    /** Empty means compare the baseline with the current project. */
+    targetId?: string;
     /** The comparison against it. Absent when nothing is chosen. */
     comparison?: {
       span: string;
       status: ObservedDelta['status'];
       staleness: BaselineStaleness;
-      changes: Array<{ label: string; kind: string; summary: string }>;
+      changes: Array<{ label: string; kind: string; summary: string; before?: string; after?: string }>;
       droppedByCap: number;
     };
     /** How many more may be captured before a capture is refused. */
@@ -3047,7 +3098,8 @@ interface DashboardGateCandidatesView {
 interface DashboardRoadmapGraphView {
   /** Nodes on the plan canvas: outstanding work, plus delivered work still holding something up. */
   active: RoadmapGraphNode[];
-  /** Nodes on the completion canvas, laid out chronologically. */
+  /** Delivered nodes at their own saved or derived layout positions. */
+  completionLayout?: 'chronological' | 'horizontal' | 'vertical';
   completed: RoadmapGraphNode[];
   /**
    * The same outstanding work, grouped into one band per person.
@@ -3609,6 +3661,8 @@ interface DashboardSnapshot {
       decisions: CiRouteDecision[];
       creditSentence: string;
       creditState: 'remaining' | 'exhausted' | 'unknown';
+      /** The runner switch and the local resource limits. Added after collection. */
+      runnerSwitch?: DashboardCiRunnerSwitchSnapshot;
     };
     ciSignals: Array<{ label: string; ok: boolean }>;
     reviewReadiness: Array<{ label: string; ok: boolean }>;
@@ -3634,6 +3688,7 @@ interface DashboardSnapshot {
     metrics: DebtMetrics;
     lastScanAt?: string;
     lastScanScope?: DebtScanScope[];
+    lastGameScanNotes?: string[];
     /** The declared rules, so a grade can be checked against them on screen. */
     rules: Array<{ id: string; domain: string; severity: string; describes: string }>;
     scanning: boolean;
@@ -5527,6 +5582,15 @@ export class ProjectDashboardPanel {
     state: 'unknown',
     reason: 'the hosted allowance has not been checked on this machine yet.',
   };
+
+  /**
+   * The repository's runner variable as last read, and what AtlasMind last did
+   * to it. Read on an explicit allowance check, never on render.
+   */
+  private ciRunnerSwitchState: { known: boolean; value?: string; lastAction?: string } = { known: false };
+  /** When the switch last checked the allowance by itself, and whether one is in flight. */
+  private ciCreditAutoCheckedAt = 0;
+  private ciCreditAutoCheckRunning = false;
   private disposed = false;
 
   /**
@@ -6273,7 +6337,7 @@ export class ProjectDashboardPanel {
         await this.handleDismissCapabilityOffer(message.payload);
         break;
       case 'roadmapAutoLayout':
-        await this.handleRoadmapAutoLayout(message.payload === 'vertical' ? 'vertical' : 'horizontal');
+        await this.handleRoadmapAutoLayout(message.payload, message.view);
         break;
       case 'importRoadmap':
         await this.handleImportRoadmap();
@@ -6386,6 +6450,16 @@ export class ProjectDashboardPanel {
         return;
       case 'refreshCiCredit':
         await this.handleRefreshCiCredit();
+        return;
+      case 'setCiRunnerSwitchMode':
+        await this.handleSetCiRunnerSwitchMode(message.payload);
+        return;
+      case 'copyCiRunnerSwitchLine':
+        await vscode.env.clipboard.writeText(`runs-on: ${buildRunsOnExpression('ubuntu-24.04')}`);
+        void vscode.window.showInformationMessage('Copied the runs-on line. Replace the hosted label if your workflow pins a different one.');
+        return;
+      case 'saveLocalCiResources':
+        await this.handleSaveLocalCiResources(message.payload);
         return;
       case 'runWorkflowWithAct':
         await this.handleRunWorkflowWithAct(message.payload);
@@ -6577,7 +6651,7 @@ export class ProjectDashboardPanel {
         await this.handleRemoveBaseline(message.payload);
         return;
       case 'selectBaseline':
-        await this.handleSelectBaseline(message.payload);
+        await this.handleSelectBaseline(message.payload, message.target);
         return;
       case 'saveDirectorConfig':
         await this.handleSaveDirectorConfig(message.payload);
@@ -6698,6 +6772,9 @@ export class ProjectDashboardPanel {
         return;
       case 'setAutomationCeiling':
         await this.handleSetAutomationCeiling(message.payload);
+        return;
+      case 'setSessionApprovalMode':
+        await vscode.commands.executeCommand('atlasmind.setApprovalMode', message.payload.mode);
         return;
       case 'createWorkflowConfig':
         await this.handleCreateWorkflowConfig(message.payload);
@@ -7191,8 +7268,12 @@ export class ProjectDashboardPanel {
       // assessment the page is showing, rather than against a fresh one that
       // may already disagree with what the button was drawn from.
       this.lastWorkflowStages = snapshot.guidedWorkflow?.stages ?? [];
+      // Added here rather than threaded through the collector: it reads this
+      // panel's switch state, which the free collector function cannot see.
+      snapshot.delivery.routing.runnerSwitch = await this.describeCiRunnerSwitch(defaultWorkspaceRootPath());
       this.lastSnapshot = snapshot;
       await this.postMessage({ type: 'state', payload: snapshot });
+      this.maybeAutoCheckCiCredit();
       if (this.pendingNavigationTarget) {
         await this.postMessage({ type: 'navigate', payload: this.pendingNavigationTarget });
         this.pendingNavigationTarget = undefined;
@@ -9544,7 +9625,252 @@ export class ProjectDashboardPanel {
         reason: `${failure.detail} Reading the allowance needs a token with the billing scope; AtlasMind will use the preferred route until it can read one.`,
       };
     }
+    // GitHub's own refusal is the other way to learn the allowance is gone, and
+    // the only way when the billing scope was never granted. Only the most
+    // recent completed run counts, so last month's refusal cannot empty the
+    // meter today.
+    if (this.ciCreditState.state !== 'exhausted') {
+      const refusal = await this.readLatestBillingRefusal(workspaceRoot);
+      if (refusal) {
+        this.ciCreditState = refusal;
+      }
+    }
+    await this.syncCiRunnerSwitch(workspaceRoot);
     await this.syncState();
+  }
+
+  /**
+   * Whenever the switch is on, check the allowance and the switch without
+   * being asked: a switch is only automatic if nobody has to press a button
+   * for it, and the page should never sit on "Checking…". At most once every
+   * fifteen minutes, one at a time, and never when the switch is off.
+   */
+  private maybeAutoCheckCiCredit(): void {
+    if (this.disposed || this.ciCreditAutoCheckRunning) {
+      return;
+    }
+    if (this.readCiRunnerSwitchSettings().mode === 'off') {
+      return;
+    }
+    if (Date.now() - this.ciCreditAutoCheckedAt < 15 * 60 * 1000) {
+      return;
+    }
+    this.ciCreditAutoCheckedAt = Date.now();
+    this.ciCreditAutoCheckRunning = true;
+    void this.handleRefreshCiCredit()
+      .catch(() => undefined)
+      .finally(() => {
+        this.ciCreditAutoCheckRunning = false;
+      });
+  }
+
+  /** The switch settings for this workspace, sanitised. */
+  private readCiRunnerSwitchSettings(): { mode: CiRunnerSwitchMode; localLabel: string } {
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const localLabel = String(configuration.get<string>('ci.runnerSwitch.localLabel', '') ?? '').trim();
+    return {
+      mode: sanitizeRunnerSwitchMode(configuration.get<string>('ci.runnerSwitch.mode', 'off')),
+      localLabel,
+    };
+  }
+
+  private async readRepositorySlug(workspaceRoot: string): Promise<string | undefined> {
+    const slug = (await runGhOrThrow(workspaceRoot, ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'])).trim();
+    return /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/.test(slug) ? slug : undefined;
+  }
+
+  /**
+   * Whether the most recent completed workflow run was refused for billing.
+   *
+   * GitHub reports this as a job annotation ("the job was not started because
+   * ... spending limit"), not through the billing API. Every failure to read
+   * returns `undefined`, so the meter keeps the reading it had.
+   */
+  private async readLatestBillingRefusal(workspaceRoot: string): Promise<CiCreditReading | undefined> {
+    try {
+      const slug = await this.readRepositorySlug(workspaceRoot);
+      if (!slug) {
+        return undefined;
+      }
+      const runs = JSON.parse(await runGhOrThrow(workspaceRoot, [
+        'api', `repos/${slug}/actions/runs?per_page=1&status=completed`,
+      ])) as { workflow_runs?: Array<{ id?: unknown; conclusion?: unknown }> };
+      const latest = runs.workflow_runs?.[0];
+      if (!latest || typeof latest.id !== 'number' || latest.conclusion !== 'failure') {
+        return undefined;
+      }
+      const jobs = JSON.parse(await runGhOrThrow(workspaceRoot, [
+        'api', `repos/${slug}/actions/runs/${latest.id}/jobs?per_page=5`,
+      ])) as { jobs?: Array<{ id?: unknown }> };
+      for (const job of (jobs.jobs ?? []).slice(0, 5)) {
+        if (typeof job.id !== 'number') {
+          continue;
+        }
+        const reading = findBillingRefusal(JSON.parse(await runGhOrThrow(workspaceRoot, [
+          'api', `repos/${slug}/check-runs/${job.id}/annotations`,
+        ])));
+        if (reading) {
+          return reading;
+        }
+      }
+    } catch {
+      return undefined;
+    }
+    return undefined;
+  }
+
+  /**
+   * Point the repository's runner variable where the switch says, writing only
+   * when it is somewhere else. Off never reads or writes it.
+   */
+  private async syncCiRunnerSwitch(workspaceRoot: string): Promise<void> {
+    const { mode, localLabel } = this.readCiRunnerSwitchSettings();
+    if (mode === 'off') {
+      return;
+    }
+    let slug: string | undefined;
+    try {
+      slug = await this.readRepositorySlug(workspaceRoot);
+    } catch (error) {
+      this.ciRunnerSwitchState = { known: false, lastAction: `Could not find this repository on GitHub: ${ghFailureOf(error).detail}` };
+      return;
+    }
+    if (!slug) {
+      this.ciRunnerSwitchState = { known: false, lastAction: 'GitHub did not return a usable repository name.' };
+      return;
+    }
+    let current: string | undefined;
+    try {
+      current = (await runGhOrThrow(workspaceRoot, ['variable', 'get', CI_RUNNER_VARIABLE, '--repo', slug])).trim() || undefined;
+    } catch (error) {
+      const failure = ghFailureOf(error);
+      if (failure.kind !== 'not-found' && !/not found/i.test(failure.detail)) {
+        this.ciRunnerSwitchState = { known: false, lastAction: `Could not read the switch: ${failure.detail}` };
+        return;
+      }
+      current = undefined;
+    }
+    this.ciRunnerSwitchState = { known: true, ...(current ? { value: current } : {}) };
+
+    const decision = decideCiRunnerTarget({ mode, credit: this.ciCreditState, localRunnerLabel: localLabel });
+    if (!decision.target) {
+      this.ciRunnerSwitchState = { ...this.ciRunnerSwitchState, lastAction: decision.reason };
+      return;
+    }
+    const alreadyThere = decision.target === 'hosted'
+      ? targetOfRunnerVariable(current) === 'hosted'
+      : current === localLabel;
+    if (alreadyThere) {
+      return;
+    }
+    try {
+      const value = runnerVariableValue(decision.target, localLabel);
+      if (value === undefined) {
+        await runGhOrThrow(workspaceRoot, ['variable', 'delete', CI_RUNNER_VARIABLE, '--repo', slug]);
+      } else {
+        await runGhOrThrow(workspaceRoot, ['variable', 'set', CI_RUNNER_VARIABLE, '--repo', slug, '--body', value]);
+      }
+      this.ciRunnerSwitchState = { known: true, ...(value ? { value } : {}), lastAction: decision.reason };
+      void vscode.window.showInformationMessage(`CI runner switch: ${decision.reason}`);
+    } catch (error) {
+      this.ciRunnerSwitchState = {
+        ...this.ciRunnerSwitchState,
+        lastAction: `Could not change the switch: ${ghFailureOf(error).detail}`,
+      };
+    }
+  }
+
+  private async handleSetCiRunnerSwitchMode(mode: CiRunnerSwitchMode): Promise<void> {
+    const workspaceRoot = defaultWorkspaceRootPath();
+    if (!workspaceRoot) {
+      return;
+    }
+    const next = sanitizeRunnerSwitchMode(mode);
+    const { localLabel } = this.readCiRunnerSwitchSettings();
+    if ((next === 'local' || next === 'auto') && !isValidRunnerLabel(localLabel)) {
+      const label = await vscode.window.showInputBox({
+        title: 'Local runner label',
+        prompt: 'The label of a self-hosted runner registered for this repository that can run the whole job.',
+        placeHolder: 'e.g. hireline-local',
+        validateInput: value => isValidRunnerLabel(value.trim()) ? undefined : 'Letters, numbers, dots, dashes and underscores only.',
+      });
+      if (!label) {
+        return;
+      }
+      await vscode.workspace.getConfiguration('atlasmind')
+        .update('ci.runnerSwitch.localLabel', label.trim(), vscode.ConfigurationTarget.Workspace);
+    }
+    await vscode.workspace.getConfiguration('atlasmind')
+      .update('ci.runnerSwitch.mode', next, vscode.ConfigurationTarget.Workspace);
+    if (next === 'off') {
+      this.ciRunnerSwitchState = { ...this.ciRunnerSwitchState, lastAction: 'The switch is off. The repository variable was left as it was.' };
+      await this.syncState();
+      return;
+    }
+    // The manual modes act now; auto reads the allowance first.
+    if (next === 'auto') {
+      await this.handleRefreshCiCredit();
+      return;
+    }
+    await this.syncCiRunnerSwitch(workspaceRoot);
+    await this.syncState();
+  }
+
+  /**
+   * Save the three local resource limits. Each is clamped to the range its
+   * setting declares, so a crafted message cannot ask for more than the
+   * settings editor would allow. Machine scope: these describe this computer.
+   */
+  private async handleSaveLocalCiResources(payload: { maxCpus: number; maxMemoryGb: number; resourceShare: number }): Promise<void> {
+    const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, Math.round(value)));
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    await configuration.update('ci.localRunner.maxCpus', clamp(payload.maxCpus, 2, 128), vscode.ConfigurationTarget.Global);
+    await configuration.update('ci.localRunner.maxMemoryGb', clamp(payload.maxMemoryGb, 4, 512), vscode.ConfigurationTarget.Global);
+    await configuration.update('testing.resourceShare', clamp(payload.resourceShare, 10, 90), vscode.ConfigurationTarget.Global);
+    // No toast: the controls save as they move, and the page redraws with the
+    // saved (clamped) values, which is the confirmation.
+    await this.syncState();
+  }
+
+  /** The switch section of the Pipeline page, built from settings and the last read. */
+  private async describeCiRunnerSwitch(workspaceRoot: string | undefined): Promise<DashboardCiRunnerSwitchSnapshot> {
+    const { mode, localLabel } = this.readCiRunnerSwitchSettings();
+    const configuration = vscode.workspace.getConfiguration('atlasmind');
+    const following: string[] = [];
+    const notFollowing: string[] = [];
+    if (workspaceRoot) {
+      try {
+        const workflowsDir = path.join(workspaceRoot, '.github', 'workflows');
+        const entries = await fs.readdir(workflowsDir, { withFileTypes: true });
+        for (const entry of entries.filter(item => item.isFile() && /\.ya?ml$/i.test(item.name)).slice(0, 50)) {
+          const contents = await fs.readFile(path.join(workflowsDir, entry.name), 'utf8').catch(() => '');
+          (workflowFollowsRunnerSwitch(contents) ? following : notFollowing).push(entry.name);
+        }
+      } catch {
+        // The list is a convenience; the switch itself does not depend on it.
+      }
+    }
+    const decision = decideCiRunnerTarget({ mode, credit: this.ciCreditState, localRunnerLabel: localLabel });
+    return {
+      mode,
+      localLabel,
+      localLabelValid: isValidRunnerLabel(localLabel),
+      variableKnown: this.ciRunnerSwitchState.known,
+      ...(this.ciRunnerSwitchState.value ? { variableValue: this.ciRunnerSwitchState.value } : {}),
+      currentSentence: this.ciRunnerSwitchState.known
+        ? describeRunnerVariable(this.ciRunnerSwitchState.value)
+        : mode === 'off' ? 'The switch is off.' : 'Not read yet. Check the allowance to read it.',
+      decisionSentence: decision.reason,
+      ...(this.ciRunnerSwitchState.lastAction ? { lastAction: this.ciRunnerSwitchState.lastAction } : {}),
+      runsOnLine: `runs-on: ${buildRunsOnExpression('ubuntu-24.04')}`,
+      workflowsFollowing: following,
+      workflowsNotFollowing: notFollowing,
+      resources: {
+        maxCpus: Number(configuration.get<number>('ci.localRunner.maxCpus', 8)),
+        maxMemoryGb: Number(configuration.get<number>('ci.localRunner.maxMemoryGb', 16)),
+        resourceShare: Number(configuration.get<number>('testing.resourceShare', 50)),
+      },
+    };
   }
 
   /**
@@ -10330,7 +10656,9 @@ export class ProjectDashboardPanel {
       }
     }
 
-    const confirmation = await vscode.window.showWarningMessage(
+    const automaticallyApproved = await this.reviewWorkflowApproval(message.type, 'planning', 'issueWrites', decision, description, args);
+    if (automaticallyApproved === undefined) { return; }
+    const confirmation = automaticallyApproved ? 'Yes, do it' : await vscode.window.showWarningMessage(
       'Write to the issue tracker?',
       { modal: true, detail: description },
       'Yes, do it',
@@ -10347,7 +10675,7 @@ export class ProjectDashboardPanel {
         {
           stageId: 'planning',
           action: message.type,
-          actor: 'user',
+          actor: automaticallyApproved ? 'automation' : 'user',
           decision,
           requestedLevel: 'propose',
           inputs: { repo: slug, action: message.type, args },
@@ -10532,6 +10860,36 @@ export class ProjectDashboardPanel {
    * the next reload. The webview never supplies the level — it asks to act, and
    * this decides whether it may.
    */
+  private async reviewWorkflowApproval(
+    action: string,
+    stageId: WorkflowStageId,
+    capability: WorkflowCapability,
+    decision: AutomationDecision,
+    description: string,
+    args: string[],
+  ): Promise<boolean | undefined> {
+    const manager = this.atlas.toolApprovalManager;
+    const mode = manager.getApprovalMode?.() ?? 'ask';
+    if (mode === 'ask') { return false; }
+    const stage = this.workflowConfig.getConfig()?.stages.find(candidate => candidate.id === stageId);
+    if (!stage?.enabled || stage.automationLevel !== 'auto' || decision.level !== 'auto'
+      || stageBlockers(stage).length > 0) { return false; }
+    const revision = manager.getApprovalRevision();
+    const { reviewApprovalRequest } = await import('../core/approvalModes.js');
+    const result = await reviewApprovalRequest(mode, {
+      kind: 'workflow', name: action, intent: description, args: { args },
+      policy: { category: 'network', risk: 'medium', summary: action },
+      workflowLevel: decision.level,
+    }, (systemPrompt, payload) => this.atlas.orchestrator.reviewApproval('workflow-approval', systemPrompt, payload));
+    const latestStage = this.workflowConfig.getConfig()?.stages.find(candidate => candidate.id === stageId);
+    if (!latestStage?.enabled || latestStage.automationLevel !== 'auto' || stageBlockers(latestStage).length > 0
+      || this.automationFor(capability, 'auto').level !== 'auto') { return undefined; }
+    if (manager.getApprovalRevision() !== revision || manager.getApprovalMode() !== mode) { return false; }
+    if (result.decision !== 'allow') { return false; }
+    decision.detail += ` Approval: ${mode}; ${result.rule}.`;
+    return true;
+  }
+
   private automationFor(capability: WorkflowCapability, stageLevel: AutomationLevel): AutomationDecision {
     const configuration = vscode.workspace.getConfiguration('atlasmind');
     const capabilitySetting = capability === 'issueWrites'
@@ -10684,7 +11042,11 @@ export class ProjectDashboardPanel {
       echo = { action: 'close', number };
     }
 
-    const confirmation = await vscode.window.showWarningMessage(
+    const reviewAction = message.type === 'reviewPullRequest' && payload['verdict'] !== 'approve' && payload['verdict'] !== 'request-changes'
+      ? 'commentPullRequest' : message.type;
+    const automaticallyApproved = await this.reviewWorkflowApproval(reviewAction, 'pull-request', 'pullRequestWrites', decision, description, args);
+    if (automaticallyApproved === undefined) { return; }
+    const confirmation = automaticallyApproved ? 'Yes, do it' : await vscode.window.showWarningMessage(
       'Write to GitHub?',
       { modal: true, detail: description },
       'Yes, do it',
@@ -10700,7 +11062,7 @@ export class ProjectDashboardPanel {
         {
           stageId: 'pull-request',
           action: message.type,
-          actor: 'user',
+          actor: automaticallyApproved ? 'automation' : 'user',
           decision,
           requestedLevel: 'propose',
           inputs: { repo: slug, action: message.type, args },
@@ -10996,6 +11358,31 @@ export class ProjectDashboardPanel {
     });
   }
 
+  /** This helper is called only after the ordinary debt-scan confirmation. */
+  private async collectGameDebtForScan(
+    composition: ProjectComposition | undefined,
+    roots: readonly { componentId: string; fsPath: string }[],
+    sourceFiles: readonly GameDebtSourceFile[],
+  ): Promise<GameDebtResult> {
+    const home = ssotHomeRoot();
+    const ssotPath = normalizeSsotPath(vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'));
+    const reading = new GameProfileManager(home.fsPath, home.refusal, ssotPath).read();
+    const previous = this.debtManager.get().entries;
+    if (!composition?.components.some(c => c.archetype?.archetype === 'game') && reading.status === 'absent'
+      && !previous.some(entry => isGameDebtRule(entry.rule))) {
+      return { candidates: [], assessedIds: [], notes: [] };
+    }
+    const profile = reading.status === 'loaded' && reading.findings.every(f => f.kind !== 'invalid') ? reading.profile : undefined;
+    const deadline = Date.now() + 15_000;
+    return collectGameDebt({ confirmed: true, composition, profile, roots, sourceFiles, previous,
+      profilePath: `${ssotPath}/domain/game.json`,
+    }, (root, args) => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) { throw new Error('Game fork inspection time budget reached.'); }
+      return runGit(root, [...args], { timeoutMs: Math.min(3000, remaining) });
+    });
+  }
+
   private async handleScanDebt(): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
@@ -11014,6 +11401,7 @@ export class ProjectDashboardPanel {
           `This reads your source files for TODO, FIXME, HACK and XXX markers and writes what it finds to \`${DEBT_SSOT_PATH}\`, with a readable mirror beside it.\n\n`
           + 'Nothing is deleted. An entry whose marker has gone is recorded as obsolete rather than resolved, '
           + 'because "the line is gone" and "somebody did the work" are different facts.\n\n'
+          + 'For a declared game project this also reads declared content roots for asset/LFS and import markers, author-marked TUNING points, and local Git fork counts against declared limits. The asset walk is capped and no engine, build, fetch or profiler runs.\n\n'
           + 'Severity comes from a declared rule, never a judgement call, and every entry names the rule that graded it.',
       },
       'Yes, scan',
@@ -11037,6 +11425,7 @@ export class ProjectDashboardPanel {
       const declaredScope = await collectDashboardWorkspaceScope(composition, this.workflowConfig.getWorkspaceRoot());
       const markerCandidates: import('../core/debtRegister.js').DebtScanCandidate[] = [];
       const scannedPaths: import('../core/debtRegister.js').DebtScannedPath[] = [];
+      const gameSourceFiles: GameDebtSourceFile[] = [];
       const scanCoverage: DebtScanScope[] = [];
       let remainingFiles = DEBT_SCAN_MAX_FILES;
       let truncated = false;
@@ -11061,6 +11450,7 @@ export class ProjectDashboardPanel {
           }
           const scanned = await collectDebtScanFiles(root.fsPath, remainingFiles);
           remainingFiles = Math.max(0, remainingFiles - scanned.scannedPaths.length);
+          gameSourceFiles.push(...scanned.files.map(file => ({ ...file, componentId: component.id })));
           truncated ||= scanned.truncated;
           markerCandidates.push(...scopeDebtCandidates(
             scanForDebtMarkers(scanned.files, customMarkers),
@@ -11130,7 +11520,8 @@ export class ProjectDashboardPanel {
           uncoveredMethodologies,
           ciWorkflowCount: snapshot.delivery.workflows.length,
         });
-      const candidates = [...markerCandidates, ...derivedCandidates];
+      const game = await this.collectGameDebtForScan(composition, declaredScope.roots.flatMap(root => root.componentId === undefined ? [] : [{ componentId: root.componentId, fsPath: root.fsPath }]), gameSourceFiles);
+      const candidates = [...markerCandidates, ...derivedCandidates, ...game.candidates];
       const at = new Date().toISOString();
       // The derived entries' evidence paths are added to the scanned set, so a
       // signal that has cleared (the update merged, the methodology covered)
@@ -11150,7 +11541,9 @@ export class ProjectDashboardPanel {
         ],
         at,
         composition ? scanCoverage : undefined,
+        game.assessedIds,
       );
+      result.register.lastGameScanNotes = game.notes;
       await this.debtManager.save(result.register, customMarkers);
       void vscode.window.showInformationMessage(
         `Scanned ${scannedPaths.length} files${composition ? ` across ${scanCoverage.length} declared components` : ''}: ${result.added.length} new, ${result.unchanged} already recorded`
@@ -11642,7 +12035,9 @@ ${buildCardEvidenceSection(source, derivation)}`;
       successNote = `Closed milestone #${number}.`;
     }
 
-    const confirmation = await vscode.window.showWarningMessage(
+    const automaticallyApproved = await this.reviewWorkflowApproval(message.type, 'planning', 'issueWrites', decision, description, args);
+    if (automaticallyApproved === undefined) { return; }
+    const confirmation = automaticallyApproved ? confirmLabel : await vscode.window.showWarningMessage(
       'Change the label taxonomy?',
       { modal: true, detail: description },
       confirmLabel,
@@ -11656,7 +12051,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
         {
           stageId: 'planning',
           action: message.type,
-          actor: 'user',
+          actor: automaticallyApproved ? 'automation' : 'user',
           decision,
           requestedLevel: 'propose',
           inputs: { repo: slug, action: message.type, args },
@@ -14105,7 +14500,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
     return { ...document, nodes };
   }
 
-  private async handleRoadmapNodeMove(payload: { nodeId: string; x: number; y: number }): Promise<void> {
+  private async handleRoadmapNodeMove(payload: { nodeId: string; x: number; y: number; view?: 'completed' }): Promise<void> {
     const context = await this.openRoadmapGraphForWrite();
     const text = context?.nodeText.get(payload.nodeId);
     if (context === undefined || text === undefined) {
@@ -14123,7 +14518,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
       context.workspaceRoot,
       context.ssotPath,
       ProjectDashboardPanel.upsertRoadmapNode(context.document, payload.nodeId, text, record => {
-        record.position = position;
+        if (payload.view === 'completed') { record.completionPosition = position; }
+        else { record.position = position; }
       }),
     );
   }
@@ -14140,7 +14536,7 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * only ever sends what it has selected — it is that a message handler taking
    * an array should say how long an array it will act on.
    */
-  private async handleRoadmapNodesMove(payload: { moves: Array<{ nodeId: string; x: number; y: number }> }): Promise<void> {
+  private async handleRoadmapNodesMove(payload: { moves: Array<{ nodeId: string; x: number; y: number }>; view?: 'completed' }): Promise<void> {
     const requested = Array.isArray(payload?.moves) ? payload.moves.slice(0, MAX_ROADMAP_GROUP_MOVE) : [];
     if (requested.length === 0) {
       return;
@@ -14161,7 +14557,8 @@ ${buildCardEvidenceSection(source, derivation)}`;
       }
       const position = clampRoadmapPosition(move.x, move.y);
       document = ProjectDashboardPanel.upsertRoadmapNode(document, move.nodeId, text, record => {
-        record.position = position;
+        if (payload.view === 'completed') { record.completionPosition = position; }
+        else { record.position = position; }
       });
       applied += 1;
     }
@@ -14609,11 +15006,26 @@ ${buildCardEvidenceSection(source, derivation)}`;
    * "align everything" that quietly skipped what a filter was hiding would leave
    * the plan half aligned in a way nobody could see.
    */
-  private async handleRoadmapAutoLayout(orientation: 'horizontal' | 'vertical'): Promise<void> {
+  private async handleRoadmapAutoLayout(orientation: 'horizontal' | 'vertical' | 'chronological', view?: 'completed'): Promise<void> {
     const context = await this.openRoadmapGraphForWrite();
     if (context === undefined) {
       return;
     }
+    if (view === 'completed') {
+      await this.commitRoadmapGraph(context.workspaceRoot, context.ssotPath, {
+        ...context.document,
+        completionLayout: orientation,
+        nodes: context.document.nodes.map(node => {
+          const { completionPosition: _released, ...rest } = node;
+          return rest;
+        }),
+      });
+      void vscode.window.showInformationMessage(orientation === 'chronological'
+        ? 'Arranged delivered work by completion month. Delivered pins were released.'
+        : `Arranged delivered work as a tree, ${orientation === 'vertical' ? 'top to bottom' : 'left to right'}. Delivered pins were released.`);
+      return;
+    }
+    if (orientation === 'chronological') { return; }
     const moved = context.document.nodes.filter(node => node.position !== undefined).length;
     const nodes = context.document.nodes.map(node => {
       const { position: _dropped, ...rest } = node;
@@ -15676,6 +16088,9 @@ ${buildCardEvidenceSection(source, derivation)}`;
     const state = this.atlas.extensionContext?.workspaceState;
     try {
       await state?.update(NAMED_BASELINE_STATE_KEY, removeBaseline(register, id));
+      if (readSelectedBaselineId(this.atlas, 'comparison') === id) {
+        await state?.update(COMPARISON_BASELINE_STATE_KEY, '');
+      }
       if (readSelectedBaselineId(this.atlas) === id) {
         await state?.update(SELECTED_BASELINE_STATE_KEY, '');
       }
@@ -15687,13 +16102,13 @@ ${buildCardEvidenceSection(source, derivation)}`;
   }
 
   /** Choose which baseline the comparison is against. An empty id chooses none. */
-  private async handleSelectBaseline(id: string): Promise<void> {
+  private async handleSelectBaseline(id: string, target?: 'comparison'): Promise<void> {
     const register = readBaselineRegister(this.atlas);
     // Resolved against the register, so an id that names nothing selects
     // nothing rather than leaving a dangling selection on the page.
     const resolved = register.baselines.some(entry => entry.id === id) ? id : '';
     try {
-      await this.atlas.extensionContext?.workspaceState.update(SELECTED_BASELINE_STATE_KEY, resolved);
+      await this.atlas.extensionContext?.workspaceState.update(target === 'comparison' ? COMPARISON_BASELINE_STATE_KEY : SELECTED_BASELINE_STATE_KEY, resolved);
     } catch {
       return;
     }
@@ -18102,6 +18517,7 @@ function isReleaseMatrixImportPayload(value: unknown): value is { previewId: str
  */
 function isRoadmapNodeMovePayload(value: Record<string, unknown> | undefined): boolean {
   return typeof value === 'object' && value !== null
+    && (value['view'] === undefined || value['view'] === 'completed')
     && isOpaqueDashboardId(value['nodeId'])
     && typeof value['x'] === 'number' && Number.isFinite(value['x'])
     && typeof value['y'] === 'number' && Number.isFinite(value['y']);
@@ -18215,8 +18631,26 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     || candidate['type'] === 'installGitHubCli'
     || candidate['type'] === 'runDirectLocalChecks'
     || candidate['type'] === 'createCiRoutingConfig'
-    || candidate['type'] === 'refreshCiCredit') {
+    || candidate['type'] === 'refreshCiCredit'
+    || candidate['type'] === 'copyCiRunnerSwitchLine') {
     return candidate['payload'] === undefined;
+  }
+
+  if (candidate['type'] === 'setCiRunnerSwitchMode') {
+    return typeof candidate['payload'] === 'string'
+      && sanitizeRunnerSwitchMode(candidate['payload']) === candidate['payload'];
+  }
+
+  if (candidate['type'] === 'saveLocalCiResources') {
+    const payload = candidate['payload'];
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return false;
+    }
+    const record = payload as Record<string, unknown>;
+    const keys = Object.keys(record);
+    return keys.length === 3
+      && ['maxCpus', 'maxMemoryGb', 'resourceShare'].every(key =>
+        typeof record[key] === 'number' && Number.isFinite(record[key]));
   }
 
   if (candidate['type'] === 'copyLocalCiCancelCommand'
@@ -18541,6 +18975,13 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
       && (AUTOMATION_LEVELS as readonly string[]).includes(payload['level']);
   }
 
+  if (candidate['type'] === 'setSessionApprovalMode') {
+    const payload = candidate['payload'] as Record<string, unknown> | undefined;
+    return typeof payload === 'object' && payload !== null
+      && typeof payload['mode'] === 'string'
+      && ['ask', 'auto', 'bypass'].includes(payload['mode']);
+  }
+
   // Both workflow writes touch a file that gets committed, so the shape is
   // checked here and every value is sanitized again in the config module.
   if (candidate['type'] === 'createWorkflowConfig') {
@@ -18643,7 +19084,8 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     // Every entry, not a sample: a batch validator that checks the first item
     // and trusts the rest is a validator with an offset.
     const moves = payload['moves'] as unknown[];
-    return moves.length > 0 && moves.every(move => isRoadmapNodeMovePayload(move as Record<string, unknown>));
+    return (payload['view'] === undefined || payload['view'] === 'completed')
+      && moves.length > 0 && moves.every(move => isRoadmapNodeMovePayload(move as Record<string, unknown>));
   }
 
   if (candidate['type'] === 'roadmapNodeUpdate') {
@@ -18679,7 +19121,9 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   }
 
   if (candidate['type'] === 'roadmapAutoLayout') {
-    return candidate['payload'] === 'horizontal' || candidate['payload'] === 'vertical';
+    return (candidate['view'] === undefined || candidate['view'] === 'completed')
+      && (candidate['payload'] === 'horizontal' || candidate['payload'] === 'vertical'
+        || (candidate['view'] === 'completed' && candidate['payload'] === 'chronological'));
   }
 
   if (candidate['type'] === 'roadmapDeriveLinks') {
@@ -18766,7 +19210,8 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
   if (candidate['type'] === 'removeBaseline' || candidate['type'] === 'selectBaseline') {
     // An opaque id, resolved host-side against the stored register: a crafted
     // message can name a baseline that exists and can never supply one.
-    return typeof candidate['payload'] === 'string';
+    return typeof candidate['payload'] === 'string'
+      && (candidate['target'] === undefined || (candidate['type'] === 'selectBaseline' && candidate['target'] === 'comparison'));
   }
 
   if (candidate['type'] === 'saveDirectorConfig') {
@@ -19045,6 +19490,7 @@ export function normalizeDashboardPromptRequest(payload: unknown): { prompt: str
  * zero, and a repository with no CI reports "no checks" rather than "0% passing".
  */
 function buildGuidedWorkflowSnapshot(input: {
+  sessionApprovalMode?: 'ask' | 'auto' | 'bypass';
   configuration: vscode.WorkspaceConfiguration;
   gitSnapshot: GitSnapshot;
   packageVersion: string;
@@ -19294,18 +19740,19 @@ function buildGuidedWorkflowSnapshot(input: {
     profile,
     enabled,
     automationLevel,
+    approvalMode: input.sessionApprovalMode ?? 'ask',
     capabilities: [
       {
         id: 'atlasmind.workflow.allowIssueWrites',
         label: 'Issue writes',
         enabled: resolveRestrictiveFlag(input.configuration.inspect<boolean>('workflow.allowIssueWrites') ?? {}),
-        detail: 'Create, comment on, edit, close or reopen issues. Every write still confirms first.',
+        detail: 'Issue writes follow the selected approval mode only at a declared and effective auto stage. Closing an issue still asks.',
       },
       {
         id: 'atlasmind.workflow.allowPullRequestWrites',
         label: 'Pull request writes',
         enabled: resolveRestrictiveFlag(input.configuration.inspect<boolean>('workflow.allowPullRequestWrites') ?? {}),
-        detail: 'Open pull requests, post reviews, merge. Every write still confirms first.',
+        detail: 'PR proposals and comments can follow the selected mode at auto. Review verdicts, merges and closing still ask.',
       },
       {
         id: 'atlasmind.workflow.allowReleaseWrites',
@@ -21003,6 +21450,7 @@ async function collectDashboardSnapshot(
       metrics: deriveDebtMetrics(debt?.register ?? { version: 1, entries: [] }, Date.now()),
       ...(debt?.register.lastScanAt === undefined ? {} : { lastScanAt: debt.register.lastScanAt }),
       ...(debt?.register.lastScanScope === undefined ? {} : { lastScanScope: debt.register.lastScanScope }),
+      ...(debt?.register.lastGameScanNotes === undefined ? {} : { lastGameScanNotes: debt.register.lastGameScanNotes }),
       // The project's own marker rules are published alongside the shipped
       // ones. A grade whose rule is not on the page is a grade nobody can
       // check, which is the same as no rule at all.
@@ -21061,6 +21509,8 @@ async function collectDashboardSnapshot(
     }),
     githubLinks: buildGithubLinksSnapshot(gitSnapshot.remoteUrl ?? dashboardIssues.repoSlug),
     guidedWorkflow: withObservedDelta(atlas, workspaceRoot, buildGuidedWorkflowSnapshot({
+      sessionApprovalMode: atlas.toolApprovalManager.getApprovalMode?.()
+        ?? (atlas.toolApprovalManager.isAutopilot() ? 'bypass' : 'ask'),
       configuration,
       gitSnapshot,
       // Detection reads dependency names the package snapshot already loaded, so
@@ -24102,6 +24552,7 @@ const OBSERVED_BASELINE_STATE_KEY = 'atlasmind.workflow.observedBaseline';
  */
 const NAMED_BASELINE_STATE_KEY = 'atlasmind.workflow.namedBaselines';
 const SELECTED_BASELINE_STATE_KEY = 'atlasmind.workflow.selectedBaseline';
+const COMPARISON_BASELINE_STATE_KEY = 'atlasmind.workflow.comparisonBaseline';
 
 /**
  * The delta, computed once and then held.
@@ -24215,6 +24666,8 @@ function buildBaselineView(
   const ordered = orderedBaselines(register);
   const selectedId = readSelectedBaselineId(atlas);
   const selected = ordered.find(entry => entry.id === selectedId);
+  const targetId = readSelectedBaselineId(atlas, 'comparison');
+  const target = ordered.find(entry => entry.id === targetId);
   const comparisons = ordered.map(entry => compareAgainstBaseline({
     baseline: entry,
     current: observed,
@@ -24222,9 +24675,11 @@ function buildBaselineView(
     now,
   }));
   const chosen = selected
-    ? comparisons.find(comparison => comparison.baseline.id === selected.id)
+    ? target ? compareNamedBaselines({ baseline: selected, target })
+      : comparisons.find(comparison => comparison.baseline.id === selected.id)
     : undefined;
   return {
+    ...(target === undefined ? {} : { targetId: target.id }),
     entries: comparisons.map(comparison => ({
       id: comparison.baseline.id,
       label: comparison.baseline.label,
@@ -24245,6 +24700,8 @@ function buildBaselineView(
           label: change.label,
           kind: change.kind,
           summary: change.summary,
+          ...(change.before === undefined ? {} : { before: change.before }),
+          ...(change.after === undefined ? {} : { after: change.after }),
         })),
         droppedByCap: chosen.delta.droppedByCap,
       },
@@ -24263,9 +24720,9 @@ function readBaselineRegister(atlas: AtlasMindContext): BaselineRegister {
   }
 }
 
-function readSelectedBaselineId(atlas: AtlasMindContext): string | undefined {
+function readSelectedBaselineId(atlas: AtlasMindContext, target?: 'comparison'): string | undefined {
   try {
-    const value = atlas.extensionContext?.workspaceState.get<string>(SELECTED_BASELINE_STATE_KEY);
+    const value = atlas.extensionContext?.workspaceState.get<string>(target === 'comparison' ? COMPARISON_BASELINE_STATE_KEY : SELECTED_BASELINE_STATE_KEY);
     return typeof value === 'string' && value ? value : undefined;
   } catch {
     return undefined;
@@ -26498,7 +26955,7 @@ function buildRoadmapGraphView(
     });
 
     const partition = partitionRoadmapCompletion(graph);
-    const completion = layoutRoadmapCompletion(partition.completed);
+    const completion = layoutRoadmapCompletion(partition.completed, { records: reconciled.document.nodes, layout: reconciled.document.completionLayout });
     const routes: DashboardRoadmapGraphView['routes'] = {};
     for (const node of graph.nodes) {
       const route = roadmapRouteTo(graph, node.id);
@@ -26541,6 +26998,7 @@ function buildRoadmapGraphView(
     return {
       active: partition.active,
       completed: completion.nodes,
+      completionLayout: reconciled.document.completionLayout ?? 'chronological',
       completedColumns: completion.columns,
       byPerson: byPerson.nodes,
       lanes: byPerson.lanes,
@@ -27701,7 +28159,7 @@ const DEBT_SCAN_SKIP_DIRS = new Set([
 /** Extensions worth reading. Anything else is either binary or not authored. */
 const DEBT_SCAN_EXTENSIONS = new Set([
   '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.rs', '.go', '.java',
-  '.kt', '.swift', '.rb', '.php', '.cs', '.c', '.h', '.cpp', '.hpp', '.css',
+  '.kt', '.swift', '.rb', '.php', '.cs', '.gd', '.c', '.h', '.cpp', '.hpp', '.css',
   '.scss', '.vue', '.svelte', '.sql', '.sh', '.yml', '.yaml',
 ]);
 

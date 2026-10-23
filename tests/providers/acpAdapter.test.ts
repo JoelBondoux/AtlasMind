@@ -131,6 +131,66 @@ const request = (over: Partial<CompletionRequest> = {}): CompletionRequest => ({
 
 beforeEach(() => resetAcpProbeCache());
 
+describe('ACP live failure regressions', () => {
+  const envelope = JSON.stringify({
+    type: 'error', status: 400,
+    error: { type: 'invalid_request_error', message: 'The selected model is not supported with a ChatGPT account.' },
+  });
+
+  it.each([false, true])('rejects a legacy Codex error returned as end_turn (keepAlive=%s)', async keepAlive => {
+    const adapter = new AcpAdapter({
+      agents: [AGENT], keepAlive,
+      spawnProcess: scriptedAgent({
+        initialize: { ...INITIALIZE_OK, agentInfo: { name: '@agentclientprotocol/codex-acp', version: '1.1.7' } },
+        chunks: ['Warning: Model metadata not found.\n\n', envelope, '\n\n'],
+      }).factory,
+    });
+    try {
+      await expect(adapter.complete(request())).rejects.toThrow(/selected model is not supported/);
+    } finally {
+      adapter.dispose();
+    }
+  });
+
+  it.each([
+    `Example response:\n${envelope}`,
+    `\`\`\`json\n${envelope}\n\`\`\``,
+    envelope,
+    JSON.stringify({ type: 'error', status: 200, error: { type: 'example', message: 'not a failure' } }),
+  ])('keeps ordinary Codex answers containing error examples: %s', async content => {
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: scriptedAgent({
+      initialize: { ...INITIALIZE_OK, agentInfo: { name: '@agentclientprotocol/codex-acp', version: '1.1.7' } },
+      chunks: [content],
+    }).factory });
+    expect((await adapter.complete(request())).content).toBe(content);
+  });
+
+  it('does not interpret another agent\'s JSON answer as a legacy Codex transport error', async () => {
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: scriptedAgent({ chunks: [envelope] }).factory });
+    expect((await adapter.complete(request())).content).toBe(envelope);
+  });
+
+  it('refuses an unknown agent instead of running the first configured subscription', async () => {
+    const { factory, agents } = scriptedAgent();
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+    await expect(adapter.complete(request({ model: 'acp/removed-agent' }))).rejects.toThrow(/configured/);
+    expect(agents).toHaveLength(0);
+  });
+
+  it('excludes a failed agent from discovery while retaining a healthy sibling', async () => {
+    const good = scriptedAgent();
+    const adapter = new AcpAdapter({
+      agents: [AGENT, { id: 'broken', command: 'broken-acp' }],
+      spawnProcess: (agent, ...args) => {
+        if (agent.id === 'broken') throw new Error('spawn ENOENT');
+        return good.factory(agent, ...args);
+      },
+    });
+    expect(await adapter.healthCheck()).toBe(true);
+    expect((await adapter.discoverModels()).map(model => model.id)).toEqual(['acp/fake']);
+  });
+});
+
 /**
  * An agent that advertises config options and honours `session/set_config_option`,
  * shaped like the live `claude-agent-acp` / `codex-acp` responses.
@@ -1710,7 +1770,7 @@ describe('AcpAdapter — effort inside a subscription', () => {
     });
     await adapter.healthCheck();
 
-    expect((await adapter.discoverModels()).map(m => m.id)).toEqual(['acp/fake']);
+    expect(await adapter.discoverModels()).toEqual([]);
   });
 });
 

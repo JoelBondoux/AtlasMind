@@ -1,5 +1,12 @@
 # Architecture
 
+Session approval modes live in `src/core/toolApprovalManager.ts` and `src/core/approvalModes.ts`.
+Auto uses an isolated, tool-free Orchestrator review with guarded egress and separate spend records;
+Bypass grants eligible prompts; Ask revokes session/task/category grants. The host-only
+`OrchestratorHooks.onToolApprovalIntent` supplies task intent. Invalid, withheld, oversized, late or
+unavailable reviews ask. Revisions prevent revoked reviews from granting permission; Workflow actions
+also re-check their declared stage and gates and retain the append-only audit ledger. Restart resets grants.
+
 **How AtlasMind is put together, in plain terms.**
 
 This page is the overview. If you're contributing code and need the full service-by-service map, the
@@ -589,10 +596,11 @@ its rendered DOM through a window reload or an extension update; it does not bri
 registered `onDidReceiveMessage`. Such a panel comes back looking healthy and is inert — hover works,
 moving between its pages works because that is local, nothing throws — while every message it posts
 lands nowhere. The Project Dashboard closes that two ways: `commands.ts` registers a
-`WebviewPanelSerializer` for `PROJECT_DASHBOARD_VIEW_TYPE` so a restored panel is re-attached to a
+`WebviewPanelSerializer` for `PROJECT_DASHBOARD_VIEW_TYPE`, paired with the manifest's matching
+`onWebviewPanel:atlasmind.projectDashboard` activation event, so a restored panel is re-attached to a
 live host (re-applying `webview.options`, which a restored panel does not keep, and reading nothing out
 of the restored webview, since the snapshot is rebuilt from the workspace anyway); and the webview arms
-a watchdog on any request the host must answer, so silence is rendered as silence rather than as a
+a watchdog on refreshes and Workflow setting/configuration actions, so silence is rendered as silence rather than as a
 spinner that never stops. Any inbound message counts as proof of life, not only a final result.
 
 Project Dashboard Atlas actions have one host-owned dispatch boundary. The browser posts only its existing
@@ -1395,7 +1403,7 @@ somebody accepts it; it can never contradict a link drawn by hand, and it can ne
 circular. Dismissing one is remembered, since a rule-derived suggestion would otherwise reappear on the
 next render. Estimates come from a published table rather than a model, with a per-node AI-assistance
 toggle — the same backlog grades identically on two machines, which is what makes an estimate on a
-committed plan worth comparing. Delivered work moves to its own chronological canvas, laid out by month
+committed plan worth comparing. Delivered work moves to its own canvas, defaulting to completion-month columns with independent pins and tree controls
 and keeping the links between pieces of work, unless something outstanding still depends on it, in which
 case it stays on the plan as the left-hand end of a route somebody is still walking.
 
@@ -1818,3 +1826,56 @@ remains broad because selecting its source supplies the intent automatic discove
 ## Operational evidence discovery
 
 Project Dashboard outcome evidence reads the complete level-two Vision and References sections of Project Soul, retaining nested subheadings and handling LF/CRLF. Testing discovery scans across workspaces up to a 10,000-file safety bound, excludes nested repositories and agent worktrees, and states when results are partial. The 600-case display limit does not cap the policy-evidence scan. Regression coverage is in `tests/views/operationsEvidence.test.ts`; score weights remain unchanged.
+
+### Delivered roadmap layout and saved baseline endpoints (0.506.0)
+
+Delivered-node management uses independent `completionPosition` pins and an optional
+`completionLayout` (`chronological`, `horizontal`, `vertical`) in the graph overlay. Existing
+files default to month columns. Auto tree and orientation controls reuse the deterministic layout
+on the delivered subgraph; returning to completion month releases only delivered pins. Single and
+group moves carry a validated `view: completed` scope. Unscoped legacy messages still address plan
+positions. Each arrangement preserves the other view, and temporary drag offsets clear when views
+change. The delivered Route control uses the same host-derived route lookup as the plan.
+
+Workflow also compares **two saved baselines** through `compareNamedBaselines`, using the same
+`compareObservedState` engine. Both labels and capture timestamps travel with the result; selecting
+an earlier target states the reverse chronological direction. Repository identity is read from the
+snapshot envelope, component coverage from the captured scope, and incompatible snapshots report
+not comparable. Each changed field exposes its before/after readings; an absent reading is labelled
+not observed. The host resolves both opaque ids from its local register. Selecting or comparing
+never rewrites either observation, and the target can return to **Current project** at any time.
+
+
+### Project-produced performance reports (0.507.0)
+
+`src/core/performanceReport.ts` owns the bounded v1 measurement exchange format and fixed-path local
+reader. The pure parser refuses incomplete reports, unsupported versions, non-finite/non-positive
+values, future dates and duplicate tuples. It retains only closed metric/statistic fields plus
+sanitised scenario text; raw reports and unknown fields never enter the payload. The collector uses
+only the SSOT home and two fixed paths, never scans recursively, rejects symlink descendants and checks
+descriptor identity/size before a capped read. It writes and executes nothing.
+
+`collectTestingDashboardSnapshot` reads reports only when performance is enabled and the home is
+unambiguous. `deriveTestingPolicyCoverage` accepts this evidence on the performance row, labels it
+Measured and leaves test-file/case counts alone. `testingPolicyDetail` recognises this report independently
+of JUnit and invents no passing case mix. The Project Dashboard renders an escaped measurement table;
+budget compliance remains not assessed. `schemas/performance-report.schema.json` is the editor contract.
+The normative format and scope are documented in `docs/game-engine-integration.md` §4.4.
+
+
+### Game-shaped debt derivation (0.508.0)
+
+`src/core/gameDebt.ts` joins a validated `GameProfile`, declared composition, caller-resolved roots,
+existing source reads, confirmed `GameAssetInventoryReport`, and generic `UpstreamDivergenceReport`.
+It applies the same published `DEBT_RULES` as written debt. `collectGameDebtForScan` in the Project
+Dashboard binds the SSOT home and custom SSOT folder, runs only after debt-scan confirmation, and
+passes bounded read-only Git calls. The collector never runs an engine or fetch. Tuning points are
+explicit author markers, not inferred numeric literals.
+
+`GameProfile.forkDebtThresholds` declares component/metric maxima without defaults. Its selector
+validates finite non-negative safe integers, retains unknown entry fields, and reports unresolved
+engine/upstream references. `game.md` mirrors the declarations. The debt overlay optionally stores
+`evidenceDetail` and `lastGameScanNotes`. Game finding ids hash the full evidence identity; measured
+counts are excluded from identity. Reconciliation requires the exact game finding to be assessed
+before obsoleting it; ordinary scanned paths cannot clear it. Manual decisions/history survive count
+changes. The normative bounds, policies and evidence limitations are in game-engine integration §4.5.

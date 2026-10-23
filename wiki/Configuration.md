@@ -1,5 +1,10 @@
 # Configuration
 
+The session selector (Ask, Auto, Bypass) is separate from saved settings. Use **AtlasMind: Set Approval
+Mode**, chat or Workflow to select it. Ask uses the configured policy; Auto invokes a reviewer;
+Bypass grants eligible prompts. Existing capabilities and workflow limits remain; restart resets to
+Ask. A repository cannot select a more permissive session mode for the operator.
+
 **Every AtlasMind setting, what it does, and what to set it to.**
 
 Two ways in:
@@ -243,6 +248,8 @@ starts anything.
 | `atlasmind.ci.localRunner.maxMemoryGb` | `16` | Caps memory after the host reserve (25%, ≥8 GB, measured on the real machine, not the Docker/WSL VM) and the testing resource share; disables container swap |
 | `atlasmind.testing.resourceShare` | `50` | The sliding scale for local test execution: what percentage of the computer tests may use. One value read by auto-verify, the test-run skill, "Run here" and the local CI container; the OS always keeps at least 25% (≥2 CPUs / 8 GB) |
 | `atlasmind.ci.localRunner.shutdownPolicy` | `ifStartedByAtlasMind` | Close Desktop only when AtlasMind opened it, never close it, or close whenever no other container is running |
+| `atlasmind.ci.runnerSwitch.mode` | `off` | Where opted-in workflows run: `off`, `auto` (GitHub while the allowance lasts, this computer once GitHub refuses for billing), `hosted` or `local`. Works through the `ATLASMIND_CI_RUNNER` repository variable; pull requests from other repositories and bot-started runs always stay on GitHub |
+| `atlasmind.ci.runnerSwitch.localLabel` | empty | The self-hosted runner label used when switched workflows run locally, such as `hireline-local` |
 
 The container has no host mount, Docker socket, GPU or persistent volume. Its result is Linux-container
 evidence even on Windows or macOS; native platform checks still need native runners. See the

@@ -15,8 +15,30 @@ import {
   parseSessionId,
   parseSessionUpdate,
   parseStopReason,
+  parseLegacyCodexError,
   toFinishReason,
 } from '../../src/providers/acpProtocol.ts';
+
+describe('legacy Codex HTTP error compatibility', () => {
+  it.each([
+    '', 'Warning: incomplete\n{',
+    'Warning: example\nnull',
+    'Warning: example\n{"type":"error","status":400,"error":null}',
+    'Warning: example\n{"type":"error","status":"400","error":{"type":"x","message":"failed"}}',
+    'Warning: example\n{"type":"error","status":600,"error":{"type":"x","message":"failed"}}',
+    'Warning: example\n{"type":"error","status":400,"error":{"type":"x","message":""}}',
+    'Warning: ' + 'x'.repeat(33_000),
+  ])('ignores malformed, ambiguous or oversized content', text => {
+    expect(parseLegacyCodexError(text)).toBeUndefined();
+  });
+
+  it('bounds the retained diagnostic and handles CRLF', () => {
+    const text = 'Warning: metadata\r\n\r\n' + JSON.stringify({
+      type: 'error', status: 503, error: { type: 'server_error', message: 'x'.repeat(3_000) },
+    });
+    expect(parseLegacyCodexError(text)).toBe('Codex HTTP 503: ' + 'x'.repeat(2_000));
+  });
+});
 
 describe('parseAcpFrame — untrusted subprocess output', () => {
   it('reads a response frame', () => {

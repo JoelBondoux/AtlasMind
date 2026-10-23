@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "AtlasMind project performance report v1",
+  "description": "Project-reported measurements only. Does not assert budget compliance or parse an engine-native capture.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "capturedAt",
+    "target",
+    "measurements"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "capturedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC capture timestamp; future captures are refused by the reader."
+    },
+    "target": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,59}$",
+      "description": "Project-authored target id, not an assertion of platform verification."
+    },
+    "measurements": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scenario",
+          "metric",
+          "statistic",
+          "value",
+          "sampleCount"
+        ],
+        "properties": {
+          "scenario": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "metric": {
+            "enum": [
+              "frameTimeMs",
+              "memoryMb",
+              "loadTimeS"
+            ],
+            "description": "Units are fixed: ms, MB and seconds respectively. MB means decimal megabytes."
+          },
+          "statistic": {
+            "enum": [
+              "mean",
+              "median",
+              "p95",
+              "p99",
+              "max"
+            ]
+          },
+          "value": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "sampleCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        }
+      }
+    }
+  }
+}

@@ -556,6 +556,31 @@ export function parseStopReason(result: Record<string, unknown>): AcpStopReason 
   return (ACP_STOP_REASONS as readonly string[]).includes(raw) ? raw as AcpStopReason : 'refusal';
 }
 
+/**
+ * codex-acp 1.1.7 can stream a terminal HTTP error as text, then say end_turn.
+ * Recognise only the observed legacy envelope: warning lines followed by one
+ * JSON HTTP error. Prose, fenced examples and bare JSON remain model output.
+ * This is a compatibility rule, not an ACP field; callers must scope it to the
+ * Codex adapter identified by initialize.agentInfo.name.
+ */
+export function parseLegacyCodexError(text: string): string | undefined {
+  if (text.length > 32_768) return undefined;
+  const lines = text.trim().split(/\r?\n/).filter(line => line.trim());
+  if (lines.length < 2 || !lines.slice(0, -1).every(line => line.startsWith('Warning: '))) return undefined;
+  try {
+    const envelope = asRecord(JSON.parse(lines.at(-1)!));
+    const error = asRecord(envelope['error']);
+    const status = envelope['status'];
+    if (envelope['type'] !== 'error' || typeof status !== 'number'
+      || !Number.isInteger(status) || status < 400 || status > 599
+      || typeof error['type'] !== 'string' || typeof error['message'] !== 'string') return undefined;
+    const message = clampText(error['message'], 2_000).trim();
+    return message ? `Codex HTTP ${status}: ${message}` : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Map a stop reason onto the adapter contract's `finishReason`. */
 export function toFinishReason(stop: AcpStopReason): 'stop' | 'length' | 'error' {
   if (stop === 'max_tokens' || stop === 'max_turn_requests') {

@@ -636,6 +636,20 @@ WorkflowStage {
 pull request like any other change. That is the point: a studio that disagrees
 with a default disagrees in public, with a diff and a reviewer.
 
+### Session approval modes
+
+The operator MAY select Ask, Auto or Bypass for this extension session. A repository MUST NOT select
+one on their behalf. Ask revokes session grants; restart resets the mode. Neither changes the
+four-gate minimum.
+
+Dashboard issue creation/comments/reopening, PR creation/comments, and label/milestone creation MAY
+skip confirmation only with an enabled declared `auto` stage, an effective level of `auto`, and an
+operator-activated Auto or Bypass mode. Auto additionally requires a valid, bounded, tool-free model
+review of the exact action. Uncertainty or failure asks; Bypass uses the session grant. Closing
+reports, review verdicts, merges, deletions and release actions MUST retain explicit confirmation.
+Other dashboard operations retain their existing paths. The host MUST re-check the revision and
+gates after review, then record automatic authorization in the audit ledger before acting.
+
 **There is no per-developer override file.** A personal override would let one
 developer silently disable a guardrail the team agreed to, which defeats the
 model entirely. Instead:
@@ -1188,3 +1202,13 @@ fix.
 | [`../project_memory/roadmap/guided-github-workflow.md`](../project_memory/roadmap/guided-github-workflow.md) | The phased implementation roadmap. |
 | [`agents-and-skills.md`](agents-and-skills.md) | Agent definitions and selection. |
 | [`architecture.md`](architecture.md) | Services, data flow, dependency graph. |
+
+### Compare captured project states
+
+Workflow also compares **two saved baselines** through `compareNamedBaselines`, using the same
+`compareObservedState` engine. Both labels and capture timestamps travel with the result; selecting
+an earlier target states the reverse chronological direction. Repository identity is read from the
+snapshot envelope, component coverage from the captured scope, and incompatible snapshots report
+not comparable. Each changed field exposes its before/after readings; an absent reading is labelled
+not observed. The host resolves both opaque ids from its local register. Selecting or comparing
+never rewrites either observation, and the target can return to **Current project** at any time.

@@ -126,7 +126,7 @@ export type ChatPanelMessage =
    * `resolveCarriedTurns`.
    */
   | { type: 'setCarriedTurns'; payload: number }
-  | { type: 'toggleAutopilot' }
+  | { type: 'selectApprovalMode' }
   | { type: 'importSessionContext'; payload: string }
   | { type: 'deleteMessage'; payload: string }
   | { type: 'sendToTerminal'; payload: { code: string } }
@@ -226,7 +226,7 @@ export function isChatPanelMessage(value: unknown): value is ChatPanelMessage {
     || message.type === 'attachEditorSelection'
     || message.type === 'attachProblems'
     || message.type === 'clearAttachments'
-    || message.type === 'toggleAutopilot'
+    || message.type === 'selectApprovalMode'
     || message.type === 'syncAiInstructions'
     || message.type === 'dismissAiInstructionNudge'
     || message.type === 'openSettings'

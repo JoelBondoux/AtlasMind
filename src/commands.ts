@@ -22,6 +22,7 @@ import { describeInstallPlan } from './ard/ardInstaller.js';
 import { hideModelSidebarEntry, type ModelSidebarHiddenEntry } from './views/modelSidebarVisibility.js';
 import { resolveAgentSkillPolicy } from './core/skillsRegistry.js';
 import { PROJECT_DASHBOARD_VIEW_TYPE } from './views/webviewUtils.js';
+import { SESSION_APPROVAL_MODES, type SessionApprovalMode } from './core/approvalModes.js';
 
 const SKILL_LEARNING_WARNING =
   'Experimental skill learning uses model tokens and may generate incorrect or unsafe code. ' +
@@ -1120,6 +1121,33 @@ export function registerCommands(
       );
     }),
 
+    vscode.commands.registerCommand('atlasmind.setApprovalMode', async (requested?: unknown) => {
+      const atlas = requireAtlas();
+      if (!atlas) { return; }
+      const mode = typeof requested === 'string' && SESSION_APPROVAL_MODES.includes(requested as SessionApprovalMode)
+        ? requested as SessionApprovalMode
+        : requested === undefined
+          ? (await vscode.window.showQuickPick([
+            { label: 'Ask', description: 'Use your configured approval policy', mode: 'ask' as const },
+            { label: 'Auto — approve for me', description: 'A separate model reviews eligible actions; uncertainty asks you', mode: 'auto' as const },
+            { label: 'Bypass', description: 'Skip eligible prompts for this extension session', mode: 'bypass' as const },
+          ], { title: 'AtlasMind approval mode', placeHolder: `Current: ${atlas.toolApprovalManager.getApprovalMode()}` }))?.mode
+          : undefined;
+      if (!mode) { return; }
+      if (mode !== 'ask') {
+        if (atlas.toolApprovalManager.getApprovalMode() === mode) { return; }
+        const answer = await vscode.window.showWarningMessage(`Enable ${mode === 'auto' ? 'Auto approvals' : 'Bypass approvals'} for this session?`, {
+          modal: true,
+          detail: (mode === 'auto'
+            ? 'A separate model call reviews eligible actions against the requested task. These calls use your configured synthesis routing, normal privacy controls and model budget, and may cost tokens. Uncertain, unavailable or invalid reviews ask you instead.'
+            : 'Eligible tool actions proceed without a review or another approval prompt, including workspace changes and permitted commands. This can change or delete local files.')
+            + '\n\nApplies to this extension session, including enabled Workflow actions at effective level auto. It does not enable disabled capabilities or waive explicit-only actions, fresh approvals after untrusted content, protected branches, release gates, or dry run. Choose Ask to revoke the session grants. Restarting also resets to Ask.',
+        }, 'Enable for this session');
+        if (answer !== 'Enable for this session') { return; }
+      }
+      atlas.toolApprovalManager.setApprovalMode(mode);
+      void vscode.window.showInformationMessage(`AtlasMind approvals: ${mode}.`);
+    }),
     vscode.commands.registerCommand('atlasmind.toggleAutopilot', () => {
       const atlas = requireAtlas();
       if (!atlas) { return; }

@@ -1,5 +1,21 @@
 ## Running a branch
 
+Configure ACP agents in User settings. The repository's `.vscode/settings.json` deliberately does
+not supply an agent array, so a local runtime pin is not shadowed. When a desktop app works and
+ACP does not, compare executable versions and standalone sign-in, then verify a completion-only
+reply. See [ACP runtime and sign-in checks](model-routing.md#acp-runtime-and-sign-in-checks).
+
+Approval modes are implemented in `src/core/approvalModes.ts` and `toolApprovalManager.ts`.
+Regression tests cover malformed/late reviews, revocation, pending cards and explicit-only actions.
+Workflow/chat DOM tests exercise the selectors; installed acceptance should also verify the activation
+dialog, return to Ask, and restart reset. Reviewer transport is tested with no tools and separate costs.
+
+The Project Dashboard declares `onWebviewPanel:atlasmind.projectDashboard` as well as registering its
+serializer. Both are required to reconnect a restored dashboard to the extension host. When checking
+Workflow controls after a restart, verify that a switch or ceiling opens its confirmation; a lost host
+must instead show recovery instructions after the 20-second reply timeout. A host acknowledgement
+clears that timeout before the confirmation completes, so time spent reading a dialog is not a failure.
+
 **Debugging from source (F5) needs no packaged build.** The launch config points at the workspace folder and its finite `build-extension` pre-launch task runs `npm run compile`, then exits before the Extension Development Host starts. It deliberately does not retain `tsc -watch`: a long-lived watcher consumes substantial committed memory and can make a new Node extension host abort before its logger exists on a busy workstation. Both profiles also set `experimentalNetworking` to `off`; VS Code 1.137.0's debugger otherwise starts the host with Node's experimental network inspector, which emitted repeated `Missing dataLength in event` exceptions during a successful AtlasMind activation. The default **Run Extension** profile additionally disables built-in GitHub Copilot Chat because the same VS Code/Copilot versions have an open exit-code-134 regression ([microsoft/vscode#335916](https://github.com/microsoft/vscode/issues/335916)). Use **Run Extension (Copilot integration)** only when the test specifically needs the VS Code Copilot provider.
 
 ```bash
@@ -1238,3 +1254,32 @@ Labelled groups and bullets carry the hierarchy Markdown cannot, keeping propose
 preserved data, and consequences scannable. Cancellation wording applies only to the listed import;
 load-time anchor and managed-instruction maintenance are named separately because they may already
 have completed before the confirmation appears.
+
+### Delivered canvas and baseline comparison validation (0.506.0)
+
+The roadmap DOM tests execute delivered arranging/snap controls and scoped drag messages, and check
+that a drag preview clears on a view switch. Host handler tests exercise single/group persistence
+and independent pin release. Graph tests cover both tree directions and immutable input; store tests
+round-trip separate pins and reject invalid layout data. Baseline tests compare saved endpoints,
+reverse direction, mismatched repositories/coverage, escaped labels/readings and opaque target
+selection. Run the standard local CI gate before treating these changes as locally validated;
+installed VS Code acceptance and hosted CI are separate evidence.
+
+### Performance report reader (C2.6)
+
+`src/core/performanceReport.ts` and `schemas/performance-report.schema.json` define a project-produced
+exchange format, not engine-native exports. Keep the fixed-path collector under the SSOT home, the
+256-KiB read cap and no-symlink/regular-file/descriptor-identity checks. Never launch a benchmark or
+profiler to fill an evidence gap. Retain sample counts/statistics, reject bad reports whole, and keep
+budget compliance separate from evidence coverage. Regression tests exercise parser refusal, cap and
+symlink cases, schema vocabulary parity, the real Testing collector and executed dashboard rendering.
+
+### Game debt signals (C2.7)
+
+`src/core/gameDebt.ts` derives game findings and collects them only for a confirmed debt scan. Reuse
+existing asset and Git readers. Keep fork count comparison separate from descriptive burden and path
+interpretation; accept only declared thresholds for matching engine/upstream evidence. Negative
+reconciliation needs per-finding proof, not a scanned path. Cap candidate/source/Git work and report
+omissions; never clear omitted findings. Tests exercise the real asset/profile collector, cancelled
+scan, partial-to-complete reconciliation, stable accepted entries, long-path identity, schema selection
+and executed dashboard escaping. Source scans now include `.gd` within the existing shared file cap.
