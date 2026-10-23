@@ -19,6 +19,10 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.509.1 -- Published baseline refreshed
+
+The README now names v0.509.0 as the last Marketplace publication.
+
 ## v0.509.0 -- CI runner switch and panels that stay open
 
 Workflows that opt in read the `ATLASMIND_CI_RUNNER` repository variable in `runs-on`. AtlasMind

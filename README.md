@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.509.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.509.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,13 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.509.1
+
+The last Marketplace publication is now **v0.509.0**, which carries everything since v0.504.4: the CI
+runner switch, the delivered roadmap controls and baseline comparisons, project-reported performance
+evidence, game-shaped debt signals and the ACP recovery fixes. Every release is written up in full in
+[CHANGELOG.md](CHANGELOG.md).
+
 ## What's new in 0.509.0
 
 **CI that falls over to your own computer.** On the Pipeline page, choose Automatic, Always GitHub
@@ -194,14 +201,7 @@ legacy Codex warning-plus-HTTP-error response is rejected even when its adapter 
 normally. ACP agent commands and runtime pins belong in User settings; this repository no longer
 shadows them. See [ACP troubleshooting](docs/model-routing.md#acp-runtime-and-sign-in-checks).
 
-## What's new in 0.508.0
-
-**Game-shaped technical debt.** A confirmed debt scan can now record observed binary assets outside
-Git LFS, import-error markers, author-marked tuning points, and engine-fork counts over project-declared
-limits. Each finding uses the published debt rules. Missing or partial evidence keeps previous findings;
-nothing launches an engine, build, profiler or fetch.
-
-Only the three newest releases are summarised here. The last Marketplace publication, **v0.504.4**, is
+Only the three newest releases are summarised here. The last Marketplace publication, **v0.509.0**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
 [CHANGELOG.md](CHANGELOG.md).
 
