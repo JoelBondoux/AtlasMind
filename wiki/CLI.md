@@ -226,17 +226,18 @@ client's agent log — as `[atlasmind-acp] [dry run] …`, never to stdout, whic
 Run **AtlasMind: Copy Buzz ACP Agent Setup** from the Command Palette. What gets copied contains **no
 credentials** — just the exact values for your open workspace.
 
-In Buzz, create a managed agent:
+In Buzz Desktop 0.5, edit the agent, choose **AI configuration → Customize for this agent**, then
+**Agent harness → Add custom harness…**:
 
 | Buzz field | What to put |
 |---|---|
-| Provider | **Custom command** |
-| Agent command | The copied runtime executable |
-| Agent arguments | Paste the copied arguments |
-| LLM provider | Leave blank |
-| Model | Leave blank |
+| Name | The copied `name` (one harness per persona — the manifest is in the arguments) |
+| Command | The copied `command` |
+| Arguments | Each entry of the copied `arguments`, one row each |
+| Env vars | `ELECTRON_RUN_AS_NODE=1`, plus a provider variable if the persona has no ACP agents |
+| Model (on the agent) | Any value — Buzz requires one, and only sends it to an agent that offers model choices, which AtlasMind does not |
 
-Set Buzz's parallelism to **1** — AtlasMind runs one orchestrator loop at a time.
+Set **Advanced → Parallelism** to **1** — AtlasMind runs one orchestrator loop at a time.
 
 Then give the agent one model route through its environment variables (`ELECTRON_RUN_AS_NODE=1` plus one
 of the `ATLASMIND_PROVIDER_*` keys or `ATLASMIND_LOCAL_OPENAI_BASE_URL`). AtlasMind never exports

@@ -19826,7 +19826,7 @@
         { text: 'Verifying copies a check to post in a channel AtlasMind watches. The identity that answers it is offered for recording, and you confirm the owner key that authorised it.' },
       ],
       commonMistakes: [
-        'Choosing AtlasMind as an LLM provider in Buzz. AtlasMind is a custom command there, and Buzz’s own agent rejects it.',
+        'Choosing AtlasMind as an LLM provider in Buzz. AtlasMind is a custom harness there (Agent harness → Add custom harness…), and Buzz’s own agent rejects it as a provider.',
         'Leaving Parallelism at Buzz’s default of ten. AtlasMind schedules its own work, so one copy is enough.',
       ],
     });

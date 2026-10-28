@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.514.1 -- Buzz setup steps that match Buzz
+
+The recipe AtlasMind copies for Buzz described fields from an older Buzz Desktop. It now follows 0.5's
+agent editor, read from Buzz's own source: **Agent harness → Add custom harness…**, a Name, a Command,
+one Argument per row, and Env vars. Each persona gets its own harness. Buzz still asks for a Model, so
+type any value: Buzz only sends a model to an agent that offers model choices, and AtlasMind picks its own.
+
+---
+
 ## v0.514.0 -- Know which Buzz identity runs each persona
 
 **AtlasMind: Verify Buzz Persona Deployment** copies a one-time check to post in a Buzz channel AtlasMind

@@ -395,9 +395,9 @@ export function buildBuzzSetupPlan(state: BuzzSetupState): BuzzSetupStep[] {
     detail: 'A Director Person/channel binding is not executable. Buzz needs its own managed agent whose Custom command launches AtlasMind’s local ACP endpoint.',
     guidance: [
       { text: 'Open the VS Code Command Palette and run **AtlasMind: Copy Buzz ACP Agent Setup** to copy a credential-free recipe for this workspace.' },
-      { text: 'In Buzz, open **Settings → Agents**, create an agent, choose **Provider → Custom command**, then paste **Agent command** and the comma-separated **Agent arguments** from the copied JSON.' },
-      { text: 'Leave Buzz’s **LLM provider** and **Model** blank. AtlasMind owns model routing; those Buzz fields do not configure AtlasMind.' },
-      { text: 'Under **Environment variables**, add `ELECTRON_RUN_AS_NODE=1` from the copied recipe plus one AtlasMind provider variable (or a local endpoint). VS Code SecretStorage is deliberately not exported into another process.' },
+      { text: 'In Buzz Desktop 0.5, edit the agent and choose **AI configuration → Customize for this agent**, then **Agent harness → Add custom harness…**. Paste the **Command**, add each entry of `arguments` from the copied JSON as its own **Argument** row, and save.' },
+      { text: 'In the harness’s **Env vars**, add `ELECTRON_RUN_AS_NODE=1` from the copied recipe plus one AtlasMind provider variable (or a local endpoint). VS Code SecretStorage is deliberately not exported into another process.' },
+      { text: 'Buzz still asks for a **Model** once a custom harness is selected: type any value. AtlasMind owns model routing, and Buzz only sends a model to an agent that offers model choices, which AtlasMind does not. Set **Advanced → Parallelism** to 1.' },
       { text: 'Buzz keeps `buzz-acp` as the harness. The AtlasMind command is the ACP-speaking agent behind it, so it does not need to appear in Buzz’s built-in runtime catalog.' },
     ],
   });

@@ -4322,17 +4322,17 @@ async function bootstrapAtlasMind(
       }
 
       try {
-        const { buildBuzzAcpRuntimeSetup } = await import('./acp/buzzAcpSetup.js');
+        const { buildBuzzAcpRuntimeSetup, describeBuzzHarnessSteps } = await import('./acp/buzzAcpSetup.js');
         const setup = buildBuzzAcpRuntimeSetup({
           workspaceRoot: workspaceFolder.uri.fsPath,
           runtimeExecutable: process.execPath,
           agentEntrypoint: path.join(launcherDirectory, 'atlasmind-acp-runner.js'),
         });
-        await fs.stat(setup.buzzFields.agentCommand);
-        await fs.stat(setup.buzzFields.agentArguments[0]);
+        await fs.stat(setup.buzzHarness.command);
+        await fs.stat(setup.buzzHarness.arguments[0]!);
         await vscode.env.clipboard.writeText(JSON.stringify(setup, null, 2));
         void vscode.window.showInformationMessage(
-          'Copied the Buzz custom-agent fields. In Buzz, choose Provider → Custom command, paste the command and comma-separated arguments, and add ELECTRON_RUN_AS_NODE=1 plus one AtlasMind provider environment variable. Leave Buzz provider/model blank so AtlasMind routes them.',
+          `Copied the Buzz custom-harness fields. ${describeBuzzHarnessSteps(setup)} Give the harness one AtlasMind provider environment variable too — AtlasMind never copies a key out of VS Code.`,
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

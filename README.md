@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.514.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.514.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,12 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.514.1
+
+**Buzz setup steps that match Buzz.** The recipe AtlasMind copies for Buzz now uses Buzz Desktop 0.5's
+real fields: *Agent harness → Add custom harness…*, with one argument per row and a harness per persona.
+It also tells you to type any value for the model Buzz still asks for; AtlasMind picks the model itself.
+
 ## What's new in 0.514.0
 
 **Know which Buzz identity runs each persona.** **AtlasMind: Verify Buzz Persona Deployment** copies a
@@ -192,15 +198,6 @@ Personas stay mention-only until channel default routing is proven.
 launch settings, never their sign-ins, so the persona Buzz launches answers through the same Claude
 and Codex agents the editor uses, with no API key. They answer only and run no tools of their own. The
 recipe now uses Buzz Desktop's own field names and asks Buzz to start one copy, not ten.
-
-## What's new in 0.512.0
-
-**One Buzz identity, a team behind it.** **AtlasMind: Recommend Buzz Personas** suggests teams such as
-AM Engineer and AM Oversight from your enabled agents, using a published rule table, and shows why each
-agent is in each team. A saved persona answers in Buzz as one identity, but picks its worker only from
-its members. It never hands off outside them and never gives a member more authority than its own;
-AM Oversight only reads. **AtlasMind: Prepare Buzz Persona Deployment** writes the launch recipe.
-Creating the identity in Buzz stays your step.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.509.0**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
