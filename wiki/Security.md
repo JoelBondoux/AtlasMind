@@ -691,6 +691,13 @@ or whose value looks like a secret, stops the manifest being written; the messag
 never shows its value. In the persona those agents only answer: they get no permission to act, and every
 credential-shaped variable, including the Buzz key the persona was started with, is withheld from them.
 
+**A persona's identity is proven, not assumed.** Copying a launch recipe records nothing. An identity is
+recorded as running a persona only after it answers a one-time check. AtlasMind verifies that answer's
+signature itself and requires the owner's signed authorisation of the key, so a person who types the answer
+line with their own key is refused. You confirm the owner key before anything is recorded. The record keeps
+public keys only, on your machine, and an answer from an older manifest, a late answer or a revoked identity
+is refused and named.
+
 ---
 
 ## Autonomous runs are contained

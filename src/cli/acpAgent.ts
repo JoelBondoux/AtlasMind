@@ -251,7 +251,7 @@ export async function runAcpAgent(
     runtime,
     permissionBroker,
     replyPublisher,
-    ...(personaScope ? { personaScope } : {}),
+    ...(personaScope && manifest ? { personaScope, personaManifestFingerprint: manifest.fingerprint } : {}),
     log,
   });
 

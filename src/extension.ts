@@ -58,7 +58,7 @@ import {
   LOCAL_GPU_EVICTION_COOLDOWN_MS,
 } from './constants.js';
 import { BUZZ_AGENT_KEY_SECRET } from './core/buzzSigner.js';
-import { BuzzInboundService } from './core/buzzInboundService.js';
+import { BuzzInboundService, readBuzzInboundSettings, readBuzzRevocationSettings } from './core/buzzInboundService.js';
 import { registerBuzzRevocationCommands } from './views/buzzRevocationCommands.js';
 import { registerBuzzPersonaCommands } from './views/buzzPersonaCommands.js';
 import { BUZZ_SETUP_COMMANDS } from './core/buzzSetupPlan.js';
@@ -4197,6 +4197,13 @@ async function bootstrapAtlasMind(
       workspaceState: context.workspaceState,
       globalStorageUri: context.globalStorageUri,
       prepareLauncher: () => ensureAtlasMindCliOnTerminalPath(context, undefined, { force: true }),
+      // A persona check is answered in Buzz and seen through this subscription.
+      getBuzzInbound: () => buzzInbound,
+      readInboundGates: () => {
+        const settings = readBuzzInboundSettings();
+        return { enabled: settings.enabled, inboundEnabled: settings.inboundEnabled, channelIds: settings.channelIds };
+      },
+      isRevoked: pubkey => readBuzzRevocationSettings().revoked.has(pubkey),
     }),
   );
   /**

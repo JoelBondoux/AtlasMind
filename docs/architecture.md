@@ -3377,6 +3377,20 @@ On the first prompt it discovers and registers their models with the shared `inf
 `src/providers/modelMetadataInference.ts`. Discovery waits for the first prompt because Buzz starts
 *Parallelism* copies of the command; a timeout or failure keeps the seeded catalogue and is logged.
 
+**Verification** (`buzzPersonaVerification.ts`, `buzzPersonaDeployments.ts`). An identity counts as running
+a persona only after it answers a check. **AtlasMind: Verify Buzz Persona Deployment** issues a 32-hex nonce
+for one prepared persona and copies `@<name> atlasmind-verify <persona> <nonce>`. The persona process reads a
+check only from the newest `[Event]` content, never from history. It answers its own check with
+`atlasmind-verified <persona> <nonce> manifest=<16 hex>` and calls no model; a check naming another persona
+gets a refusal. The extension hears the answer through `BuzzInboundService.onDidObserveEvent`.
+`verifyPersonaAnswer` requires a channel message whose recomputed id and Schnorr signature verify and which
+carries a valid NIP-OA owner attestation (`verifyOwnerAttestation`). It must also be signed within the
+15-minute window, from a key and owner AtlasMind has not revoked, naming the prepared manifest. The person
+confirms the owner key, and `recordVerifiedIdentity` stores public keys in workspace state, one identity per
+persona. The Director's *Buzz agents* card reads `describeBuzzPersonaCard`. It shows every persona as
+mention-only, because exclusive default dispatch is unverified for the Buzz build in use
+(`PERSONA_DEFAULT_ROUTING_UNAVAILABLE`).
+
 ### BuzzDirectory (`src/core/buzzDirectory.ts`)
 
 The identities AtlasMind has *observed*, so a Buzz handle can be picked rather than typed.

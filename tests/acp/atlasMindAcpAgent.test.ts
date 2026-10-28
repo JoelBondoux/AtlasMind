@@ -98,6 +98,34 @@ describe('AtlasMindAcpAgent', () => {
     expect(log).toHaveBeenCalledWith('Persona am-engineer: backend-engineer answered with local/echo.');
   });
 
+  it('answers a persona verification check with a fixed line and no model, through the same reply path', async () => {
+    const runtime = createRuntime();
+    runtime.orchestrator.processTaskInScope = vi.fn();
+    const publish = vi.fn(async () => true);
+    const workspaceRoot = path.resolve('C:/workspace');
+    const scope = {
+      personaId: 'am-engineer',
+      allowedAgentIds: ['backend-engineer'],
+      preferredAgentId: 'backend-engineer',
+      skillCeiling: { mode: 'member' as const },
+      hostDelivery: 'buzz-acp' as const,
+    };
+    const fingerprint = 'ab'.repeat(32);
+    const agent = new AtlasMindAcpAgent({
+      workspaceRoot, version: '1.0.0', runtime, personaScope: scope, personaManifestFingerprint: fingerprint, replyPublisher: { publish },
+    });
+    const { sessionId } = await agent.newSession({ cwd: workspaceRoot, mcpServers: [] } as any);
+    const { client, updates } = createClient();
+    const nonce = '0123456789abcdef0123456789abcdef';
+    const prompt = ['[Context]', 'Scope: channel', '', '[Event]', `Event ID: ${'a'.repeat(64)}`, `Content: @AM Engineer atlasmind-verify am-engineer ${nonce}`].join('\n');
+
+    await expect(agent.prompt({ sessionId, prompt: [{ type: 'text', text: prompt }] } as any, client)).resolves.toEqual({ stopReason: 'end_turn' });
+    const line = `atlasmind-verified am-engineer ${nonce} manifest=${fingerprint.slice(0, 16)}`;
+    expect(runtime.orchestrator.processTaskInScope).not.toHaveBeenCalled();
+    expect(publish).toHaveBeenCalledWith(prompt, line, expect.anything());
+    expect(JSON.stringify(updates)).toContain(line);
+  });
+
   it('rejects sessions whose cwd escapes the configured workspace', async () => {
     const workspaceRoot = path.resolve('C:/workspace');
     const agent = new AtlasMindAcpAgent({

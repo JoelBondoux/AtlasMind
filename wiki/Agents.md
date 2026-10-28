@@ -132,7 +132,8 @@ why each agent is in it. One agent can be in several teams. The advisors that on
 AM Oversight, so it can still review independently. A saved persona answers in Buzz as one author, and
 picks its worker only from its own members. A question none of them fits goes to the team's lead, never
 to an agent outside the team. **AtlasMind: Prepare Buzz Persona Deployment** writes the recipe that tells
-Buzz how to launch it.
+Buzz how to launch it, and **AtlasMind: Verify Buzz Persona Deployment** records which Buzz identity
+answered its signed check. The Director page's *Buzz agents* card shows where each persona stands.
 
 ## Agents can ask each other
 

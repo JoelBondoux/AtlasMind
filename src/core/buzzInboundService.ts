@@ -200,8 +200,20 @@ export class BuzzInboundService implements vscode.Disposable {
   private readonly attestations = new Map<string, Promise<string | undefined>>();
   /** Identities whose bad attestation has been reported, so the log says it once. */
   private readonly reportedInvalidAttestations = new Set<string>();
+  /** Session-scoped observers, such as a persona check waiting for its answer. */
+  private readonly eventObservers = new Set<(event: NostrEvent) => void>();
 
   constructor(private readonly deps: BuzzInboundDeps) {}
+
+  /**
+   * Hear every event the subscription receives, for as long as the returned
+   * disposable lives. An observer that throws is dropped from that event only;
+   * it never interrupts the subscription or the other observers.
+   */
+  onDidObserveEvent(observer: (event: NostrEvent) => void): vscode.Disposable {
+    this.eventObservers.add(observer);
+    return { dispose: () => { this.eventObservers.delete(observer); } };
+  }
 
   getStatus(): BuzzClientStatus {
     return this.client ? this.client.getStatus() : 'idle';
@@ -285,6 +297,13 @@ export class BuzzInboundService implements vscode.Disposable {
     observeEvent(this.directory, event);
     this.verifyAttestation(event);
     this.recordConversation(event);
+    for (const observer of this.eventObservers) {
+      try {
+        observer(event);
+      } catch {
+        // One observer's failure is its own; the subscription carries on.
+      }
+    }
     if (identitiesMissingProfiles(this.directory, MAX_PROFILE_LOOKUP).length > 0) {
       this.scheduleProfileLookup(channelIds);
     }

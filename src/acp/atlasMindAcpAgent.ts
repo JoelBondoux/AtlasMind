@@ -19,7 +19,7 @@ import type {
   ToolKind,
 } from '@agentclientprotocol/sdk' with { 'resolution-mode': 'import' };
 import type { AtlasRuntime } from '../runtime/core.js';
-import type { AgentDefinition, PersonaScope, TaskRequest, ToolApprovalGateMeta, ToolInvocationPolicy, TurnProvenance } from '../types.js';
+import type { AgentDefinition, PersonaScope, TaskRequest, TaskResult, ToolApprovalGateMeta, ToolInvocationPolicy, TurnProvenance } from '../types.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
 import {
   describeEscalationSources,
@@ -29,6 +29,7 @@ import {
 } from '../core/contextProvenance.js';
 import type { AcpReplyPublisher } from './buzzReplyPublisher.js';
 import { interceptDryRun } from '../core/dryRunHost.js';
+import { personaChallengeAnswer, readPersonaChallengeFromBuzzPrompt } from '../core/buzzPersonaVerification.js';
 
 export const ATLASMIND_ACP_PROTOCOL_VERSION = 1;
 export const MAX_ACP_PROMPT_CHARS = 1_000_000;
@@ -65,6 +66,12 @@ export interface AtlasMindAcpAgentOptions {
    * members; when absent, the legacy fixed-default agent answers.
    */
   personaScope?: PersonaScope;
+  /**
+   * The verified manifest's fingerprint. With a persona, a verification check
+   * in the triggering message is answered with a fixed line naming it, and no
+   * model is called (`buzzPersonaVerification.ts`).
+   */
+  personaManifestFingerprint?: string;
   log?: (message: string) => void;
 }
 
@@ -268,25 +275,39 @@ export class AtlasMindAcpAgent {
       }));
     };
 
+    // A verification check is answered by a fixed line, never by a model: a
+    // paraphrased answer would no longer match, and nothing here needs one.
+    const challenge = personaScope && this.options.personaManifestFingerprint
+      ? readPersonaChallengeFromBuzzPrompt(prompt)
+      : undefined;
+
     this.permissionBroker.register(taskId, params.sessionId, client);
     try {
-      const result = personaScope
-        ? await this.options.runtime.orchestrator.processTaskInScope(
-          request,
-          personaScope,
-          queueText,
-          message => this.options.log?.(message),
-        )
-        : await this.options.runtime.orchestrator.processTaskWithAgent(
-          request,
-          agent!,
-          queueText,
-          () => undefined,
-        );
+      const result: Pick<TaskResult, 'agentId' | 'modelUsed' | 'response'> = challenge && personaScope
+        ? {
+          agentId: `persona:${personaScope.personaId}`,
+          modelUsed: 'none',
+          response: personaChallengeAnswer(personaScope.personaId, challenge, this.options.personaManifestFingerprint!),
+        }
+        : personaScope
+          ? await this.options.runtime.orchestrator.processTaskInScope(
+            request,
+            personaScope,
+            queueText,
+            message => this.options.log?.(message),
+          )
+          : await this.options.runtime.orchestrator.processTaskWithAgent(
+            request,
+            agent!,
+            queueText,
+            () => undefined,
+          );
       if (personaScope) {
         // Who answered inside the persona, for the operator's log. The Buzz
         // author stays the persona's one signed identity either way.
-        this.options.log?.(`Persona ${personaScope.personaId}: ${result.agentId} answered with ${result.modelUsed}.`);
+        this.options.log?.(challenge
+          ? `Persona ${personaScope.personaId}: answered a verification check for ${challenge.personaId} without a model.`
+          : `Persona ${personaScope.personaId}: ${result.agentId} answered with ${result.modelUsed}.`);
       }
       await notificationChain;
       if (abortController.signal.aborted) {

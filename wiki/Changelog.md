@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.514.0 -- Know which Buzz identity runs each persona
+
+**AtlasMind: Verify Buzz Persona Deployment** copies a one-time check to post in a Buzz channel AtlasMind
+watches. The persona answers it with a fixed line and no model. AtlasMind verifies the answer's signature
+itself and requires its owner's NIP-OA authorisation, so somebody typing the answer with their own key is
+refused. You then confirm the owner key before the identity is recorded, on this machine only. An answer
+from an older manifest, a late answer, and a revoked identity are each refused and named. The Director
+page gains a *Buzz agents* card: each persona's lead, team size, ceiling and state, the suggestions not yet
+accepted, and the three persona commands. Personas stay mention-only; the card says why channel default
+routing is not offered yet.
+
+---
+
 ## v0.513.0 -- A Buzz persona answers from your subscriptions
 
 The process Buzz launches for a persona had no way to reach the Claude or Codex subscriptions you use in

@@ -782,12 +782,25 @@ checks below.
 
 #### Phase 5 — Director and setup
 
+**Progress (0.514.0, 2026-10-28).** Nonce verification and a Director *Buzz agents* card shipped.
+**AtlasMind: Verify Buzz Persona Deployment** issues the check; the persona process answers it without
+a model; the extension verifies the signature and the NIP-OA owner attestation itself and records the
+identity after the person confirms the owner key (`buzzPersonaVerification.ts`, `buzzPersonaDeployments.ts`).
+The card shows each persona's state and the pending suggestions and opens the three commands. Still owed:
+an in-card profile editor (customising is the file today), per-channel response modes, and the owner /
+colleague allowlist step of the deployment walkthrough.
+
 - Build Recommended / Active cards, profile editor, channel/default constraints, diagnostics, manifest
   resync, setup copy, and nonce verification.
 - Do not place secret values, raw messages, full agent prompts, or local workspace paths in the
   dashboard snapshot.
 
 #### Phase 6 — default routing and operational proof
+
+**Gate in place (0.514.0).** Every persona is shown as mention-only, with the reason
+(`PERSONA_DEFAULT_ROUTING_UNAVAILABLE`). buzz-acp 0.5.28 offers `--subscribe all` and per-channel config
+but no rule that keeps a default quiet when another persona is mentioned; whether its `[Event]` context
+names who was mentioned is what Phase 0's two-identity run has to show before AtlasMind can enforce it.
 
 - Enable default mode only after Phase 0's exclusive-dispatch contract passes for the detected Buzz
   version. Otherwise render the mode as unavailable with the exact reason.

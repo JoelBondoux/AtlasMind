@@ -800,6 +800,22 @@ import {
   type BuzzAgentBindingIssue,
 } from '../core/buzzAgentBindings.js';
 import { describeIdentity } from '../core/buzzDirectory.js';
+import {
+  isReviewOnlyAgent,
+  pendingRecommendations,
+  recommendBuzzPersonas,
+  type RecommendationDismissals,
+} from '../core/buzzAgentRecommendations.js';
+import { BUZZ_PERSONA_FILE, readBuzzPersonaDocument, validateBuzzPersonaProfiles } from '../core/buzzPersonaProfiles.js';
+import { buildBuzzPersonaManifest } from '../core/buzzPersonaManifest.js';
+import {
+  PERSONA_DEPLOYMENTS_KEY,
+  PERSONA_RECOMMENDATION_DISMISSALS_KEY,
+  describeBuzzPersonaCard,
+  readPersonaDeployments,
+  type BuzzPersonaCardView,
+} from '../core/buzzPersonaDeployments.js';
+import { readManifestModelAccess } from './buzzPersonaCommands.js';
 import { BUZZ_AGENT_KEY_SECRET, deriveBuzzPublicKey } from '../core/buzzSigner.js';
 import { mcpSkillId } from '../mcp/mcpServerRegistry.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
@@ -940,6 +956,11 @@ const ALLOWED_DASHBOARD_COMMANDS = new Set([
   'atlasmind.bootstrapProject',
   'atlasmind.importProject',
   'atlasmind.importRota',
+  // Buzz persona teams, from the Buzz agents card on the Director page. Each opens its
+  // own QuickPick and confirmation; the card supplies no persona or argument.
+  'atlasmind.buzz.recommendPersonas',
+  'atlasmind.buzz.preparePersonaDeployment',
+  'atlasmind.buzz.verifyPersonaDeployment',
   'atlasmind.openMcpServers',
   'atlasmind.lens.setupDeclarations',
   'workbench.view.scm',
@@ -3748,6 +3769,13 @@ interface DashboardSnapshot {
    * surfaces cannot hold different answers.
    */
   portalHosting: DashboardPortalHostingSnapshot;
+  /**
+   * Buzz persona teams and which identity runs each, on the Director page.
+   * Absent when Buzz is off and the project has no persona file, so a project
+   * that does not use Buzz sees nothing new. Ids, names, short key prefixes
+   * and dates only — never a prompt, a path, a key or a message.
+   */
+  buzzPersonas?: BuzzPersonaCardView;
   /** Human ownership for actionable records across the dashboard. */
   workAssignments: DashboardWorkAssignmentsSnapshot;
   /**
@@ -4609,6 +4637,53 @@ function collectUtilitiesSnapshot(
     verifiedAt: UTILITY_PACKS_VERIFIED_AT,
     assessed: evidence !== undefined,
   };
+}
+
+/**
+ * The Director's *Buzz agents* card: the project's personas, where each stands
+ * on this machine, and the teams the registry suggests. Read-only and offline
+ * — the manifest is rebuilt only to compare fingerprints, nothing is written —
+ * and a failure reads as no card rather than taking the page down.
+ */
+function collectBuzzPersonasSnapshot(atlas: AtlasMindContext, workspaceRoot: string | undefined): BuzzPersonaCardView | undefined {
+  if (!workspaceRoot) {
+    return undefined;
+  }
+  try {
+    const read = readBuzzPersonaDocument(workspaceRoot);
+    const buzzEnabled = vscode.workspace.getConfiguration('atlasmind').get<boolean>('buzz.enabled', false) === true;
+    if (!buzzEnabled && !read.exists) {
+      return undefined;
+    }
+    const registry = atlas.agentRegistry;
+    const agents = registry?.listAgents() ?? [];
+    const isEnabled = (id: string): boolean => registry?.isEnabled(id) ?? false;
+    const validation = read.document
+      ? validateBuzzPersonaProfiles(read.document, agents.map(agent => ({ id: agent.id, enabled: isEnabled(agent.id), oversight: isReviewOnlyAgent(agent) })))
+      : [];
+    const modelAccess = readManifestModelAccess();
+    const currentFingerprints: Record<string, string | undefined> = {};
+    for (const profile of read.document?.profiles ?? []) {
+      const built = buildBuzzPersonaManifest(profile, agents, isEnabled, modelAccess);
+      currentFingerprints[profile.id] = built.kind === 'ok' ? built.manifest.fingerprint : undefined;
+    }
+    const state = atlas.extensionContext?.workspaceState;
+    const suggestions = pendingRecommendations(
+      recommendBuzzPersonas(registry?.listEnabledAgents() ?? []),
+      read.document,
+      state?.get<RecommendationDismissals>(PERSONA_RECOMMENDATION_DISMISSALS_KEY, {}) ?? {},
+    );
+    return describeBuzzPersonaCard({
+      file: BUZZ_PERSONA_FILE.split(path.sep).join('/'),
+      read,
+      validation,
+      deployments: readPersonaDeployments(state?.get<unknown>(PERSONA_DEPLOYMENTS_KEY)),
+      currentFingerprints,
+      suggestions,
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -21593,6 +21668,7 @@ async function collectDashboardSnapshot(
       runbooks: deliveryRunbooks,
     },
     utilities: collectUtilitiesSnapshot(archetypeEvidence),
+    buzzPersonas: collectBuzzPersonasSnapshot(atlas, workspaceRoot),
     portalHosting: collectPortalHostingSnapshot(
       ssotRoot,
       directorSnapshot.config ?? undefined,
