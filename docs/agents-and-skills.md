@@ -6,6 +6,14 @@ while a successful session-open probe still requires a real reply check to estab
 Local CLI runtime pins and sign-in checks are described in
 [Model Routing](model-routing.md#acp-runtime-and-sign-in-checks).
 
+Delegated ACP execution is only offered by an agent with a verified asking mode
+(`ACP_ASKING_MODES` in `src/providers/acpPermission.ts`). Every session is put into that mode
+before any prompt, so the agent's edits and commands arrive as `session/request_permission` and
+reach AtlasMind's approval policy; a session that cannot be confirmed in it is refused, and a turn
+is cancelled if the agent changes mode. Verified on 2026-10-27: claude-agent-acp 0.63.0 (`default`)
+and codex-acp 1.1.7 (`read-only`) each asked before a write, and Codex before a command, in both
+the approve and refuse directions.
+
 **Ask / Auto / Bypass** are session approval modes, selected from Workflow, chat, the status bar or
 **AtlasMind: Set Approval Mode**. Ask uses the configured policy; Auto reviews eligible requests in
 a separate tool-free model call; Bypass retains the eligible grant previously called Autopilot.

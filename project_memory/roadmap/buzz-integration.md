@@ -1,7 +1,7 @@
 # Buzz (buzz.xyz) Integration — Phased Roadmap
 
-> **Status:** Tier 1b implementation complete; a real-relay smoke test remains before the live-send
-> gate is closed. Tier 2 guided connector shipped and ARD discovery still planned. Tier 3's
+> **Status:** Tier 1b complete — the real-relay smoke test passed on 2026-10-27 (v0.509.3) with buzz
+> CLI 0.4.26 and the CLI shipped with Buzz Desktop 0.5.28. Tier 2 guided connector shipped and ARD discovery still planned. Tier 3's
 > protocol/policy/derivation **foundation** shipped (v0.147.0) and its `BuzzClient` subscription
 > (v0.148.0), NIP-42 Schnorr signing (v0.149.0), **real-relay validation (v0.149.2 — which caught a
 > wrong message kind)**, and the wiring + agent bindings (v0.150.0). **Tier 3 is complete and
@@ -110,9 +110,19 @@ comms machinery, with zero speculative protocol code.
   to channel posts and 64-character public keys route to DMs; Slack or Teams cannot receive a Buzz
   recipient by capability-ranking accident.
 
-**Remaining completion check:** run one channel post, thread read, and DM against a disposable
-identity on a real Buzz v0.4.26 installation. The local development machine did not have `buzz` on
-PATH, so unit/contract/package verification is complete but the external relay smoke test is not.
+**Completion check — passed 2026-10-27 (v0.509.3).** One channel post, one threaded reply, a thread
+read and a DM, through AtlasMind's own `BuzzCliBridge`, with disposable identities (nothing sent as
+the owner), 11/11 checks with each of:
+
+| CLI | Relay | Result |
+|---|---|---|
+| buzz CLI 0.4.26 (cargo build, on PATH) | `ghcr.io/block/buzz:main` pinned by digest `sha256:289fc1d1…`, local compose, loopback only | pass |
+| buzz CLI shipped with Buzz Desktop 0.5.28 | same | pass |
+
+The pinned v0.4.26 contract probes still pass against the 0.5.28 CLI, so the pin holds across the
+0.5 line. The same run re-verified inbound: `BuzzClient` authenticates (NIP-42), subscribes, and
+receives the posted message as **kind 9** with the `h` channel tag, on a relay 176 commits ahead of
+the Desktop release. No sha tag is published for the Desktop release commit, hence `main` by digest.
 
 **Reuse map:** `handleDirectorSendComms` + the `{modal:true}` auth gate + the `outboundEnabled`
 project flag + `handleOpenContactDeepLink` + `ALLOWED_DEEPLINK_SCHEMES` +

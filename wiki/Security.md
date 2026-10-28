@@ -5,6 +5,17 @@ probes are excluded individually. Runtime pins are local User configuration, and
 not extract or copy desktop login tokens. The observed legacy Codex warning-plus-HTTP-error
 envelope is rejected despite an `end_turn` result; it cannot enter the successful-response cache.
 
+**ACP agents run only in a mode verified to ask.** Answering `session/request_permission` correctly
+protects nothing if the agent never sends one: codex-acp's default `agent` mode edited a file
+without asking, in a turn AtlasMind treated as completion-only (found by live test, 2026-10-27).
+`ACP_ASKING_MODES` declares the asking mode per agent, each verified by a refused write (and, for
+Codex, a refused command); the adapter sets and confirms it before every prompt, re-checks it on a
+reused session, and cancels a turn on a mode change. AtlasMind sets a `mode` value only from that
+table, so it can tighten a session and never loosen one. Residual risk: an agent not in the table
+(Gemini, Copilot, Qwen, or a custom command) is refused delegated execution but still runs as a
+completion source, with a one-time warning — if such an agent acts without asking, the gate does
+not see it.
+
 Auto approvals use a separate no-tool reviewer. `approvalModes.ts` owns eligibility, payload/reply
 bounds, strict JSON validation and timeout fallback. A model may waive an eligible prompt, never a
 denial; missing intent and withheld evidence ask. Bypass is an explicit session grant. Fresh

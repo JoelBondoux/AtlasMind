@@ -20,9 +20,18 @@ import type { CompletionRequest } from '../../src/providers/adapter.ts';
  * scenario dictates, so the whole state machine runs without spawning anything.
  */
 class FakeAgent implements AcpProcessHandle {
+  /**
+   * When set, every fake behaves like an agent with a verified asking mode:
+   * it reports this name at `initialize`, offers a `mode` option starting in
+   * a mode that does not ask, and honours a request to set it — the shape
+   * claude-agent-acp and codex-acp have on the wire. Off by default, so a
+   * scenario that has not opted in exercises the unverified-agent path.
+   */
+  static verifiedAs: { agentName: string; askingMode: string } | undefined;
   readonly written: Record<string, unknown>[] = [];
   private stdout: ((chunk: string) => void) | undefined;
   private exit: ((code: number | null, signal: string | null) => void) | undefined;
+  private mode = 'agent';
   killed = false;
 
   constructor(private readonly respond: (agent: FakeAgent, frame: Record<string, unknown>) => void) {}
@@ -30,8 +39,23 @@ class FakeAgent implements AcpProcessHandle {
   writeLine(line: string): void {
     const frame = JSON.parse(line) as Record<string, unknown>;
     this.written.push(frame);
+    const params = (frame['params'] ?? {}) as Record<string, unknown>;
+    if (FakeAgent.verifiedAs && frame['method'] === 'session/set_config_option' && params['configId'] === 'mode') {
+      this.mode = String(params['value']);
+      queueMicrotask(() => this.emitFrame({ jsonrpc: '2.0', id: frame['id'], result: { configOptions: [] } }));
+      return;
+    }
     // Reply asynchronously, like a real subprocess would.
     queueMicrotask(() => this.respond(this, frame));
+  }
+
+  /** The mode option this fake currently reports. */
+  private modeOption(): Record<string, unknown> {
+    const asking = FakeAgent.verifiedAs!.askingMode;
+    return {
+      id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: this.mode,
+      options: [{ value: asking, name: 'Asks first' }, { value: 'agent', name: 'Does not ask' }],
+    };
   }
 
   onStdout(listener: (chunk: string) => void): void { this.stdout = listener; }
@@ -41,7 +65,23 @@ class FakeAgent implements AcpProcessHandle {
 
   /** Push raw text to the client, exactly as stdout would deliver it. */
   emit(text: string): void { this.stdout?.(text); }
-  emitFrame(frame: unknown): void { this.emit(`${JSON.stringify(frame)}\n`); }
+  emitFrame(frame: unknown): void {
+    const verified = FakeAgent.verifiedAs;
+    const record = frame as Record<string, unknown>;
+    const result = record['result'] as Record<string, unknown> | undefined;
+    if (verified && result && typeof result === 'object') {
+      if (result['agentInfo']) {
+        frame = { ...record, result: { ...result, agentInfo: { ...(result['agentInfo'] as object), name: verified.agentName } } };
+      } else if (typeof result['sessionId'] === 'string' || Array.isArray(result['configOptions'])) {
+        // Every config-option list this fake sends carries its current mode,
+        // as a real agent's does.
+        const others = ((result['configOptions'] as Array<Record<string, unknown>> | undefined) ?? [])
+          .filter(option => option['category'] !== 'mode');
+        frame = { ...record, result: { ...result, configOptions: [...others, this.modeOption()] } };
+      }
+    }
+    this.emit(`${JSON.stringify(frame)}\n`);
+  }
   die(code: number): void { this.exit?.(code, null); }
 
   method(name: string): Record<string, unknown> | undefined {
@@ -129,9 +169,16 @@ const request = (over: Partial<CompletionRequest> = {}): CompletionRequest => ({
   ...over,
 });
 
-beforeEach(() => resetAcpProbeCache());
+beforeEach(() => {
+  resetAcpProbeCache();
+  FakeAgent.verifiedAs = undefined;
+});
+
+const VERIFIED_CLAUDE = { agentName: '@agentclientprotocol/claude-agent-acp', askingMode: 'default' };
+const VERIFIED_CODEX = { agentName: '@agentclientprotocol/codex-acp', askingMode: 'read-only' };
 
 describe('ACP live failure regressions', () => {
+  beforeEach(() => { FakeAgent.verifiedAs = VERIFIED_CODEX; });
   const envelope = JSON.stringify({
     type: 'error', status: 400,
     error: { type: 'invalid_request_error', message: 'The selected model is not supported with a ChatGPT account.' },
@@ -785,6 +832,7 @@ describe('AcpAdapter — live-session reuse without duplicate prompts', () => {
   });
 
   it('invalidates a completion-only session when delegated execution is enabled without MCP servers', async () => {
+    FakeAgent.verifiedAs = VERIFIED_CLAUDE;
     const { factory, agents } = scriptedAgent();
     let delegated = false;
     const adapter = new AcpAdapter({
@@ -995,6 +1043,7 @@ function permissionOutcome(agent: FakeAgent): Record<string, unknown> | undefine
 }
 
 describe('AcpAdapter — delegated execution is never delegated authorization', () => {
+  beforeEach(() => { FakeAgent.verifiedAs = VERIFIED_CLAUDE; });
   it('refuses a readable permission request when NO policy is wired', async () => {
     // The load-bearing default. A caller that enables tools but forgets the gate
     // must get an agent that cannot act, not one that acts unsupervised.
@@ -1875,6 +1924,7 @@ describe('AcpAdapter — session teardown', () => {
 });
 
 describe('AcpAdapter — isolating the agent from the machine\'s own settings', () => {
+  beforeEach(() => { FakeAgent.verifiedAs = VERIFIED_CLAUDE; });
   /**
    * `claude-agent-acp` hardcodes `settingSources: ["user","project","local"]`
    * and then spreads `_meta.claudeCode.options` over it, so a client can turn
@@ -1981,5 +2031,298 @@ describe('where a configured ACP agent is stored', () => {
   it('ignores a non-array workspace value, which is not a list that could shadow one', () => {
     expect(resolveAcpAgentWriteScopes({ workspaceValue: 'claude-agent-acp' }).workspace).toBe(false);
     expect(resolveAcpAgentWriteScopes({ workspaceValue: null }).workspace).toBe(false);
+  });
+});
+
+/**
+ * Findings from running AtlasMind against the real claude-agent-acp 0.63.0 and
+ * codex-acp 1.1.7 on 2026-10-27. Each scenario reproduces the wire shape that
+ * was captured live, with the fake agent standing in for the binary.
+ */
+describe('AcpAdapter — behaviour found against live agents', () => {
+  /** A configurable agent whose prompt reply is scripted chunk by chunk. */
+  function liveShapedAgent(options: {
+    agentName?: string;
+    reply?: Array<{ text: string; messageId?: string }>;
+    /** Fail every prompt on this model with Codex's legacy error text. */
+    refuseModel?: string;
+    /** Report a verified agent's name but offer no mode option. */
+    withoutModeOption?: boolean;
+    /** Announce a switch to this mode in the middle of the reply. */
+    switchModeMidTurn?: string;
+  }) {
+    const verified = [VERIFIED_CLAUDE, VERIFIED_CODEX].find(entry => entry.agentName === options.agentName);
+    FakeAgent.verifiedAs = verified && !options.withoutModeOption ? verified : undefined;
+    const state: Record<string, string> = { model: 'sol' };
+    const configOptions = () => [
+      { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: state['model'], options: [{ value: 'sol', name: 'sol' }, { value: 'terra', name: 'Terra' }] },
+    ];
+    const agents: FakeAgent[] = [];
+    const factory: AcpProcessFactory = () => {
+      const agent = new FakeAgent((self, frame) => {
+        const id = frame['id'];
+        const params = (frame['params'] ?? {}) as Record<string, unknown>;
+        const chunk = (text: string, messageId?: string) => self.emitFrame({
+          jsonrpc: '2.0',
+          method: 'session/update',
+          params: { sessionId: 'sess_1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text }, ...(messageId ? { messageId } : {}) } },
+        });
+        switch (frame['method']) {
+          case 'initialize':
+            self.emitFrame({ jsonrpc: '2.0', id, result: { ...INITIALIZE_OK, agentInfo: { name: options.agentName ?? 'fake-agent', version: '1.0.0' } } });
+            return;
+          case 'session/new':
+            self.emitFrame({ jsonrpc: '2.0', id, result: { sessionId: 'sess_1', configOptions: configOptions() } });
+            return;
+          case 'session/set_config_option':
+            state[String(params['configId'])] = String(params['value']);
+            self.emitFrame({ jsonrpc: '2.0', id, result: { configOptions: configOptions() } });
+            return;
+          case 'session/prompt':
+            if (options.refuseModel && state['model'] === options.refuseModel) {
+              chunk('Warning: Skill descriptions were shortened.\n');
+              chunk(JSON.stringify({
+                type: 'error',
+                status: 400,
+                error: { type: 'invalid_request_error', message: `The '${options.refuseModel}' model is not supported when using Codex with a ChatGPT account.` },
+              }));
+            } else {
+              const parts = options.reply ?? [{ text: 'ok', messageId: 'msg_1' }];
+              parts.forEach((part, index) => {
+                chunk(part.text, part.messageId);
+                if (options.switchModeMidTurn && index === 0) {
+                  self.emitFrame({
+                    jsonrpc: '2.0', method: 'session/update',
+                    params: { sessionId: 'sess_1', update: { sessionUpdate: 'current_mode_update', currentModeId: options.switchModeMidTurn } },
+                  });
+                }
+              });
+            }
+            self.emitFrame({ jsonrpc: '2.0', id, result: { stopReason: 'end_turn' } });
+            return;
+          default:
+            return;
+        }
+      });
+      agents.push(agent);
+      return agent;
+    };
+    return { factory, agents, state };
+  }
+
+  it('applies a requested model even when no probe was ever cached', async () => {
+    // The probe cache ages out after five minutes. Model slugs used to resolve
+    // only against it, so `acp/<agent>@<model>` silently ran the default once
+    // it had. The session's own options name the same models.
+    const { factory, state } = liveShapedAgent({});
+    const notApplied: string[] = [];
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory, onEffortNotApplied: e => notApplied.push(e.requested) });
+
+    await adapter.complete(request({ model: 'acp/fake@terra' }));
+
+    expect(state['model']).toBe('terra');
+    expect(notApplied).toEqual([]);
+  });
+
+  it('says so when the requested model is not one the session offers', async () => {
+    const { factory } = liveShapedAgent({});
+    const notApplied: string[] = [];
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory, onEffortNotApplied: e => notApplied.push(e.requested) });
+
+    await adapter.complete(request({ model: 'acp/fake@nonexistent' }));
+
+    expect(notApplied).toEqual(['model nonexistent']);
+  });
+
+  it('keeps a session switched to a model away from a turn that asked for the default', async () => {
+    // Reuse compares the fingerprint, so a model resolved after the session
+    // opened has to be written into it — or the next bare turn inherits Terra.
+    const { factory, agents } = liveShapedAgent({});
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory, keepAlive: true });
+    try {
+      await adapter.complete(request({ model: 'acp/fake@terra' }));
+      await adapter.complete(request({ model: 'acp/fake', messages: [{ role: 'user', content: 'Say hello' }, { role: 'assistant', content: 'ok' }, { role: 'user', content: 'again' }] }));
+      expect(agents).toHaveLength(2);
+    } finally {
+      await adapter.shutdown();
+    }
+  });
+
+  it('keeps a declared agent\'s unidentified startup warning out of the answer, and reports it', async () => {
+    const { factory } = liveShapedAgent({
+      agentName: '@agentclientprotocol/codex-acp',
+      reply: [
+        { text: 'Warning: Skill descriptions were shortened to fit the 2% skills context budget.' },
+        { text: 'ATLAS-', messageId: 'msg_a' },
+        { text: 'OK', messageId: 'msg_a' },
+      ],
+    });
+    const notices: string[] = [];
+    const streamed: string[] = [];
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory, onAgentNotice: e => notices.push(e.text) });
+
+    const response = await adapter.streamComplete(request(), chunk => streamed.push(chunk));
+
+    expect(response.content).toBe('ATLAS-OK');
+    expect(streamed).toEqual(['ATLAS-', 'OK']);
+    expect(notices).toEqual(['Warning: Skill descriptions were shortened to fit the 2% skills context budget.']);
+  });
+
+  it('never turns a reply into silence: unidentified-only text is still the answer', async () => {
+    const { factory } = liveShapedAgent({
+      agentName: '@agentclientprotocol/claude-agent-acp',
+      reply: [{ text: 'an answer sent without a message id' }],
+    });
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+
+    expect((await adapter.complete(request())).content).toBe('an answer sent without a message id');
+  });
+
+  it('streams every chunk of an agent that never names its messages, exactly as before', async () => {
+    const { factory } = liveShapedAgent({ reply: [{ text: 'one ' }, { text: 'two' }] });
+    const streamed: string[] = [];
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+
+    const response = await adapter.streamComplete(request(), chunk => streamed.push(chunk));
+
+    expect(streamed).toEqual(['one ', 'two']);
+    expect(response.content).toBe('one two');
+  });
+
+  it('learns a plan-refused default, refuses it at once next time, and stops offering it', async () => {
+    const { factory, agents } = liveShapedAgent({ agentName: '@agentclientprotocol/codex-acp', refuseModel: 'sol' });
+    const adapter = new AcpAdapter({ agents: [{ id: 'fake', command: 'codex-acp' }], spawnProcess: factory });
+    await adapter.healthCheck();
+    expect((await adapter.discoverModels()).map(m => m.id)).toContain('acp/fake');
+
+    await expect(adapter.complete(request())).rejects.toThrow(/cannot use the model "sol".*~\/\.codex\/config\.toml.*acp\/fake@terra/s);
+    const spawnedBefore = agents.length;
+
+    // The second attempt is refused before anything is spawned — finding out
+    // again costs the agent's own minute of retries.
+    await expect(adapter.complete(request())).rejects.toThrow(/refused it earlier in this session/);
+    expect(agents).toHaveLength(spawnedBefore);
+
+    // The bare id runs the refused default, so only the working model remains.
+    expect((await adapter.discoverModels()).map(m => m.id)).toEqual(['acp/fake@terra']);
+    await expect(adapter.complete(request({ model: 'acp/fake@terra' }))).resolves.toMatchObject({ content: 'ok' });
+  });
+
+  it('puts a verified agent into its asking mode before the first prompt — on a completion-only turn too', async () => {
+    // codex-acp starts in `agent` mode, which edits files without asking; on
+    // 2026-10-27 it wrote a file in a turn AtlasMind believed was tool-free.
+    const { factory, agents } = liveShapedAgent({ agentName: '@agentclientprotocol/codex-acp' });
+    const adapter = new AcpAdapter({ agents: [{ id: 'codex', command: 'codex-acp' }], spawnProcess: factory });
+
+    await adapter.complete(request({ model: 'acp/codex' }));
+
+    const written = agents[0]!.written;
+    const setMode = written.findIndex(f => f['method'] === 'session/set_config_option'
+      && (f['params'] as Record<string, unknown>)['configId'] === 'mode');
+    expect(setMode).toBeGreaterThan(-1);
+    expect((written[setMode]!['params'] as Record<string, unknown>)['value']).toBe('read-only');
+    expect(setMode).toBeLessThan(written.findIndex(f => f['method'] === 'session/prompt'));
+  });
+
+  it('refuses a verified agent whose session does not offer its asking mode, before prompting', async () => {
+    const { factory, agents } = liveShapedAgent({ agentName: '@agentclientprotocol/codex-acp', withoutModeOption: true });
+    const adapter = new AcpAdapter({ agents: [{ id: 'codex', command: 'codex-acp' }], spawnProcess: factory });
+
+    await expect(adapter.complete(request({ model: 'acp/codex' }))).rejects.toThrow(/"read-only" mode/);
+    expect(agents[0]!.method('session/prompt')).toBeUndefined();
+  });
+
+  it('refuses to let an agent with an unverified asking mode act, and never prompts it', async () => {
+    const { factory, agents } = liveShapedAgent({});
+    const adapter = new AcpAdapter({
+      agents: [AGENT], spawnProcess: factory,
+      delegatedExecutionEnabled: true, permissionPolicy: async () => true,
+    });
+
+    await expect(adapter.complete(request({ allowDelegatedToolExecution: true }))).rejects.toThrow(/has not verified that fake-agent asks/);
+    expect(agents[0]!.method('session/prompt')).toBeUndefined();
+  });
+
+  it('lets an unverified agent answer as a completion source, and says so once', async () => {
+    const { factory } = liveShapedAgent({});
+    const safety: string[] = [];
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory, onSafetyNotice: e => safety.push(e.text) });
+
+    await adapter.complete(request());
+    await adapter.complete(request());
+
+    expect(safety).toHaveLength(1);
+    expect(safety[0]).toMatch(/completion source/);
+  });
+
+  it('cancels a turn the moment the agent switches itself out of its asking mode', async () => {
+    const { factory, agents } = liveShapedAgent({
+      agentName: '@agentclientprotocol/claude-agent-acp',
+      reply: [{ text: 'starting', messageId: 'm' }, { text: ' then acting', messageId: 'm' }],
+      switchModeMidTurn: 'bypassPermissions',
+    });
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory });
+
+    await expect(adapter.complete(request())).rejects.toThrow(/switched itself to its "bypassPermissions" mode/);
+    expect(agents[0]!.method('session/cancel')).toBeDefined();
+  });
+
+  it('re-asserts the asking mode on a reused session the agent changed between turns', async () => {
+    const { factory, agents } = liveShapedAgent({ agentName: '@agentclientprotocol/claude-agent-acp' });
+    const adapter = new AcpAdapter({ agents: [AGENT], spawnProcess: factory, keepAlive: true });
+    try {
+      await adapter.complete(request());
+      // Between turns, the agent announces a mode that does not ask.
+      agents[0]!.emitFrame({
+        jsonrpc: '2.0', method: 'session/update',
+        params: { sessionId: 'sess_1', update: { sessionUpdate: 'current_mode_update', currentModeId: 'acceptEdits' } },
+      });
+      await adapter.complete(request({ messages: [{ role: 'user', content: 'Say hello' }, { role: 'assistant', content: 'ok' }, { role: 'user', content: 'again' }] }));
+
+      const modeSets = agents[0]!.written.filter(f => f['method'] === 'session/set_config_option'
+        && (f['params'] as Record<string, unknown>)['configId'] === 'mode');
+      expect(agents).toHaveLength(1);
+      expect(modeSets).toHaveLength(2);
+    } finally {
+      await adapter.shutdown();
+    }
+  });
+
+  it('reports a launch path that does not exist as a settings problem, without starting the agent', async () => {
+    const { factory, agents } = liveShapedAgent({});
+    const adapter = new AcpAdapter({
+      agents: [{ id: 'codex', command: 'codex-acp', env: { CODEX_PATH: 'C:\\Users\\me\\AppData\\Local\\OpenAI\\Codex\\bin\\0123abcd\\codex.exe' } }],
+      spawnProcess: factory,
+      environmentProbe: { platform: 'win32', fileExists: () => false },
+    });
+
+    const probe = await adapter.probe();
+
+    expect(agents).toHaveLength(0);
+    expect(probe.installed).toBe(true);
+    expect(probe.misconfigured).toEqual({ variable: 'CODEX_PATH' });
+    expect(probe.message).toMatch(/does not exist.*moves its binary/s);
+    await expect(adapter.complete(request({ model: 'acp/codex' }))).rejects.toThrow(/CODEX_PATH/);
+    expect(agents).toHaveLength(0);
+  });
+
+  it('hands codex-acp a Windows path with forward slashes, and says it did', async () => {
+    const launched: Array<Record<string, string> | undefined> = [];
+    const adjusted: Array<string[] | undefined> = [];
+    const { factory } = liveShapedAgent({});
+    const adapter = new AcpAdapter({
+      agents: [{ id: 'codex', command: 'codex-acp', env: { CODEX_PATH: 'C:\\Program Files\\Codex\\codex.exe' } }],
+      spawnProcess: (config, cwd, options) => {
+        launched.push(config.env);
+        return factory(config, cwd, options);
+      },
+      environmentProbe: { platform: 'win32', fileExists: () => true },
+      onProcessLaunch: event => adjusted.push(event.adjustedEnvironment),
+    });
+
+    await adapter.probe();
+
+    expect(launched[0]?.['CODEX_PATH']).toBe('C:/Program Files/Codex/codex.exe');
+    expect(adjusted).toContainEqual(['CODEX_PATH']);
   });
 });

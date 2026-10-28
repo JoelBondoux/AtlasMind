@@ -6,6 +6,14 @@ pins a known Codex executable, and `env.CLAUDE_CODE_EXECUTABLE` pins Claude. Rec
 paths after app updates. Claude's Windows app login does not prove its standalone CLI is signed
 in; use that CLI's official sign-in flow. Verify a real reply, not just discovery.
 
+Prefer Codex Desktop's stable `…\Programs\OpenAI\Codex\bin\codex.exe` over a versioned path: a
+`CODEX_PATH` that no longer exists is reported as a settings problem, and on Windows the path is
+passed with forward slashes because codex-acp drops backslashes. Every ACP session is put into the
+agent's verified asking mode before any prompt (`read-only` for Codex, `default` for Claude), so
+edits and commands always reach AtlasMind's approval gate. `acp/<agent>@<model>` is honoured even
+after the probe cache expires; a model the plan refuses is remembered, refused at once next time and
+withdrawn from discovery. Codex's startup warnings go to the output channel, not into the answer.
+
 A failed probe excludes that agent's rows even when a sibling keeps ACP healthy. Unknown agent
 ids are refused. The observed legacy Codex warning-plus-JSON HTTP error fails the turn despite
 `end_turn`; ordinary prose, quoted examples and bare JSON remain answers. This compatibility

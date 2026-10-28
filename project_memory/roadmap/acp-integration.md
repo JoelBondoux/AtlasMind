@@ -1,6 +1,6 @@
 # ACP (Agent Client Protocol) Integration — Phased Roadmap
 
-> **Status:** Tier 1 shipped v0.170.0; Tier 2 multi-agent subscription capacity shipped; Tier 3's authorization half shipped v0.176.0 while delegated-subtask reconciliation remains outstanding; **Tier 4 reciprocal local-stdio agent endpoint shipped v0.238.0**. **Owner:** AtlasMind core. **Created:** 2026-07-28.
+> **Status:** Tier 1 shipped v0.170.0; Tier 2 multi-agent subscription capacity shipped; Tier 3's authorization half shipped v0.176.0 and was **verified against the real agents in v0.509.3**, which found and closed a gap (codex-acp acted without asking) while delegated-subtask reconciliation remains outstanding; **Tier 4 reciprocal local-stdio agent endpoint shipped v0.238.0**. **Owner:** AtlasMind core. **Created:** 2026-07-28.
 > This is the SSOT north star for integrating ACP into AtlasMind. Build incrementally,
 > respecting the entry criteria between tiers. Nothing here overrides AtlasMind's
 > safety-first defaults: deny-by-default, sanitize-at-boundary, confirm-before-destructive-action.
@@ -163,12 +163,51 @@ order — the alternative is an execution path with nothing behind it.
       tool-progress UI + `ProjectRunHistory` rather than only the output channel.
 - [ ] **Plan updates → the Planner surface** (`plan` session updates are still passed through as
       `other`).
-- [ ] **Verify against a real ACP binary.** Still outstanding from Tier 1 and now more load-bearing:
-      the whole permission path has been tested against a fake agent only. A live `claude-agent-acp`
-      run is the first thing to do before trusting any of this in anger.
+- [x] **Verify against a real ACP binary.** Done 2026-10-27 against claude-agent-acp 0.63.0 and
+      codex-acp 1.1.7 (v0.509.3) — and it found the hole this item was worried about. See the live
+      verification log below.
 - [ ] Threat model + security review of delegated authorization — specifically *what an agent can
       reach that AtlasMind's own tools cannot*, which the `fs`/`terminal` reasoning below makes
-      sharper rather than answers.
+      sharper rather than answers. The live log below supplies its first concrete finding.
+
+### Live verification log (2026-10-27, v0.509.3) — the gate was not being asked
+
+Run against the installed agents through AtlasMind's own `AcpAdapter`, with throwaway scratch
+folders for every write.
+
+**Completions are sound.** Both agents probe, stream, and returned a 38,449-character prompt intact —
+the Tier 1 definition of done, finally measured rather than inferred.
+
+**Security finding: codex-acp never asked.** Asked to create one file, with a permission policy that
+records and refuses every request:
+
+| Agent | Session mode | Asked AtlasMind? | File written? |
+|---|---|---|---|
+| claude-agent-acp | `default` | yes | no |
+| codex-acp | `agent` (its default) | **never** | **yes** |
+
+The same happened with delegated execution **off**: Tier 1's "completion source, not an executor"
+rested on refusing `session/request_permission`, and an agent that never sends one is refused
+nothing. The answer was not a parser fix but a mode: codex-acp's `read-only` mode (the name misleads
+— it means "requires approval") routed both an edit and a shell command through
+`session/request_permission`, refused ⇒ nothing done, `allow_once` ⇒ done. `ACP_ASKING_MODES` now
+declares the verified mode per agent; every session is set to it and confirmed before any prompt,
+re-checked before each reused turn, and cancelled on a mode change mid-turn (`current_mode_update` /
+`config_option_update` are now parsed). Agents with no verified mode are refused delegated execution.
+Re-run after the fix: Codex asks, refused writes leave nothing, approved writes land — in both the
+completion-only and delegated paths.
+
+**Residual risk, recorded rather than closed:** Gemini, Copilot, Qwen and custom commands have no
+verified asking mode (none were installed to test). They are refused delegated execution, but still
+answer as completion sources with a one-time warning; if one acts without asking, the gate does not
+see it. Refusing them outright is a product decision owed to the owner.
+
+**Other defects found and fixed in the same run:** a probe served from the shared cache was never
+recorded on the routed adapter, so five minutes later `acp/<agent>@<model>` ran the default model and
+discovery dropped every variant; a model the plan refuses (`gpt-6.1-sol` on a ChatGPT sign-in) cost a
+minute of retries on every turn; Codex's startup warning arrived as the first line of answers; a stale
+`CODEX_PATH` (Codex Desktop moves its binary on update) was reported as "not signed in", and a
+backslash path was mangled by codex-acp into `C:Users…`.
 
 ### Decided: `fs` and `terminal` client capabilities stay `false`
 

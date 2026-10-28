@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.509.3] - 2026-10-28
+
+### Security
+
+- **ACP agents now run only in a mode that asks before it acts.** codex-acp starts every session in
+  its `agent` mode, which edits files and runs commands without sending `session/request_permission`.
+  In a live test it wrote a file during a turn AtlasMind treated as completion-only, with
+  `atlasmind.acp.toolsEnabled` off, and with tools on it acted without the approval gate ever running.
+  Every Claude and Codex session is now put into its verified asking mode (`default` and `read-only`)
+  before any prompt, confirmed, re-checked before each turn on a reused session, and the turn is
+  cancelled if the agent switches itself out of it. An agent whose asking mode has not been verified
+  (Gemini, Copilot, Qwen, custom commands) is refused delegated execution, and runs as a completion
+  source with a one-time warning in the output channel.
+
+### Fixed
+
+- A turn routed to `acp/<agent>@<model>` ran on the agent's default model once the shared probe cache
+  expired, because a probe served from that cache was never recorded on the routed adapter. The model
+  is now also resolved against the session's own options, and a model the session does not offer is
+  reported rather than silently replaced.
+- A model the signed-in plan refuses (codex-acp: "not supported when using Codex with a ChatGPT
+  account") is explained, remembered for the session, refused immediately the next time instead of
+  after a minute of retries, and withdrawn from discovery, including the bare `acp/<agent>` id when it
+  is the agent's default.
+- Codex's startup warnings ("Skill descriptions were shortened…") no longer appear at the start of
+  answers. They are written to the output channel.
+- A `CODEX_PATH` naming a file that no longer exists (Codex Desktop moves its binary on update) is
+  reported as a settings problem instead of "not signed in" or "not on PATH". On Windows the path is
+  passed with forward slashes, because codex-acp drops backslashes.
+
+### Verified
+
+- Against the real claude-agent-acp 0.63.0 and codex-acp 1.1.7: completions, streaming, a 38,449-character
+  prompt returned intact, and the delegated-execution permission path in both directions (refused writes
+  leave nothing behind; approved writes land).
+- The Buzz outbound smoke test (channel post, threaded reply, thread read, DM) and inbound subscription,
+  through AtlasMind's own bridge and client, with both buzz CLI 0.4.26 and the CLI shipped with Buzz
+  Desktop 0.5.28, against a local relay.
+
 ## [0.509.1] - 2026-10-23
 
 ### Documentation

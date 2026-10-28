@@ -35,7 +35,7 @@
 
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import * as path from 'node:path';
 import type { ChatMessage, CompletionRequest, CompletionResponse, DiscoveredModel, ProviderAdapter } from './adapter.js';
@@ -78,7 +78,8 @@ import {
   type AcpPromptBlock,
   type AcpToolCall,
 } from './acpProtocol.js';
-import { resolveAcpPermission } from './acpPermission.js';
+import { planAcpAskingMode, resolveAcpPermission } from './acpPermission.js';
+import { acpCommandName, assessAcpAgentEnvironment, type AcpAgentEnvironmentProbe } from './acpAgentEnvironment.js';
 import { planHostCommandEnvironment } from '../core/hostCommandEnvironment.js';
 import {
   ACP_EFFORT_CATEGORY,
@@ -90,9 +91,11 @@ import {
 } from './acpEffort.js';
 import {
   ACP_MODEL_CATEGORY,
+  acpDefaultModelValue,
   acpModelChoicesFor,
   acpModelRows,
   buildAcpModelId,
+  classifyAcpModelUnavailable,
   composeAcpVariant,
   describeAcpModelStanding,
   splitAcpModelSegment,
@@ -155,6 +158,23 @@ const ACP_MAX_LIVE_SESSIONS = 4;
  * days; explicit refreshes still bypass it via {@link resetAcpProbeCache}.
  */
 const ACP_PROBE_TTL_MS = 5 * 60_000;
+/** Bound on one reported agent notice; it is agent text bound for an output channel. */
+const ACP_NOTICE_MAX_CHARS = 500;
+
+/**
+ * Agents verified to put a `messageId` on every message chunk of a reply, by
+ * the name they report at `initialize`. For these, text sent *without* one is a
+ * notice rather than part of the answer — codex-acp 1.1.7 sends "Warning: Skill
+ * descriptions were shortened…" that way ahead of the reply on a fresh session,
+ * and without this it arrived as the first line of the answer. Both checked by
+ * capturing the raw `session/update` stream on 2026-10-27 (claude-agent-acp
+ * 0.63.0, codex-acp 1.1.7). An agent not listed keeps every chunk until it is
+ * seen sending an id itself.
+ */
+export const ACP_MESSAGE_IDENTIFYING_AGENTS: ReadonlySet<string> = new Set([
+  '@agentclientprotocol/claude-agent-acp',
+  '@agentclientprotocol/codex-acp',
+]);
 
 /**
  * Agents whose ACP launch command is **declared in the ACP registry**.
@@ -509,6 +529,12 @@ export interface AcpProbeResult {
    * paid for — they were simply being thrown away.
    */
   configOptions?: AcpConfigOption[];
+  /**
+   * The agent was not started because its launch settings are wrong — a
+   * declared path variable names a file that does not exist. Distinct from
+   * "not signed in" so no surface sends the user to a login that cannot help.
+   */
+  misconfigured?: { variable: string };
 }
 
 /**
@@ -546,6 +572,8 @@ export interface AcpProcessLaunchEvent {
   agentId: string;
   requestedPrivateDesktop: boolean;
   mode: 'ordinary' | 'private-desktop';
+  /** Variable names whose spelling was changed for this launch; values are never included. */
+  adjustedEnvironment?: string[];
 }
 
 export interface AcpProcessLaunchOptions {
@@ -559,6 +587,11 @@ export interface AcpProcessLaunchOptions {
    * credential-shaped is withheld — see `hostCommandEnvironment.ts`.
    */
   passEnvironment?: readonly string[];
+  /**
+   * Launch variables whose spelling AtlasMind changed so the agent can read
+   * them (see `acpAgentEnvironment.ts`). Names only; reported, never hidden.
+   */
+  adjustedEnvironment?: readonly string[];
 }
 
 export type AcpProcessFactory = (
@@ -573,6 +606,10 @@ interface AcpTurnResult {
   inputTokens: number;
   outputTokens: number;
   agentName?: string;
+  /** Unidentified agent text kept out of the answer; see `AcpSession.notices`. */
+  notices?: string[];
+  /** The agent named at least one message this turn, so later sessions may assume it does. */
+  identifiesMessages?: boolean;
   /**
    * Tool calls the agent announced over `session/update` during this turn.
    *
@@ -638,6 +675,21 @@ export class AcpAdapter implements ProviderAdapter {
    * and it is the honest scope anyway — what this adapter found out.
    */
   private readonly lastProbeByAgent = new Map<string, AcpProbeResult>();
+
+  /**
+   * Models an agent refused for the signed-in plan, by agent id, for the life
+   * of this adapter. Learned from a real refusal (`ACP_MODEL_UNAVAILABLE_RULES`)
+   * and never guessed: the agent still *offers* these models, so only asking
+   * shows they cannot be used. Remembered because finding out again costs about
+   * a minute of the agent's own retries, every time.
+   */
+  private readonly unavailableModels = new Map<string, Set<string>>();
+
+  /** Undeclared agents seen naming their messages; their later sessions separate notices too. */
+  private readonly messageIdentifyingAgentIds = new Set<string>();
+
+  /** Unverified agents already reported once, so the warning is not repeated every turn. */
+  private readonly unverifiedAgentsReported = new Set<string>();
 
   constructor(
     private readonly options?: {
@@ -727,6 +779,21 @@ export class AcpAdapter implements ProviderAdapter {
        * worth saying out loud rather than absorbing.
        */
       onEffortNotApplied?: (event: { agentId: string; requested: string; reason: string }) => void;
+      /**
+       * Text the agent sent outside any identified message — a startup warning
+       * such as Codex's "skill descriptions were shortened". Kept out of the
+       * answer, and reported here so it is seen rather than dropped. Agent text:
+       * clamped before it is handed over, never interpreted.
+       */
+      onAgentNotice?: (event: { agentId: string; text: string }) => void;
+      /** Platform and file check for launch-variable validation; tests inject them. */
+      environmentProbe?: Partial<AcpAgentEnvironmentProbe>;
+      /**
+       * A safety fact worth saying once — today, that an agent whose asking
+       * mode is unverified is running as a completion source. See
+       * `ACP_ASKING_MODES`.
+       */
+      onSafetyNotice?: (event: { agentId: string; text: string }) => void;
       /**
        * The user's `atlasmind.acp.modelStanding` declarations.
        *
@@ -830,7 +897,41 @@ export class AcpAdapter implements ProviderAdapter {
       // here names a model that must exist: a hardcoded roster would be wrong
       // within weeks and wrong in the worst direction — a model the user is
       // paying for, invisible to the router.
-      const models = acpModelChoicesFor(known?.configOptions ?? [], this.modelStanding());
+      // A model the plan has already refused is left out: offering it is
+      // offering a turn that will fail.
+      const refused = this.unavailableModels.get(agent.id);
+      const models = acpModelChoicesFor(known?.configOptions ?? [], this.modelStanding())
+        .filter(model => !refused?.has(model.value));
+      const defaultValue = acpDefaultModelValue(known?.configOptions ?? []);
+
+      // Model × effort, capped and ordered so truncation costs every *effort*
+      // before it costs any *model*. Both dimensions are real knobs on the same
+      // session, so the cross product is what lets the router ask for the deep
+      // model at low effort — a combination neither dimension can express alone.
+      const namedRows: DiscoveredModel[] = acpModelRows(models, tiers).map(({ model, effort }) => {
+        const modelId = buildAcpModelId(baseModelId, model);
+        return {
+          id: effort ? buildAcpModelVariantId(modelId, effort) : modelId,
+          // The agent's own name for the model, plus the standing that decided
+          // its routing weight — including when that standing is unknown, so a
+          // row nobody ranked does not look like one somebody did.
+          name: effort
+            ? `${label} · ${model.name} (${effort.label} effort)`
+            : `${label} · ${model.name} (${describeAcpModelStanding(model.standing)})`,
+          inputPricePer1k: 0,
+          outputPricePer1k: 0,
+          capabilities,
+          delegatedToolExecution: true,
+          ...composeAcpVariant(model, effort),
+        };
+      });
+
+      // The bare id runs the agent's own default. Once the plan has refused that
+      // default, the bare id and its effort ladder are turns that will fail, so
+      // only the named models that still work are offered.
+      if (defaultValue && refused?.has(defaultValue)) {
+        return namedRows;
+      }
 
       // With no model knob the agent keeps its original shape: one base row plus
       // an effort ladder. Adding an empty model dimension would rename every
@@ -856,31 +957,7 @@ export class AcpAdapter implements ProviderAdapter {
         ];
       }
 
-      // Model × effort, capped and ordered so truncation costs every *effort*
-      // before it costs any *model*. Both dimensions are real knobs on the same
-      // session, so the cross product is what lets the router ask for the deep
-      // model at low effort — a combination neither dimension can express alone.
-      return [
-        base,
-        ...acpModelRows(models, tiers).map(({ model, effort }) => {
-          const composed = composeAcpVariant(model, effort);
-          const modelId = buildAcpModelId(baseModelId, model);
-          return {
-            id: effort ? buildAcpModelVariantId(modelId, effort) : modelId,
-            // The agent's own name for the model, plus the standing that decided
-            // its routing weight — including when that standing is unknown, so a
-            // row nobody ranked does not look like one somebody did.
-            name: effort
-              ? `${label} · ${model.name} (${effort.label} effort)`
-              : `${label} · ${model.name} (${describeAcpModelStanding(model.standing)})`,
-            inputPricePer1k: 0,
-            outputPricePer1k: 0,
-            capabilities,
-            delegatedToolExecution: true,
-            ...composed,
-          };
-        }),
-      ];
+      return [base, ...namedRows];
     });
   }
 
@@ -903,13 +980,29 @@ export class AcpAdapter implements ProviderAdapter {
    * the agent's own model — the conservative direction, since the alternative is
    * refusing a turn over a knob.
    */
-  private resolveModelChoice(agent: AcpAgentConfig, slug: string | undefined): AcpModelChoice | undefined {
+  private resolveModelChoice(
+    agent: AcpAgentConfig,
+    slug: string | undefined,
+    sessionOptions?: AcpConfigOption[],
+  ): AcpModelChoice | undefined {
     if (!slug) {
       return undefined;
     }
     const known = this.lastProbeByAgent.get(agent.id) ?? peekAcpProbe(this.probeCacheKey(agent));
-    return acpModelChoicesFor(known?.configOptions ?? [], this.modelStanding())
+    const fromProbe = acpModelChoicesFor(known?.configOptions ?? [], this.modelStanding())
       .find(model => model.slug === slug);
+    if (fromProbe) {
+      return fromProbe;
+    }
+    // No probe to read: ask a session instead. A live session already holds the
+    // options the agent offered at `session/new`, which is the same list a probe
+    // would have fetched — so a lost probe costs nothing on this path, where it
+    // used to cost the model the turn was routed to.
+    const options = sessionOptions
+      ?? this.liveSessions.find(entry => entry.fingerprint.agentId === agent.id && !entry.session.hasExited())
+        ?.session.getConfigOptions()
+      ?? [];
+    return acpModelChoicesFor(options, this.modelStanding()).find(model => model.slug === slug);
   }
 
   /**
@@ -966,6 +1059,12 @@ export class AcpAdapter implements ProviderAdapter {
     if (cacheable) {
       const cached = acpProbeCache.get(cacheKey);
       if (cached && Date.now() - cached.at < ACP_PROBE_TTL_MS) {
+        // Recorded on the instance even when another adapter paid for the probe.
+        // Returning without it left the routed adapter knowing nothing once the
+        // shared entry aged out: five minutes after a panel probed first,
+        // discovery dropped every model and effort variant, and a turn already
+        // routed to `acp/<agent>@<model>` ran on the agent's default instead.
+        this.lastProbeByAgent.set(target.id, cached.result);
         return cached.result;
       }
     }
@@ -1040,6 +1139,8 @@ export class AcpAdapter implements ProviderAdapter {
     agent: AcpAgentConfig;
     effort?: AcpEffortTier;
     modelChoice?: AcpModelChoice;
+    /** The model the id asked for, kept even when it could not be resolved yet. */
+    modelSlug?: string;
   } | undefined {
     const { withoutModel, modelSlug } = splitAcpModelSegment(model);
     const { baseModelId, effort } = parseAcpModelVariant(withoutModel);
@@ -1056,10 +1157,28 @@ export class AcpAdapter implements ProviderAdapter {
       agent,
       ...(effort ? { effort } : {}),
       ...(modelChoice ? { modelChoice } : {}),
+      ...(modelSlug ? { modelSlug } : {}),
     };
   }
 
   private async handshakeOnly(agent: AcpAgentConfig): Promise<AcpProbeResult> {
+    let launch: { agent: AcpAgentConfig; adjusted: string[] };
+    try {
+      launch = this.launchPlan(agent);
+    } catch (error) {
+      if (error instanceof AcpAgentMisconfiguredError) {
+        // Its own result, not "not signed in": the agent was never started, and
+        // the fix is in AtlasMind's settings rather than in the vendor's login.
+        return {
+          installed: true,
+          authenticated: false,
+          command: agent.command,
+          message: error.message,
+          misconfigured: { variable: error.variable },
+        };
+      }
+      throw error;
+    }
     let session: AcpSession | undefined;
     try {
       // The launch options are **not** optional here, even though a probe runs
@@ -1073,7 +1192,7 @@ export class AcpAdapter implements ProviderAdapter {
       // the user saw, which is what made a ticked checkbox look ignored.
       // `probeCacheKey` has always keyed on this value; now the spawn honours it.
       session = new AcpSession(
-        agent,
+        launch.agent,
         this.spawnFactory(),
         this.options?.cwd,
         this.clientVersion(),
@@ -1084,6 +1203,7 @@ export class AcpAdapter implements ProviderAdapter {
           privateDesktop: this.hideConsoleWindows(),
           onLaunched: this.options?.onProcessLaunch,
           passEnvironment: this.passEnvironment(),
+          adjustedEnvironment: launch.adjusted,
         },
       );
       const initialized = await session.initialize();
@@ -1266,7 +1386,8 @@ export class AcpAdapter implements ProviderAdapter {
     if (!resolved) {
       throw new Error('No ACP agent is configured. Add one under atlasmind.acp.agents.');
     }
-    const { agent, effort, modelChoice } = resolved;
+    const { agent, effort, modelSlug } = resolved;
+    let { modelChoice } = resolved;
     this.refuseAtlasMindTools(request);
 
     const configuredMcpServers = this.mcpServers();
@@ -1286,6 +1407,9 @@ export class AcpAdapter implements ProviderAdapter {
       settingsStamp: this.settingsStamp(agent, mcpServers),
     };
 
+    // Before anything is spawned: a turn bound for a model this plan has already
+    // refused would wait out the agent's own retries only to fail the same way.
+    this.refuseKnownUnavailableModel(agent, modelChoice);
     await this.discardInvalidSessions(wanted);
     let live = this.liveSessions
       .filter(entry => !entry.busy && !reuseBlockedBecause(
@@ -1300,8 +1424,28 @@ export class AcpAdapter implements ProviderAdapter {
     if (!live) {
       await this.makeRoomForLiveSession();
       live = await this.createLiveSession(agent, mcpServers, wanted, privateDesktop, request.signal);
+      if (modelSlug && !modelChoice) {
+        // Resolved against the session just opened, then written into its
+        // fingerprint: the fingerprint is what reuse compares, and leaving it at
+        // "no model" would hand this session — switched to the requested model —
+        // to the next turn that asked for the agent's default.
+        modelChoice = this.resolveModelChoice(agent, modelSlug, live.session.getConfigOptions());
+        if (modelChoice) {
+          live.fingerprint = { ...live.fingerprint, modelValue: modelChoice.value };
+        }
+      }
       this.liveSessions.push(live);
       this.notifyLiveSessionChange();
+    }
+    // Asked again with the session's own options, which name its default even
+    // when no probe was ever cached.
+    this.refuseKnownUnavailableModel(agent, modelChoice, live.session.getConfigOptions());
+    // A reused session was secured when it opened; whether it is still in its
+    // asking mode is a fact about now, so it is checked again before each turn.
+    const stillAsking = await live.session.confirmAskingMode();
+    if (!stillAsking.ok) {
+      await this.removeLiveSession(live);
+      throw new Error(`AtlasMind could not confirm ${agent.command} is still in a mode that asks before it acts, so it did not send the prompt: ${stillAsking.reason ?? 'unknown reason'}.`);
     }
 
     const suffix = transcriptSuffix(live.transcript, request.messages);
@@ -1317,7 +1461,7 @@ export class AcpAdapter implements ProviderAdapter {
     request.signal?.addEventListener('abort', abortBeforePrompt, { once: true });
     try {
       throwIfAcpAborted(request.signal);
-      await this.applyRequestedConfig(live.session, agent, modelChoice, effort);
+      await this.applyRequestedConfig(live.session, agent, modelChoice, effort, modelSlug);
       // `prompt` owns cancellation once a prompt may cross the pipe: it sends
       // session/cancel before the session is discarded. Until then, killing the
       // process is the only way to interrupt initialize/new/config immediately.
@@ -1327,6 +1471,7 @@ export class AcpAdapter implements ProviderAdapter {
         onTextChunk,
         request.signal,
       );
+      this.afterTurn(agent, turn);
       const response: CompletionResponse = {
         content: turn.text,
         model: request.model,
@@ -1346,8 +1491,9 @@ export class AcpAdapter implements ProviderAdapter {
     } catch (error) {
       // Never retry an uncertain prompt. This session is discarded so a later,
       // genuinely new request cannot inherit context whose last turn is unknown.
+      const sessionOptions = live.session.getConfigOptions();
       await this.removeLiveSession(live);
-      throw error;
+      throw this.explainModelRefusal(agent, modelChoice, sessionOptions, error);
     } finally {
       request.signal?.removeEventListener('abort', abortBeforePrompt);
       live.busy = false;
@@ -1363,8 +1509,9 @@ export class AcpAdapter implements ProviderAdapter {
     signal: AbortSignal | undefined,
   ): Promise<AcpLiveSession> {
     throwIfAcpAborted(signal);
+    const launch = this.launchPlan(agent);
     const session = new AcpSession(
-      agent,
+      launch.agent,
       this.spawnFactory(),
       this.options?.cwd,
       this.clientVersion(),
@@ -1375,8 +1522,10 @@ export class AcpAdapter implements ProviderAdapter {
         privateDesktop,
         onLaunched: this.options?.onProcessLaunch,
         passEnvironment: this.passEnvironment(),
+        adjustedEnvironment: launch.adjusted,
       },
     );
+    if (this.messageIdentifyingAgentIds.has(agent.id)) session.assumeIdentifiedMessages();
     const abortBeforeReady = () => session.dispose(createAcpAbortError());
     signal?.addEventListener('abort', abortBeforeReady, { once: true });
     try {
@@ -1397,6 +1546,7 @@ export class AcpAdapter implements ProviderAdapter {
         }
         throw error;
       }
+      await this.secureSession(session, initialized, agent, !fingerprint.isolatedSettings);
       throwIfAcpAborted(signal);
       return {
         session,
@@ -1420,7 +1570,20 @@ export class AcpAdapter implements ProviderAdapter {
     agent: AcpAgentConfig,
     modelChoice: AcpModelChoice | undefined,
     effort: AcpEffortTier | undefined,
+    modelSlug?: string,
   ): Promise<void> {
+    if (modelSlug && !modelChoice) {
+      // Asked for a model this session does not offer. Said out loud for the
+      // reason the failure below is: the router chose this turn as that model,
+      // and running the agent's default without a word bills one model for
+      // another's work — and, where the default is not usable on this plan,
+      // fails the turn with an error that names a model nobody asked for.
+      this.options?.onEffortNotApplied?.({
+        agentId: agent.id,
+        requested: `model ${modelSlug}`,
+        reason: 'this agent\'s session does not offer that model',
+      });
+    }
     if (modelChoice) {
       const applied = await session.setConfigOption(ACP_MODEL_CATEGORY, modelChoice.value);
       if (!applied.ok) {
@@ -1439,6 +1602,148 @@ export class AcpAdapter implements ProviderAdapter {
           requested: effort.value,
           reason: applied.reason ?? 'unknown',
         });
+      }
+    }
+  }
+
+  /**
+   * The agent as it will actually be launched — see `acpAgentEnvironment.ts`.
+   * Throws {@link AcpAgentMisconfiguredError} before anything is spawned when a
+   * declared path variable names a file that does not exist.
+   */
+  private launchPlan(agent: AcpAgentConfig): { agent: AcpAgentConfig; adjusted: string[] } {
+    const assessed = assessAcpAgentEnvironment(agent, {
+      platform: this.options?.environmentProbe?.platform ?? process.platform,
+      fileExists: this.options?.environmentProbe?.fileExists ?? existsSync,
+    });
+    if (!assessed.ok) {
+      throw new AcpAgentMisconfiguredError(assessed.variable, assessed.message);
+    }
+    return assessed.adjusted.length > 0
+      ? { agent: { ...agent, ...(assessed.env ? { env: assessed.env } : {}) }, adjusted: assessed.adjusted }
+      : { agent, adjusted: [] };
+  }
+
+  /**
+   * Refuse a turn that would run a model this plan already refused, before it
+   * costs anything. `modelChoice` absent means the agent's default, read from
+   * the session's options when given and from the probe otherwise.
+   */
+  private refuseKnownUnavailableModel(
+    agent: AcpAgentConfig,
+    modelChoice: AcpModelChoice | undefined,
+    sessionOptions?: AcpConfigOption[],
+  ): void {
+    const refused = this.unavailableModels.get(agent.id);
+    if (!refused || refused.size === 0) {
+      return;
+    }
+    const known = this.lastProbeByAgent.get(agent.id) ?? peekAcpProbe(this.probeCacheKey(agent));
+    const value = modelChoice?.value ?? acpDefaultModelValue(sessionOptions ?? known?.configOptions ?? []);
+    if (value && refused.has(value)) {
+      throw new Error(this.describeUnavailableModel(agent, value, !modelChoice, sessionOptions, true));
+    }
+  }
+
+  /**
+   * Learn from an agent refusing a model for this plan, and say what that
+   * means. Any other error is returned untouched.
+   */
+  private explainModelRefusal(
+    agent: AcpAgentConfig,
+    modelChoice: AcpModelChoice | undefined,
+    sessionOptions: AcpConfigOption[],
+    error: unknown,
+  ): unknown {
+    const refusal = classifyAcpModelUnavailable(error instanceof Error ? error.message : String(error));
+    if (!refusal) {
+      return error;
+    }
+    const refused = this.unavailableModels.get(agent.id) ?? new Set<string>();
+    refused.add(refusal.model);
+    this.unavailableModels.set(agent.id, refused);
+    const isDefault = !modelChoice || modelChoice.value !== refusal.model;
+    return new Error(this.describeUnavailableModel(agent, refusal.model, isDefault, sessionOptions, false));
+  }
+
+  private describeUnavailableModel(
+    agent: AcpAgentConfig,
+    model: string,
+    isDefault: boolean,
+    sessionOptions: AcpConfigOption[] | undefined,
+    remembered: boolean,
+  ): string {
+    const refused = this.unavailableModels.get(agent.id) ?? new Set<string>();
+    const known = this.lastProbeByAgent.get(agent.id) ?? peekAcpProbe(this.probeCacheKey(agent));
+    const remaining = acpModelChoicesFor(sessionOptions ?? known?.configOptions ?? [], this.modelStanding())
+      .filter(choice => !refused.has(choice.value))
+      .map(choice => `acp/${agent.id}@${choice.slug}`);
+    const where = acpCommandName(agent.command) === 'codex-acp'
+      ? ' (Codex reads it from `model` in ~/.codex/config.toml)'
+      : '';
+    return `${agent.command} cannot use the model "${model}" on the plan it is signed in with`
+      + `${remembered ? ' — it refused it earlier in this session' : ''}.`
+      + (isDefault ? ` It is the agent's own default${where}, so \`acp/${agent.id}\` without a model will not work until that changes.` : '')
+      + (remaining.length > 0 ? ` Models that still work: ${remaining.slice(0, 4).join(', ')}.` : '')
+      + ' AtlasMind will not route to it again this session.';
+  }
+
+  /**
+   * Make a freshly opened session one that asks before it acts — every
+   * session, not only delegated ones. In a completion-only session the asking
+   * is what makes the refusal work: the agent asks, there is no policy, and
+   * the request is refused. An agent that never asks is refused nothing.
+   */
+  private async secureSession(
+    session: AcpSession,
+    initialized: AcpInitializeResult,
+    agent: AcpAgentConfig,
+    delegated: boolean,
+  ): Promise<void> {
+    const plan = planAcpAskingMode(initialized.agentName, session.getConfigOptions());
+    if (plan.status === 'enforce') {
+      const applied = await session.enforceAskingMode(plan);
+      if (!applied.ok) {
+        throw new Error(
+          `AtlasMind could not put ${agent.command} into its "${plan.value}" mode — the mode in which it asks before it edits files `
+          + `or runs commands — so it did not send the prompt: ${applied.reason ?? 'unknown reason'}.`,
+        );
+      }
+      return;
+    }
+    if (plan.status === 'unavailable') {
+      throw new Error(plan.reason);
+    }
+    if (delegated) {
+      throw new Error(
+        `${plan.reason} AtlasMind's approval gate only runs when an agent asks, so it will not let this one act. `
+        + 'It can still answer as a completion source with atlasmind.acp.toolsEnabled turned off.',
+      );
+    }
+    if (!this.unverifiedAgentsReported.has(agent.id)) {
+      this.unverifiedAgentsReported.add(agent.id);
+      try {
+        this.options?.onSafetyNotice?.({
+          agentId: agent.id,
+          text: `${plan.reason} It is being used as a completion source; if it edits files or runs commands without asking, `
+            + 'AtlasMind\'s approval gate will not see it.',
+        });
+      } catch {
+        // Reporting must not cost the turn.
+      }
+    }
+  }
+
+  /** Remember what the turn taught about the agent, and report its notices. */
+  private afterTurn(agent: AcpAgentConfig, turn: AcpTurnResult): void {
+    if (turn.identifiesMessages) {
+      this.messageIdentifyingAgentIds.add(agent.id);
+    }
+    for (const notice of turn.notices ?? []) {
+      try {
+        this.options?.onAgentNotice?.({ agentId: agent.id, text: notice.slice(0, ACP_NOTICE_MAX_CHARS) });
+      } catch {
+        // A listener that throws must not cost the turn its answer.
       }
     }
   }
@@ -1620,8 +1925,11 @@ export class AcpAdapter implements ProviderAdapter {
     const delegatedExecution = this.delegatedExecutionEnabled(request, configuredMcpServers);
     const mcpServers = delegatedExecution ? configuredMcpServers : [];
 
+    // Before anything is spawned, as on the reusable path.
+    this.refuseKnownUnavailableModel(agent, modelChoice);
+    const launch = this.launchPlan(agent);
     const session = new AcpSession(
-      agent,
+      launch.agent,
       this.spawnFactory(),
       this.options?.cwd,
       this.clientVersion(),
@@ -1632,8 +1940,10 @@ export class AcpAdapter implements ProviderAdapter {
         privateDesktop: this.hideConsoleWindows(),
         onLaunched: this.options?.onProcessLaunch,
         passEnvironment: this.passEnvironment(),
+        adjustedEnvironment: launch.adjusted,
       },
     );
+    if (this.messageIdentifyingAgentIds.has(agent.id)) session.assumeIdentifiedMessages();
     const abortBeforePrompt = () => session.dispose(createAcpAbortError());
     request.signal?.addEventListener('abort', abortBeforePrompt, { once: true });
     try {
@@ -1670,6 +1980,7 @@ export class AcpAdapter implements ProviderAdapter {
         }
         throw error;
       }
+      await this.secureSession(session, initialized, agent, delegatedExecution);
 
       // Ask for the effort this model id names, before the prompt goes out.
       //
@@ -1687,10 +1998,19 @@ export class AcpAdapter implements ProviderAdapter {
       // Reported on the same channel as effort and for the same reason: the
       // router priced this turn as the requested model, so falling back to the
       // agent's own without saying so would bill an Opus turn for a Haiku run.
-      await this.applyRequestedConfig(session, agent, modelChoice, effort);
+      const sessionModel = modelChoice
+        ?? this.resolveModelChoice(agent, resolved.modelSlug, session.getConfigOptions());
+      this.refuseKnownUnavailableModel(agent, sessionModel, session.getConfigOptions());
+      await this.applyRequestedConfig(session, agent, sessionModel, effort, resolved.modelSlug);
 
       request.signal?.removeEventListener('abort', abortBeforePrompt);
-      const turn = await session.prompt(buildPromptBlocks(request, initialized), onTextChunk, request.signal);
+      let turn: AcpTurnResult;
+      try {
+        turn = await session.prompt(buildPromptBlocks(request, initialized), onTextChunk, request.signal);
+      } catch (error) {
+        throw this.explainModelRefusal(agent, sessionModel, session.getConfigOptions(), error);
+      }
+      this.afterTurn(agent, turn);
       return {
         content: turn.text,
         model: request.model,
@@ -1985,6 +2305,36 @@ class AcpSession {
   private promptActivity: (() => void) | undefined;
   private onText: ((chunk: string) => void) | undefined;
   private text = '';
+  /**
+   * Everything the agent said as message text this turn, in arrival order —
+   * notices included. Only the legacy Codex error parser reads it: Codex reports
+   * an HTTP failure as `Warning:` lines followed by a JSON envelope, and the
+   * warnings are exactly what {@link notices} takes out of the answer.
+   */
+  private arrivalText = '';
+  /**
+   * Message text sent *without* a `messageId` by an agent that identifies its
+   * real messages — a startup warning, not part of the answer. See
+   * {@link ACP_MESSAGE_IDENTIFYING_AGENTS}.
+   */
+  private notices: string[] = [];
+  /**
+   * Whether this agent puts a `messageId` on every message chunk: declared for
+   * verified agents, or learned the first time an undeclared one sends one.
+   * Until then every chunk is answer text and streams as it arrives — exactly
+   * the behaviour before notices existed, so an agent that never names its
+   * messages loses nothing.
+   */
+  private identifiesMessages = false;
+  /** Set when this turn saw an identified chunk, so the adapter can remember it. */
+  private sawIdentifiedMessage = false;
+  /** The asking mode this session was put into; see `ACP_ASKING_MODES`. */
+  private requiredMode: { optionId: string; value: string } | undefined;
+  /** The last mode the agent announced with `current_mode_update`. */
+  private reportedMode: string | undefined;
+  /** A mode the agent switched itself to during the current turn. */
+  private modeDrift: string | undefined;
+  private prompting = false;
   /** Tool calls announced this turn. Reset with the text at each prompt. */
   private delegatedToolCalls = 0;
   /** Latest reported context occupancy. Diagnostic; never billed. */
@@ -2009,6 +2359,9 @@ class AcpSession {
         ?? (launchOptions.privateDesktop === true && process.platform === 'win32'
           ? 'private-desktop'
           : 'ordinary'),
+      ...(launchOptions.adjustedEnvironment && launchOptions.adjustedEnvironment.length > 0
+        ? { adjustedEnvironment: [...launchOptions.adjustedEnvironment] }
+        : {}),
     });
     this.process.onStdout(chunk => this.ingest(chunk));
     // stderr is diagnostic only — kept bounded so a chatty agent cannot grow
@@ -2032,6 +2385,9 @@ class AcpSession {
     const result = await this.request(buildInitializeRequest(this.nextId, this.clientVersion));
     const parsed = parseInitializeResult(result);
     this.legacyCodexErrors = parsed.agentName === '@agentclientprotocol/codex-acp';
+    if (parsed.agentName && ACP_MESSAGE_IDENTIFYING_AGENTS.has(parsed.agentName)) {
+      this.identifiesMessages = true;
+    }
     this.supportsClose = parsed.supportsSessionClose;
     return parsed;
   }
@@ -2054,6 +2410,53 @@ class AcpSession {
   /** What this session said it would let us configure. Empty until `newSession`. */
   getConfigOptions(): AcpConfigOption[] {
     return this.configOptions;
+  }
+
+  /**
+   * Put the session into the agent's verified asking mode and confirm it.
+   *
+   * The one place AtlasMind sets a `mode` option, and deliberately not through
+   * {@link setConfigOption}: that method refuses the category so no caller can
+   * *loosen* a session, and the value here is never a caller's — it comes from
+   * `ACP_ASKING_MODES`, which lists only modes that ask before acting.
+   */
+  async enforceAskingMode(plan: { optionId: string; value: string }): Promise<{ ok: boolean; reason?: string }> {
+    if (!this.sessionId) {
+      return { ok: false, reason: 'No ACP session is open.' };
+    }
+    try {
+      const result = await this.request(buildSetConfigOptionRequest(this.nextId, this.sessionId, plan.optionId, plan.value));
+      // Merged by id, not replaced: an agent may echo only the option it changed,
+      // and dropping the rest would forget the models this session offers.
+      const echoed = parseSessionConfigOptions(result);
+      const echoedIds = new Set(echoed.map(entry => entry.id));
+      this.configOptions = [...this.configOptions.filter(entry => !echoedIds.has(entry.id)), ...echoed];
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    }
+    const applied = this.configOptions.find(entry => entry.id === plan.optionId)?.currentValue;
+    if (applied !== plan.value) {
+      return { ok: false, reason: `the agent reported "${applied ?? 'nothing'}" after being asked for its "${plan.value}" mode` };
+    }
+    this.requiredMode = plan;
+    this.reportedMode = plan.value;
+    return { ok: true };
+  }
+
+  /**
+   * Before a reused session's next turn: still in the asking mode? An agent
+   * can change its own mode between turns, and a confirmation from the last
+   * turn says nothing about this one, so it is re-set if anything disagrees.
+   */
+  async confirmAskingMode(): Promise<{ ok: boolean; reason?: string }> {
+    if (!this.requiredMode) {
+      return { ok: true };
+    }
+    const current = this.configOptions.find(entry => entry.id === this.requiredMode!.optionId)?.currentValue;
+    if (current === this.requiredMode.value && this.reportedMode === this.requiredMode.value) {
+      return { ok: true };
+    }
+    return this.enforceAskingMode(this.requiredMode);
   }
 
   /**
@@ -2132,6 +2535,11 @@ class AcpSession {
   ): Promise<AcpTurnResult> {
     this.onText = onTextChunk;
     this.text = '';
+    this.arrivalText = '';
+    this.notices = [];
+    this.sawIdentifiedMessage = false;
+    this.modeDrift = undefined;
+    this.prompting = true;
     this.delegatedToolCalls = 0;
 
     let rejectAbort: ((reason: Error) => void) | undefined;
@@ -2157,9 +2565,16 @@ class AcpSession {
         this.request(buildSessionPromptRequest(this.nextId, this.sessionId, blocks), { resetOnActivity: true }),
         aborted,
       ]);
+      if (this.modeDrift !== undefined) {
+        throw new Error(
+          `${this.agent.command} switched itself to its "${this.modeDrift}" mode during the turn — a mode in which it does not `
+          + 'ask before it acts — so AtlasMind cancelled the turn. Anything it did before the switch was approved; nothing after it was.',
+        );
+      }
       const stop = parseStopReason(result);
-      const legacyError = this.legacyCodexErrors ? parseLegacyCodexError(this.text) : undefined;
+      const legacyError = this.legacyCodexErrors ? parseLegacyCodexError(this.arrivalText) : undefined;
       if (legacyError) throw new Error(`The ACP agent returned an error (-32603): ${legacyError}`);
+      this.settleUnidentifiedText();
       // Token counts come off the prompt **result**, which is where every agent
       // actually reports them. The `usage_update` notification carries context
       // occupancy instead — reading input/output tokens out of it was why every
@@ -2173,11 +2588,59 @@ class AcpSession {
         inputTokens: usage.inputTokens ?? 0,
         outputTokens: usage.outputTokens ?? 0,
         delegatedToolCallCount: this.delegatedToolCalls,
+        ...(this.notices.length > 0 ? { notices: this.notices.map(notice => notice.trim()).filter(Boolean) } : {}),
+        ...(this.sawIdentifiedMessage ? { identifiesMessages: true } : {}),
       };
     } finally {
       signal?.removeEventListener('abort', abort);
       this.onText = undefined;
+      this.prompting = false;
     }
+  }
+
+  /**
+   * The agent announced a mode. Out of the asking mode during a turn, the turn
+   * is cancelled at once — every operation after the switch would run without
+   * asking, so waiting for the turn to finish would be waiting for it to act.
+   * Between turns it is only noted; {@link confirmAskingMode} re-sets it.
+   */
+  private noteMode(value: string | undefined): void {
+    if (value === undefined || !this.requiredMode) {
+      return;
+    }
+    this.reportedMode = value;
+    if (value !== this.requiredMode.value && this.prompting && this.modeDrift === undefined) {
+      this.modeDrift = value;
+      if (this.sessionId) {
+        this.send(buildSessionCancelNotification(this.sessionId));
+      }
+    }
+  }
+
+  /** The adapter learned on an earlier session that this agent names its messages. */
+  assumeIdentifiedMessages(): void {
+    this.identifiesMessages = true;
+  }
+
+  /**
+   * A turn whose only text was unidentified still answers with that text.
+   *
+   * Separating notices is only safe while there is an answer to separate them
+   * from: an agent that names its messages but sent its reply without a name
+   * would otherwise produce an empty turn, which is worse than one carrying a
+   * warning.
+   */
+  private settleUnidentifiedText(): void {
+    if (this.text.trim().length === 0 && this.notices.length > 0) {
+      const promoted = this.notices.join('');
+      this.notices = [];
+      this.appendAnswer(promoted);
+    }
+  }
+
+  private appendAnswer(text: string): void {
+    this.text += text;
+    this.onText?.(text);
   }
 
   /**
@@ -2495,8 +2958,18 @@ class AcpSession {
   private applyUpdate(params: Record<string, unknown>): void {
     const update = parseSessionUpdate(params);
     if (update.kind === 'text') {
-      this.text += update.text;
-      this.onText?.(update.text);
+      this.arrivalText += update.text;
+      if (update.messageId) {
+        this.sawIdentifiedMessage = true;
+        this.identifiesMessages = true;
+        this.appendAnswer(update.text);
+      } else if (this.identifiesMessages) {
+        // The agent names its messages, so text it sent without a name is not
+        // one of them.
+        this.notices.push(update.text);
+      } else {
+        this.appendAnswer(update.text);
+      }
       return;
     }
     if (update.kind === 'tool_call') {
@@ -2507,6 +2980,17 @@ class AcpSession {
         this.delegatedToolCalls += 1;
       }
       this.emitToolEvent(update.toolCall);
+      return;
+    }
+    if (update.kind === 'mode') {
+      this.noteMode(update.modeId);
+      return;
+    }
+    if (update.kind === 'config_options') {
+      if (update.configOptions.length > 0) {
+        this.configOptions = update.configOptions;
+      }
+      this.noteMode(update.configOptions.find(entry => entry.id === this.requiredMode?.optionId)?.currentValue);
       return;
     }
     if (update.kind === 'context') {
@@ -2534,6 +3018,14 @@ export class AcpAuthRequiredError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'AcpAuthRequiredError';
+  }
+}
+
+/** The agent's launch settings are wrong, so it was never started. */
+export class AcpAgentMisconfiguredError extends Error {
+  constructor(readonly variable: string, message: string) {
+    super(message);
+    this.name = 'AcpAgentMisconfiguredError';
   }
 }
 

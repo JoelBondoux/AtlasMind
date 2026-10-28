@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   ACP_MAX_MODEL_ROWS_PER_AGENT,
   ACP_MODEL_RULE_NOTE,
+  acpDefaultModelValue,
   acpModelChoicesFor,
   acpModelRows,
   buildAcpModelId,
+  classifyAcpModelUnavailable,
   composeAcpVariant,
   splitAcpModelSegment,
   type AcpModelChoice,
@@ -267,5 +269,20 @@ describe('the row set is bounded and ordered for truncation', () => {
       options: Array.from({ length: 200 }, (_unused, index) => ({ value: `m-${index}`, name: `M${index}` })),
     }]);
     expect(huge.length).toBeLessThanOrEqual(12);
+  });
+});
+
+describe('acpModels — a model refused for the signed-in plan', () => {
+  it('recognises the wording codex-acp relays, and nothing else', () => {
+    expect(classifyAcpModelUnavailable(
+      "The ACP agent returned an error (-32603): Codex HTTP 400: The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.",
+    )).toEqual({ model: 'gpt-6.1-sol', rule: 'codex-chatgpt-plan' });
+    expect(classifyAcpModelUnavailable('Codex HTTP 429: rate limited')).toBeUndefined();
+    expect(classifyAcpModelUnavailable("The 'x' model is not supported")).toBeUndefined();
+  });
+
+  it('reads the default a session runs from its own options', () => {
+    expect(acpDefaultModelValue([{ category: 'mode', currentValue: 'agent' }, { category: 'model', currentValue: 'gpt-6.1-sol' }])).toBe('gpt-6.1-sol');
+    expect(acpDefaultModelValue([])).toBeUndefined();
   });
 });
