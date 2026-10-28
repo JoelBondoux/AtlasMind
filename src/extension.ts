@@ -60,6 +60,7 @@ import {
 import { BUZZ_AGENT_KEY_SECRET } from './core/buzzSigner.js';
 import { BuzzInboundService } from './core/buzzInboundService.js';
 import { registerBuzzRevocationCommands } from './views/buzzRevocationCommands.js';
+import { registerBuzzPersonaCommands } from './views/buzzPersonaCommands.js';
 import { BUZZ_SETUP_COMMANDS } from './core/buzzSetupPlan.js';
 import {
   clampTestResourceShare,
@@ -4187,6 +4188,13 @@ async function bootstrapAtlasMind(
     }),
     // Revoke and restore a Buzz identity in AtlasMind (Buzz Tier 4).
     ...registerBuzzRevocationCommands({ listIdentities: () => buzzInbound.listIdentities() }),
+    // Suggest, accept and prepare Buzz persona teams (Buzz Tier 5).
+    ...registerBuzzPersonaCommands({
+      getAgentRegistry: () => atlasContext?.agentRegistry,
+      workspaceState: context.workspaceState,
+      globalStorageUri: context.globalStorageUri,
+      prepareLauncher: () => ensureAtlasMindCliOnTerminalPath(context, undefined, { force: true }),
+    }),
   );
   /**
    * Resolve what a research scan could look with, right now.

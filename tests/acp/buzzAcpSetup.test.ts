@@ -30,6 +30,18 @@ describe('buildBuzzAcpRuntimeSetup', () => {
     expect(JSON.stringify(setup)).not.toMatch(/nsec1|private.?key|api.?key["']?\s*:/i);
   });
 
+  it('names a persona manifest when one is given, and validates its path the same way', () => {
+    const base = {
+      workspaceRoot: path.resolve('workspace'),
+      runtimeExecutable: path.resolve('runtime', 'Code.exe'),
+      agentEntrypoint: path.resolve('storage', 'bin', 'atlasmind-acp-runner.js'),
+    };
+    const setup = buildBuzzAcpRuntimeSetup({ ...base, personaManifestPath: path.resolve('storage', 'buzz-personas', 'am-engineer.json') });
+    expect(setup.buzzFields.agentArguments.slice(-2)).toEqual(['--buzz-persona-manifest', path.resolve('storage', 'buzz-personas', 'am-engineer.json')]);
+    expect(setup.purpose).toMatch(/persona/);
+    expect(() => buildBuzzAcpRuntimeSetup({ ...base, personaManifestPath: 'relative.json' })).toThrow(/absolute/);
+  });
+
   it('refuses paths Buzz cannot represent safely in its comma-separated field', () => {
     expect(() => buildBuzzAcpRuntimeSetup({
       workspaceRoot: path.resolve('workspace,other'),

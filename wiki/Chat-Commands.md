@@ -258,6 +258,8 @@ The session drawer above the transcript starts closed and remembers your choice 
 | `AtlasMind: Copy Buzz ACP Agent Setup` | Copies a credential-free recipe for running AtlasMind as a Buzz agent |
 | `AtlasMind: Revoke a Buzz Identity` | Stops AtlasMind turning an identity's messages — and those of any agent it authorised — into work. Writes your own settings, and shows the `buzz agents archive` command for the identity's owner to run: AtlasMind holds no owner key and cannot revoke it in Buzz |
 | `AtlasMind: Trust a Revoked Buzz Identity Again` | Removes a revocation from your settings. One this workspace's settings also hold stays in force — a revocation anywhere wins |
+| `AtlasMind: Recommend Buzz Personas` | Suggests Buzz persona teams from your enabled agents, with the rule behind every member, and saves the one you accept to `.atlasmind/buzz-agents.json`. "Not now" is remembered until your agents change. Creates no Buzz identity |
+| `AtlasMind: Prepare Buzz Persona Deployment` | Writes a persona's manifest to AtlasMind's own storage and copies a credential-free Custom-command recipe for Buzz. Says when the persona's agents changed since it was last prepared. You create the identity in Buzz |
 
 ### Lens — reading your code
 

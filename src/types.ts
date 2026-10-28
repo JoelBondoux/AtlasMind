@@ -596,6 +596,34 @@ export type AgentAutoUpdateCadence = 'never' | 'every-use' | 'daily' | 'weekly' 
  */
 export type AgentSkillPolicy = 'task-scoped' | 'allowlist' | 'all';
 
+/**
+ * How far a selected member's authority reaches inside a Buzz persona.
+ * `member` keeps the selected agent's own skills and never unions the skills
+ * of every member. `read-only` narrows every member to safe reads. `allowlist`
+ * intersects the member with these skill ids.
+ */
+export type PersonaSkillCeiling =
+  | { mode: 'member' }
+  | { mode: 'read-only' }
+  | { mode: 'allowlist'; skillIds: string[] };
+
+/**
+ * The host-owned limit on one persona turn (`Orchestrator.processTaskInScope`).
+ * It comes from the host, never from prompt context: selection, handoff and
+ * skills are narrowed to these members, and nothing outside them is selected,
+ * delegated to or synthesised.
+ */
+export interface PersonaScope {
+  personaId: string;
+  /** The only agents this turn may select or hand off to. */
+  allowedAgentIds: string[];
+  /** Chosen when no member matches the request; must be one of `allowedAgentIds`. */
+  preferredAgentId: string;
+  skillCeiling: PersonaSkillCeiling;
+  /** Set when the ACP host, not the model, publishes the final Buzz reply. */
+  hostDelivery?: 'buzz-acp';
+}
+
 export interface AgentDefinition {
   id: string;
   name: string;

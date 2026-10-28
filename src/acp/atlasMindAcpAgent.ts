@@ -19,7 +19,7 @@ import type {
   ToolKind,
 } from '@agentclientprotocol/sdk' with { 'resolution-mode': 'import' };
 import type { AtlasRuntime } from '../runtime/core.js';
-import type { AgentDefinition, TaskRequest, ToolApprovalGateMeta, ToolInvocationPolicy, TurnProvenance } from '../types.js';
+import type { AgentDefinition, PersonaScope, TaskRequest, ToolApprovalGateMeta, ToolInvocationPolicy, TurnProvenance } from '../types.js';
 import { classifyToolInvocation } from '../core/toolPolicy.js';
 import {
   describeEscalationSources,
@@ -59,6 +59,12 @@ export interface AtlasMindAcpAgentOptions {
   runtime: Pick<AtlasRuntime, 'orchestrator' | 'agentRegistry'>;
   permissionBroker?: AcpPermissionBroker;
   replyPublisher?: AcpReplyPublisher;
+  /**
+   * The Buzz persona this process answers as, from a verified manifest. When
+   * set, every turn runs through `processTaskInScope` over the persona's
+   * members; when absent, the legacy fixed-default agent answers.
+   */
+  personaScope?: PersonaScope;
   log?: (message: string) => void;
 }
 
@@ -222,7 +228,8 @@ export class AtlasMindAcpAgent {
       throw new Error(`AtlasMind ACP is already processing session ${this.activePromptSessionId}; wait for that turn to finish or cancel it.`);
     }
     const prompt = extractAcpPromptText(params.prompt);
-    const agent = this.resolveAgent(Boolean(this.options.replyPublisher));
+    const personaScope = this.options.personaScope;
+    const agent = personaScope ? undefined : this.resolveAgent(Boolean(this.options.replyPublisher));
     this.activePromptSessionId = params.sessionId;
     session.pendingPrompt?.abort();
     const abortController = new AbortController();
@@ -263,12 +270,24 @@ export class AtlasMindAcpAgent {
 
     this.permissionBroker.register(taskId, params.sessionId, client);
     try {
-      const result = await this.options.runtime.orchestrator.processTaskWithAgent(
-        request,
-        agent,
-        queueText,
-        () => undefined,
-      );
+      const result = personaScope
+        ? await this.options.runtime.orchestrator.processTaskInScope(
+          request,
+          personaScope,
+          queueText,
+          message => this.options.log?.(message),
+        )
+        : await this.options.runtime.orchestrator.processTaskWithAgent(
+          request,
+          agent!,
+          queueText,
+          () => undefined,
+        );
+      if (personaScope) {
+        // Who answered inside the persona, for the operator's log. The Buzz
+        // author stays the persona's one signed identity either way.
+        this.options.log?.(`Persona ${personaScope.personaId}: ${result.agentId} answered with ${result.modelUsed}.`);
+      }
       await notificationChain;
       if (abortController.signal.aborted) {
         return { stopReason: 'cancelled' };

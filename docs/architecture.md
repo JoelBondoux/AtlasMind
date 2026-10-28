@@ -3312,6 +3312,61 @@ event's attestation verdict, so an agent cannot slip through on its first messag
 Identity** writes the user scope and shows the `buzz agents archive` command for the owner to run with their own
 key; AtlasMind signs nothing.
 
+### Buzz persona teams (`src/core/buzzPersonaProfiles.ts`, `src/core/buzzAgentRecommendations.ts`, `src/core/personaScope.ts`, `src/core/buzzPersonaManifest.ts`)
+
+**Buzz Tier 5.** A persona is one Buzz identity — *AM Engineer*, *AM Oversight* — backed by a team of
+AtlasMind agents, so a channel sees a few comprehensible authors rather than every internal agent. Four
+records with four owners. The *project intent* is `.atlasmind/buzz-agents.json` (committed, schema kind
+`buzz-agents`). The *local deployment* is workspace state: manifest fingerprint and preparation time.
+The *runtime manifest* lives in extension storage. The *Buzz identity* is Buzz's own managed-agent
+store, and AtlasMind never holds its key.
+
+**The persona file** (`buzzPersonaProfiles.ts`) names members, one preferred member that must be among
+them, an independence class (`execution` / `advisory` / `oversight`) and a skill ceiling (`member` /
+`read-only` / `allowlist`). One agent may serve several personas. An invalid profile is reported and
+left out, never repaired. Fields this build does not know survive a save. A secret-shaped key or value,
+or an absolute path anywhere in the file, refuses the whole document, and a newer file is preserved and
+never written over. `validateBuzzPersonaProfiles` reports a missing or disabled member and an
+unrunnable lead. It reports an oversight agent inside an executing persona as having lost its
+independence. It deletes and substitutes nothing. Nothing seeds the file.
+
+**Suggestions** (`buzzAgentRecommendations.ts`) come from `PERSONA_FAMILY_RULES`, never a model:
+declared routing needs first, then testing duties, and role words only for an agent that declares no
+needs (the orchestrator's own rule). An advisor whose pinned skills only read (`isReviewOnlyAgent`) is
+kept out of every team but AM Oversight, which carries a `read-only` ceiling. AM Research needs two
+researchers, and AM Coordinator is offered, optional, once three teams are suggested. Every member
+names its rule. Every suggestion carries `BUZZ_RECOMMENDATION_RULESET_VERSION` and a registry
+fingerprint, so a dismissal (kept in workspace state) lasts until the registry changes. An accepted
+profile is never rewritten from here.
+
+**Scoped orchestration** is `Orchestrator.processTaskInScope(request, scope)`. The `PersonaScope` type
+is in `types.ts` and is host data, never prompt text. Classification and scoring run as in
+`processTask`, but the pool is the members only:
+
+- A request no member matches goes to the lead.
+- A disabled lead degrades to another member, with a notice.
+- No usable member refuses the turn without calling a model.
+- Nothing is synthesised, and the global registry is never consulted.
+
+The scope rides on `request.context.__personaScope`, so a handoff from a persona worker is refused
+outside the members before the general handoff policy runs (`personaHandoffRefusal`). The delegate
+carries the same scope. Each worker's skills are the ordinary intersection, narrowed again by the
+ceiling. `allowlist` intersects. `read-only` adds the same capability envelope a read-only turn uses,
+so only reads survive. When `hostDelivery` is `buzz-acp`, Buzz send tools are withheld and every worker
+receives the trusted host-delivery note, so one turn produces one message. A subscription agent may run
+its own tools (ACP delegated execution) inside a persona only under the `member` ceiling, because an
+allowlist cannot be intersected with tools the agent brings itself.
+
+**The manifest** (`buzzPersonaManifest.ts`) carries the member definitions into `atlasmind-acp`, whose
+fresh headless runtime has only the built-ins. The members include agents created in the editor. It is
+a sanitised snapshot of exactly the members, and a member that carries a secret refuses the export. The
+fingerprint is a full SHA-256 over the canonical contents, recomputed on load. `--buzz-persona-manifest`
+refuses a manifest that was edited, is newer, is empty, is malformed, sits inside the workspace (where
+another contributor could edit the prompts it runs), is a link, or is over 1 MB. A refusal stops the
+process rather than answering as the default agent. With a manifest, `AtlasMindAcpAgent` routes every
+turn through `processTaskInScope`; without one, the legacy fixed-default path is unchanged.
+`manifestIsStale` lets the prepare command say when definitions changed under a running identity.
+
 ### BuzzDirectory (`src/core/buzzDirectory.ts`)
 
 The identities AtlasMind has *observed*, so a Buzz handle can be picked rather than typed.
@@ -3385,6 +3440,7 @@ The services are constructed in `activate()` and bundled into `AtlasMindContext`
 
 ```
 User message → Chat Participant → Orchestrator.processTask()
+  (Buzz persona turn → Orchestrator.processTaskInScope(): the same flow, selection over the members only)
   → AgentRegistry.selectAgent()
   → MemoryManager.queryRelevant()
   → TaskProfiler.profileTask()

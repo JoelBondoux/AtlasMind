@@ -1,4 +1,4 @@
-import type { AgentDefinition, ArdDiscoveredResource, DelegatedExecutionRecord, ProvenanceSource, TurnProvenance, UntrustedEscalationScope, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, ReasoningDirective, ReasoningLevel, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolApprovalAudit, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, ArdDiscoveredResource, DelegatedExecutionRecord, PersonaScope, ProvenanceSource, TurnProvenance, UntrustedEscalationScope, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, ReasoningDirective, ReasoningLevel, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolApprovalAudit, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { describeCapabilityOutcome, prepareCapabilityQuery, type ExternalCapabilitySearch } from './capabilitySearch.js';
 import { buildDebtMarkerGuidance, parseCustomDebtMarkers } from './debtRegister.js';
@@ -10,6 +10,15 @@ import {
   describeHandoffRefusal,
   type HandoffChainLink,
 } from './agentHandoff.js';
+import {
+  isWithheldForHostDelivery,
+  personaCapabilityEnvelope,
+  personaHandoffRefusal,
+  readPersonaScope,
+  resolveScopedCandidates,
+  skillAllowedByPersonaCeiling,
+  withPersonaInstructions,
+} from './personaScope.js';
 import { ClassifierService, type ClassificationResult } from './classifierService.js';
 import { formatCost } from './currencyFormatter.js';
 import type { AgentRegistry } from './agentRegistry.js';
@@ -832,7 +841,7 @@ export class Orchestrator {
    * would refuse every handoff a subtask ever made, for a reason that looks
    * like policy and is actually a missing record.
    */
-  private currentExecution: { agentId: string; taskId: string; skillIds: string[] } | undefined;
+  private currentExecution: { agentId: string; taskId: string; skillIds: string[]; personaScope?: PersonaScope } | undefined;
 
   /**
    * Diagnostics already shown, keyed by session.
@@ -867,6 +876,16 @@ export class Orchestrator {
     if (!caller) {
       return 'Handoff refused (unavailable). Nothing is currently executing, so there is no caller '
         + 'to delegate on behalf of.';
+    }
+
+    // A persona's worker may delegate only inside the persona. Checked before
+    // the general policy so the refusal names the real boundary.
+    const requestedTarget = (request.targetAgentId ?? '').trim();
+    const outsidePersona = caller.personaScope && requestedTarget
+      ? personaHandoffRefusal(requestedTarget, caller.personaScope)
+      : undefined;
+    if (outsidePersona) {
+      return outsidePersona;
     }
 
     const chain = this.handoffChains.get(caller.taskId) ?? [];
@@ -921,7 +940,9 @@ export class Orchestrator {
             decision,
             caller.agentId,
           ),
-          context: {},
+          // A persona's limit follows the work into the delegate: its own
+          // handoffs, skills and delivery rule are the persona's too.
+          context: caller.personaScope ? { __personaScope: caller.personaScope } : {},
           // The caller's own constraints are not inherited: a delegate answering
           // one question is a smaller job than whatever the caller is doing, and
           // letting it run at the caller's budget would make a handoff an
@@ -1900,20 +1921,7 @@ export class Orchestrator {
       return groundedResult;
     }
 
-    // Run LLM classification and memory retrieval concurrently so neither
-    // blocks the other. Both are needed before the agentic loop starts;
-    // running them in parallel shaves one full network round-trip off the
-    // time-to-first-token for every request.
-    const hasImageAttachment = Array.isArray(request.context['imageAttachments'])
-      && (request.context['imageAttachments'] as unknown[]).length > 0;
-    const [classification, preloadedRetrievalCtx] = await Promise.all([
-      this.classifier.classify(request.userMessage, { hasImageAttachment }),
-      this.buildRetrievalContext(request),
-    ]);
-    const enrichedRequest: TaskRequest = {
-      ...request,
-      context: { ...request.context, __classification: classification, __preloadedRetrievalCtx: preloadedRetrievalCtx },
-    };
+    const enrichedRequest = await this.classifyAndPreload(request);
 
     let synthesizedAgent: TaskResult['synthesizedAgent'];
     const wrappedProgress = async (message: string): Promise<void> => {
@@ -1930,6 +1938,82 @@ export class Orchestrator {
     }
     const result = await this.processTaskWithAgent(enrichedRequest, agent, onTextChunk, onProgress, onModelSelected);
     return synthesizedAgent ? { ...result, synthesizedAgent } : result;
+  }
+
+  /**
+   * Run LLM classification and memory retrieval concurrently so neither
+   * blocks the other. Both are needed before the agentic loop starts; running
+   * them in parallel shaves one full network round-trip off the
+   * time-to-first-token for every request.
+   */
+  private async classifyAndPreload(request: TaskRequest): Promise<TaskRequest> {
+    const hasImageAttachment = Array.isArray(request.context['imageAttachments'])
+      && (request.context['imageAttachments'] as unknown[]).length > 0;
+    const [classification, preloadedRetrievalCtx] = await Promise.all([
+      this.classifier.classify(request.userMessage, { hasImageAttachment }),
+      this.buildRetrievalContext(request),
+    ]);
+    return {
+      ...request,
+      context: { ...request.context, __classification: classification, __preloadedRetrievalCtx: preloadedRetrievalCtx },
+    };
+  }
+
+  /**
+   * Process a task inside a Buzz persona: normal classification and scoring,
+   * over the persona's members only (`personaScope.ts`).
+   *
+   * The scope is host data — the launcher's, never the prompt's. A worker is
+   * chosen only from the members; when none matches the request the preferred
+   * member answers; nobody is synthesised; a handoff stays inside the members;
+   * and every worker's skills are narrowed by the persona's ceiling. A scope
+   * with no usable member refuses the turn rather than borrowing an agent.
+   */
+  async processTaskInScope(
+    request: TaskRequest,
+    scope: PersonaScope,
+    onTextChunk?: (chunk: string) => void,
+    onProgress?: (message: string) => void,
+    onModelSelected?: (model: string) => void,
+  ): Promise<TaskResult> {
+    const startedAt = Date.now();
+    const refuse = (reason: string): TaskResult => {
+      onProgress?.(reason);
+      return {
+        id: request.id,
+        agentId: `persona:${scope.personaId}`,
+        modelUsed: 'none',
+        response: reason,
+        costUsd: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        durationMs: Date.now() - startedAt,
+      };
+    };
+    const validScope = readPersonaScope(scope);
+    if (!validScope) {
+      return refuse('This persona turn was refused: the persona scope the host supplied is malformed, so AtlasMind will not run it unscoped.');
+    }
+    const resolved = resolveScopedCandidates(validScope, this.agents.listEnabledAgents());
+    if (resolved.kind === 'refused') {
+      return refuse(resolved.reason);
+    }
+    for (const notice of resolved.notices) {
+      onProgress?.(notice);
+    }
+
+    const enrichedRequest = await this.classifyAndPreload({
+      ...request,
+      context: { ...request.context, __personaScope: validScope },
+    });
+    let agent = await this.selectAgent(enrichedRequest, onProgress, {
+      candidates: resolved.candidates,
+      preferred: resolved.preferred,
+    });
+    if (this.agentAutoUpdater) {
+      agent = await this.agentAutoUpdater.maybeUpdate(agent);
+    }
+    return this.processTaskWithAgent(enrichedRequest, agent, onTextChunk, onProgress, onModelSelected);
   }
 
   /**
@@ -1971,24 +2055,36 @@ export class Orchestrator {
 
   private async runTaskWithAgent(
     request: TaskRequest,
-    agent: AgentDefinition,
+    requestedAgent: AgentDefinition,
     onTextChunk?: (chunk: string) => void,
     onProgress?: (message: string) => void,
     onModelSelected?: (model: string) => void,
   ): Promise<TaskResult> {
     const retrievalContext = (request.context['__preloadedRetrievalCtx'] as RetrievalContextBundle | undefined)
       ?? await this.buildRetrievalContext(request);
+    // A persona turn, or a handoff made from one. The scope travels in the
+    // internal context so a delegated worker is held to the same members,
+    // ceiling and delivery rule as the worker that delegated.
+    const personaScope = readPersonaScope(request.context['__personaScope']);
+    let agent = personaScope ? withPersonaInstructions(requestedAgent, personaScope) : requestedAgent;
     // Derived from this request's text, then narrowed by anything the caller
     // was already restricted to. A subtask's text is planner-generated and will
     // not repeat the user's "don't change anything", so without the
     // intersection a read-only project run gave every subtask a clean slate.
     const turnCapabilities = intersectTurnCapabilities(
-      deriveTurnCapabilityEnvelope(request.userMessage),
-      request.context['__inheritedCapabilityEnvelope'] as TurnCapabilityEnvelope | undefined,
+      intersectTurnCapabilities(
+        deriveTurnCapabilityEnvelope(request.userMessage),
+        request.context['__inheritedCapabilityEnvelope'] as TurnCapabilityEnvelope | undefined,
+      ),
+      personaScope ? personaCapabilityEnvelope(personaScope) : undefined,
     );
     request.context['__turnCapabilityEnvelope'] = turnCapabilities;
     const eligibleAgentSkills = this.skills.getSkillsForAgent(agent).filter(skill =>
-      isToolAllowedByTurnEnvelope(skill.id, {}, turnCapabilities),
+      isToolAllowedByTurnEnvelope(skill.id, {}, turnCapabilities)
+      && (!personaScope || (
+        skillAllowedByPersonaCeiling(skill.id, personaScope.skillCeiling)
+        && !isWithheldForHostDelivery(skill.id, personaScope)
+      )),
     );
     const projectVocabulary = this.readProjectVocabulary();
     let activeAgentSkills = selectTaskScopedSkills(
@@ -2020,6 +2116,7 @@ export class Orchestrator {
       agentId: agent.id,
       taskId: request.id,
       skillIds: activeAgentSkills.map(skill => skill.id),
+      ...(personaScope ? { personaScope } : {}),
     };
     let baseTaskProfile = this.taskProfiler.profileTask({
       userMessage: request.userMessage,
@@ -2045,10 +2142,14 @@ export class Orchestrator {
     // A delegated ACP agent runs tools AtlasMind never sees, so none of them
     // could be simulated: off for a dry turn, whatever the setting says.
     const dryRunTurn = this.dryRunTurnFor(request);
+    // Inside a persona, only the `member` ceiling allows it: an allowlist
+    // cannot be intersected with tools the agent brings itself, and a
+    // read-only persona's envelope already forbids the writes above.
     const acpDelegatedToolsEnabled = taskRequiresToolExecution
       && turnCapabilities.writesAllowed
       && turnCapabilities.commandsAllowed
       && !dryRunTurn.active
+      && (!personaScope || personaScope.skillCeiling.mode === 'member')
       && this.readSetting<boolean>('acp.toolsEnabled', false);
 
     const skillPolicy = resolveAgentSkillPolicy(agent);
@@ -5903,8 +6004,14 @@ export class Orchestrator {
   private async selectAgent(
     _request: TaskRequest,
     onProgress?: (message: string) => void,
+    /**
+     * A persona's members. Scoring is unchanged; the pool is these agents only,
+     * nothing is synthesised, and a request no member matches goes to the
+     * preferred member rather than to whichever scored zero first.
+     */
+    scoped?: { candidates: AgentDefinition[]; preferred: AgentDefinition },
   ): Promise<AgentDefinition> {
-    const agents = this.agents.listEnabledAgents();
+    const agents = scoped ? scoped.candidates : this.agents.listEnabledAgents();
     const requestTokens = tokenize(_request.userMessage);
     // Use LLM-derived routing needs when available; fall back to regex.
     const classification = _request.context['__classification'] as ClassificationResult | undefined;
@@ -5971,6 +6078,10 @@ export class Orchestrator {
         .sort((a, b) => b.score - a.score || a.agent.name.localeCompare(b.agent.name));
 
       const best = ranked[0]!;
+
+      if (scoped) {
+        return best.score > 0 ? best.agent : scoped.preferred;
+      }
 
       // Only attempt synthesis when: the request has a specialization signal (routing
       // needs exist or it's workspace-biased), the top-scoring existing agent scored 0

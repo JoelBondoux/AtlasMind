@@ -18,6 +18,12 @@ import {
 } from '../acp/atlasMindAcpAgent.js';
 import { BuzzAcpReplyPublisher } from '../acp/buzzReplyPublisher.js';
 import { formatDryRunLedgerLine } from '../core/dryRun.js';
+import {
+  loadBuzzPersonaManifestFile,
+  manifestAgentDefinitions,
+  manifestToScope,
+} from '../core/buzzPersonaManifest.js';
+import type { PersonaScope } from '../types.js';
 import { DryRunHost, installDryRunHost } from '../core/dryRunHost.js';
 import {
   BuzzCliBridge,
@@ -41,6 +47,8 @@ interface AcpAgentCliOptions {
    * setting and takes a flag instead. On for the life of the process.
    */
   dryRun: boolean;
+  /** A verified persona manifest the extension wrote; see `buzzPersonaManifest.ts`. */
+  buzzPersonaManifest?: string;
 }
 
 export function parseAcpAgentArgs(
@@ -52,6 +60,7 @@ export function parseAcpAgentArgs(
   let dailyLimitUsd = 0;
   let buzzAutoReply = false;
   let dryRun = false;
+  let buzzPersonaManifest: string | undefined;
   let help = false;
   let version = false;
   const errors: string[] = [];
@@ -92,6 +101,9 @@ export function parseAcpAgentArgs(
       case '--dry-run':
         dryRun = true;
         break;
+      case '--buzz-persona-manifest':
+        buzzPersonaManifest = value();
+        break;
       case '--help':
       case '-h':
         help = true;
@@ -113,6 +125,7 @@ export function parseAcpAgentArgs(
         dailyLimitUsd,
         buzzAutoReply,
         dryRun,
+        ...(buzzPersonaManifest ? { buzzPersonaManifest: path.resolve(buzzPersonaManifest) } : {}),
       }
       : undefined,
     help,
@@ -165,6 +178,25 @@ export async function runAcpAgent(
   });
   syncProviderAvailability(runtime.modelRouter, adapters);
 
+  // A persona manifest is loaded and verified before anything can answer, and
+  // a refusal stops the process: answering as the legacy default instead would
+  // put a different team behind the persona's signed identity.
+  let personaScope: PersonaScope | undefined;
+  if (options.buzzPersonaManifest) {
+    const loaded = loadBuzzPersonaManifestFile(options.buzzPersonaManifest, options.workspaceRoot);
+    if (loaded.kind === 'refused') {
+      throw new Error(loaded.reason);
+    }
+    for (const agent of manifestAgentDefinitions(loaded.manifest)) {
+      runtime.agentRegistry.register(agent);
+      runtime.agentRegistry.enable(agent.id);
+    }
+    personaScope = manifestToScope(loaded.manifest, options.buzzAutoReply);
+    process.stderr.write(`[atlasmind-acp] Answering as persona ${loaded.manifest.persona.displayName} `
+      + `(${loaded.manifest.persona.agentIds.join(', ')}; manifest ${loaded.manifest.fingerprint.slice(0, 12)}).
+`);
+  }
+
   let replyPublisher: BuzzAcpReplyPublisher | undefined;
   if (options.buzzAutoReply) {
     const bridge = new BuzzCliBridge(loadBuzzCliBridgeConfig({
@@ -181,6 +213,7 @@ export async function runAcpAgent(
     runtime,
     permissionBroker,
     replyPublisher,
+    ...(personaScope ? { personaScope } : {}),
     log: message => process.stderr.write(`[atlasmind-acp] ${message}\n`),
   });
 
@@ -236,6 +269,8 @@ function printHelp(output: NodeJS.WritableStream): void {
     '  --daily-limit-usd <n>    Stop model requests at this daily cost ceiling',
     '  --buzz-auto-reply        Publish final answers through Buzz’s communication-only CLI bridge',
     '  --dry-run                Describe every tool call and Buzz reply that would act, and run none of them',
+    '  --buzz-persona-manifest <path>',
+    '                           Answer as the Buzz persona in this AtlasMind-written manifest (outside the workspace)',
     '  --help                   Show this help',
     '  --version                Show the AtlasMind version',
     '',
