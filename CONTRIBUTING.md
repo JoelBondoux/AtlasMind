@@ -12,6 +12,12 @@ no guide — Codex's asking mode is `read-only`, and its default `agent` never a
 version and date in `verifiedWith`. The same applies to `ACP_MESSAGE_IDENTIFYING_AGENTS` and
 `ACP_AGENT_PATH_VARIABLES`: capture the raw `session/update` stream or launch the binary first.
 
+A provider that implements `runDelegatedTurn` must refuse when it cannot act (never degrade to a
+completion), must not retry a delegated turn, must call `beforeApprove` after its own permission
+policy approves and before the approval is sent — a throw is a refusal — and must report each call's
+file paths in `locations`. Callers reach it only through `completeWithRetry` with a `dispatch`, so the
+egress guard still clears the prompt; `tests/security/modelEgressBoundary.test.ts` fails otherwise.
+
 ## Development Setup
 
 1. Clone the repo and install dependencies:

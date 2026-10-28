@@ -236,4 +236,63 @@ export interface ProviderAdapter {
    * Check whether the provider is reachable and authenticated.
    */
   healthCheck(): Promise<boolean>;
+
+  /**
+   * Hand a whole turn to a provider-native agent that acts with its own tools
+   * (an ACP agent), and come back with its account of what it did.
+   *
+   * Optional, and only for providers whose models declare
+   * `delegatedToolExecution`. The caller still gates every operation through
+   * the provider's permission path, takes its own record of what changed, and
+   * treats `toolCalls` and `plan` as the agent's claims — never as evidence.
+   * A provider must refuse rather than degrade to a plain completion when it
+   * cannot act, because a delegated turn answered in prose describes work
+   * nobody did.
+   */
+  runDelegatedTurn?(
+    request: CompletionRequest,
+    options?: {
+      observer?: DelegatedTurnObserver;
+      onTextChunk?: (chunk: string) => void;
+      /** Where the agent works — a subtask's worktree when it has one. */
+      cwd?: string;
+    },
+  ): Promise<DelegatedTurnResult>;
+}
+
+/** One operation a delegated agent reported, with its updates folded in. Agent text, clamped. */
+export interface DelegatedToolCall {
+  toolCallId: string;
+  title: string;
+  /** The agent's own operation kind: `read`, `edit`, `delete`, `move`, `execute`, … */
+  kind: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  /** File paths the agent says the call touches. Display and cross-check only. */
+  locations: string[];
+  isUpdate: boolean;
+}
+
+/** One step of a delegated agent's own plan. */
+export interface DelegatedPlanStep {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  priority?: 'high' | 'medium' | 'low';
+}
+
+export interface DelegatedTurnObserver {
+  onToolCall?: (call: DelegatedToolCall) => void;
+  /** The whole plan, replacing any earlier one. */
+  onPlan?: (steps: DelegatedPlanStep[]) => void;
+  /**
+   * The operation was approved and the approval not yet sent. Throwing
+   * refuses it — where a caller takes the rollback point for the files an
+   * edit names.
+   */
+  beforeApprove?: (call: DelegatedToolCall) => Promise<void>;
+}
+
+export interface DelegatedTurnResult {
+  response: CompletionResponse;
+  toolCalls: DelegatedToolCall[];
+  plan?: DelegatedPlanStep[];
 }

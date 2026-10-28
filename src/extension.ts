@@ -1,4 +1,5 @@
 import { EnvironmentManager } from './core/environmentManager.js';
+import { ACP_DELEGATED_EDIT_CHECKPOINT_TOOL } from './core/acpDelegation.js';
 import { resolveWithinWorkspace } from './core/workspaceBoundary.js';
 import { egressFetch, toSkillHttpResult } from './core/egressFetch.js';
 import { DryRunLedger, formatDryRunLedgerLine, readDryRunSetting } from './core/dryRun.js';
@@ -2865,12 +2866,23 @@ async function bootstrapAtlasMind(
       invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
     ) => runPostToolVerification(skillContext, invocations);
     const writeCheckpointHook = async (taskId: string, toolName: string, args: Record<string, unknown>) => {
+      // A delegated ACP edit is allowed *because* its rollback point was taken,
+      // so for it a missing store or an unresolvable path is a refusal rather
+      // than a quiet skip — the run record would otherwise claim a checkpoint
+      // that does not exist. See `src/core/acpDelegation.ts`.
+      const delegated = toolName === ACP_DELEGATED_EDIT_CHECKPOINT_TOOL;
       if (!checkpointManager) {
+        if (delegated) {
+          throw new Error('No checkpoint store is available in this window.');
+        }
         return;
       }
 
       const paths = await resolveCheckpointPaths(skillContext, toolName, args);
       if (paths.length === 0) {
+        if (delegated) {
+          throw new Error('The delegated edit named no file inside the workspace.');
+        }
         return;
       }
 
@@ -6785,6 +6797,24 @@ async function resolveCheckpointPaths(
   toolName: string,
   args: Record<string, unknown>,
 ): Promise<string[]> {
+  if (toolName === ACP_DELEGATED_EDIT_CHECKPOINT_TOOL) {
+    // Absolute paths the orchestrator already confined to the turn's folder;
+    // re-checked here against the workspace, because `captureFiles` is the
+    // last thing before a write and a path outside the workspace must not
+    // reach it.
+    const root = skillContext.workspaceRootPath;
+    const raw = Array.isArray(args['paths']) ? args['paths'] : [];
+    return raw
+      .filter((entry): entry is string => typeof entry === 'string' && path.isAbsolute(entry))
+      .filter(entry => {
+        if (!root) {
+          return false;
+        }
+        const relative = path.relative(root, entry);
+        return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+      })
+      .slice(0, 50);
+  }
   if (toolName === 'file-write' || toolName === 'file-edit') {
     const targetPath = typeof args['path'] === 'string' ? args['path'].trim() : '';
     if (!targetPath) {

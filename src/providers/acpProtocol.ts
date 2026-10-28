@@ -614,11 +614,39 @@ export interface AcpToolCall {
   title: string;
   kind: AcpToolKind;
   status: AcpToolCallStatus;
-  /** File paths the call touches, as reported. Display only — never resolved. */
+  /**
+   * File paths the call touches, as reported. Display only — never resolved.
+   * Read from `locations` and from `diff` content blocks: claude-agent-acp
+   * reports the first and codex-acp only the second (observed 2026-10-27).
+   */
   locations: string[];
   /** True for `tool_call_update` — a change to a call already announced. */
   isUpdate: boolean;
+  /**
+   * The update carried no `status`. `status` then reads `pending`, which is
+   * not a statement that the call went back to pending — so anything folding
+   * updates together must keep the last status that was actually reported.
+   */
+  statusOmitted?: true;
 }
+
+export const ACP_PLAN_ENTRY_STATUSES = ['pending', 'in_progress', 'completed'] as const;
+export type AcpPlanEntryStatus = (typeof ACP_PLAN_ENTRY_STATUSES)[number];
+
+/**
+ * One step of the plan an agent publishes with a `plan` session update. Each
+ * update carries the whole plan and replaces the previous one. Shape captured
+ * from claude-agent-acp 0.63.0 (its TodoWrite tool) on 2026-10-27:
+ * `{ content, status, priority }`. Agent text: clamped, never interpreted.
+ */
+export interface AcpPlanEntry {
+  content: string;
+  status: AcpPlanEntryStatus;
+  priority?: 'high' | 'medium' | 'low';
+}
+
+/** At most this many plan entries are kept from one update. */
+export const MAX_ACP_PLAN_ENTRIES = 50;
 
 export type AcpSessionUpdate =
   /** A streamed slice of the assistant's reply. */
@@ -660,6 +688,8 @@ export type AcpSessionUpdate =
    * would otherwise act without the approval gate ever running.
    */
   | { kind: 'mode'; sessionId: string; modeId: string }
+  /** The agent's own plan for the turn, replacing any earlier one. */
+  | { kind: 'plan'; sessionId: string; entries: AcpPlanEntry[] }
   | { kind: 'config_options'; sessionId: string; configOptions: AcpConfigOption[] }
   /** Anything else the spec defines (`plan`, `available_commands_update`, …). */
   | { kind: 'other'; sessionId: string; sessionUpdate: string }
@@ -725,6 +755,10 @@ export function parseSessionUpdate(params: Record<string, unknown>): AcpSessionU
 
   if (discriminator === 'config_option_update') {
     return { kind: 'config_options', sessionId, configOptions: parseSessionConfigOptions(update) };
+  }
+
+  if (discriminator === 'plan') {
+    return { kind: 'plan', sessionId, entries: parsePlanEntries(update['entries']) };
   }
 
   return { kind: 'other', sessionId, sessionUpdate: discriminator };
@@ -868,11 +902,22 @@ function parseToolCall(update: Record<string, unknown>, isUpdate: boolean): AcpT
   const kind = clampText(update['kind'], 40);
   const status = clampText(update['status'], 40);
   const locations: string[] = [];
+  const addLocation = (raw: unknown) => {
+    const path = sanitizeLine(raw, 300);
+    if (path && !locations.includes(path) && locations.length < 20) {
+      locations.push(path);
+    }
+  };
   if (Array.isArray(update['locations'])) {
     for (const entry of update['locations'].slice(0, 20)) {
-      const path = sanitizeLine(asRecord(entry)['path'], 300);
-      if (path) {
-        locations.push(path);
+      addLocation(asRecord(entry)['path']);
+    }
+  }
+  if (Array.isArray(update['content'])) {
+    for (const entry of update['content'].slice(0, 20)) {
+      const record = asRecord(entry);
+      if (record['type'] === 'diff') {
+        addLocation(record['path']);
       }
     }
   }
@@ -883,7 +928,36 @@ function parseToolCall(update: Record<string, unknown>, isUpdate: boolean): AcpT
     status: (ACP_TOOL_CALL_STATUSES as readonly string[]).includes(status) ? status as AcpToolCallStatus : 'pending',
     locations,
     isUpdate,
+    ...(update['status'] === undefined ? { statusOmitted: true as const } : {}),
   };
+}
+
+/**
+ * The entries of a `plan` update. An unrecognised status reads as `pending`
+ * — never `completed`, which would report work done that nobody did — and an
+ * entry with no readable text is dropped, since a step nobody can read is not
+ * a step anybody can track.
+ */
+function parsePlanEntries(raw: unknown): AcpPlanEntry[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const entries: AcpPlanEntry[] = [];
+  for (const item of raw.slice(0, MAX_ACP_PLAN_ENTRIES)) {
+    const record = asRecord(item);
+    const content = sanitizeLine(record['content'], 300);
+    if (!content) {
+      continue;
+    }
+    const status = clampText(record['status'], 40);
+    const priority = clampText(record['priority'], 20);
+    entries.push({
+      content,
+      status: (ACP_PLAN_ENTRY_STATUSES as readonly string[]).includes(status) ? status as AcpPlanEntryStatus : 'pending',
+      ...(priority === 'high' || priority === 'medium' || priority === 'low' ? { priority } : {}),
+    });
+  }
+  return entries;
 }
 
 /** Clamp to a single line: control characters out, length capped. */

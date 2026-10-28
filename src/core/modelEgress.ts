@@ -374,6 +374,15 @@ export interface GuardedCompletionInput {
    * inconvenience.
    */
   confirmSecret?: EgressSecretConfirmer;
+  /**
+   * What sends the cleared request, when it is not the provider's ordinary
+   * completion — a delegated turn handed to an ACP agent with `runDelegatedTurn`.
+   *
+   * It receives the request *after* this module has cleared it, so a caller
+   * that needs a different call still cannot send an uncleared prompt by
+   * choosing one: whatever performs the send, it sends what was cleared here.
+   */
+  dispatch?: (request: CompletionRequest, onTextChunk?: (chunk: string) => void) => Promise<CompletionResponse>;
 }
 
 /**
@@ -447,6 +456,9 @@ export async function dispatchGuardedCompletion(
   }
 
   const cleanedRequest = { ...input.request, messages };
+  if (input.dispatch) {
+    return input.dispatch(cleanedRequest, input.onTextChunk);
+  }
   return input.onTextChunk && input.provider.streamComplete
     ? input.provider.streamComplete(cleanedRequest, input.onTextChunk)
     : input.provider.complete(cleanedRequest);

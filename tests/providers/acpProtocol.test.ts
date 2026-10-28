@@ -255,10 +255,52 @@ describe('parseSessionUpdate', () => {
   });
 
   it('passes other spec discriminators through as themselves', () => {
-    for (const kind of ['plan', 'available_commands_update']) {
+    for (const kind of ['available_commands_update', 'session_info_update']) {
       expect(parseSessionUpdate({ sessionId: 's', update: { sessionUpdate: kind } }))
         .toEqual({ kind: 'other', sessionId: 's', sessionUpdate: kind });
     }
+  });
+
+  it('reads an agent plan, with an unknown status read as pending and never as done', () => {
+    // Shape captured from claude-agent-acp 0.63.0 (TodoWrite) on 2026-10-27.
+    expect(parseSessionUpdate({
+      sessionId: 's',
+      update: {
+        sessionUpdate: 'plan',
+        entries: [
+          { content: 'Create a.txt containing 1', status: 'completed', priority: 'medium' },
+          { content: 'Edit a.txt', status: 'in_progress', priority: 'urgent' },
+          { content: 'Ship it', status: 'finished' },
+          { content: '   ', status: 'pending' },
+        ],
+      },
+    })).toEqual({
+      kind: 'plan',
+      sessionId: 's',
+      entries: [
+        { content: 'Create a.txt containing 1', status: 'completed', priority: 'medium' },
+        { content: 'Edit a.txt', status: 'in_progress' },
+        { content: 'Ship it', status: 'pending' },
+      ],
+    });
+  });
+
+  it('takes an edit\'s path from a diff block as well as from locations, and marks an update with no status', () => {
+    // codex-acp names the path only in its diff content; claude-agent-acp only in locations.
+    const update = parseSessionUpdate({
+      sessionId: 's',
+      update: {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'exec-1',
+        kind: 'edit',
+        content: [{ type: 'diff', path: '/work/a.txt', oldText: null, newText: '1' }, { type: 'terminal', terminalId: 't' }],
+        locations: [{ path: '/work/b.txt' }, { path: '/work/a.txt' }],
+      },
+    });
+    expect(update).toMatchObject({
+      kind: 'tool_call',
+      toolCall: { toolCallId: 'exec-1', locations: ['/work/b.txt', '/work/a.txt'], statusOmitted: true },
+    });
   });
 
   it('reads a mode change, because the mode decides whether the agent asks before it acts', () => {

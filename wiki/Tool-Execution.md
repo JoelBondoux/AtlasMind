@@ -12,6 +12,11 @@ switches itself out of it. Without this, codex-acp's default `agent` mode edited
 asking even with `atlasmind.acp.toolsEnabled` off. An agent whose asking mode has not been verified
 cannot be given delegated execution.
 
+A delegated agent's edit is checkpointed **when it is approved and before the approval is sent**, so
+the file is captured while it is still as it was. An edit that names no file, or a file outside the
+folder the turn was given, is refused, and so is one whose snapshot cannot be taken. Changes a command
+made are found by comparing the working tree before and after, and listed as having no rollback point.
+
 ## Session approval modes
 
 Select a mode in Workflow, chat, the status bar or **AtlasMind: Set Approval Mode**. The selector

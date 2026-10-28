@@ -16,6 +16,12 @@ table, so it can tighten a session and never loosen one. Residual risk: an agent
 completion source, with a one-time warning — if such an agent acts without asking, the gate does
 not see it.
 
+**A handed-over subtask cannot widen what it may touch.** Each approved edit must name its files, all
+inside the turn's folder, and is snapshotted before the approval is sent; the record of what changed
+comes from git, not from the agent, and an unmentioned change is listed as such. The prompt still
+passes the egress guard: the delegated call receives only the cleared request (`dispatch` on
+`dispatchGuardedCompletion`). A turn that may have changed files is never retried automatically.
+
 Auto approvals use a separate no-tool reviewer. `approvalModes.ts` owns eligibility, payload/reply
 bounds, strict JSON validation and timeout fallback. A model may waive an eligible prompt, never a
 denial; missing intent and withheld evidence ask. Bypass is an explicit session grant. Fresh

@@ -14,6 +14,10 @@ edits and commands always reach AtlasMind's approval gate. `acp/<agent>@<model>`
 after the probe cache expires; a model the plan refuses is remembered, refused at once next time and
 withdrawn from discovery. Codex's startup warnings go to the output channel, not into the answer.
 
+With tools enabled, a step routed to Codex or Claude is handed over whole: the agent works in the
+step's folder, every edit asks and is snapshotted before AtlasMind says yes, and the files it changed
+are read from git afterwards. Codex's approval prompts now name the files, which its own request leaves out.
+
 A failed probe excludes that agent's rows even when a sibling keeps ACP healthy. Unknown agent
 ids are refused. The observed legacy Codex warning-plus-JSON HTTP error fails the turn despite
 `end_turn`; ordinary prose, quoted examples and bare JSON remain answers. This compatibility

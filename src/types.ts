@@ -4882,6 +4882,34 @@ export interface SubTaskExecutionArtifacts {
   stoppedAtAnnouncement?: boolean;
   changedFiles: ChangedWorkspaceFile[];
   diffPreview?: string;
+  /**
+   * The turn was handed to an ACP agent that acted with its own tools, and
+   * this is AtlasMind's record of it — see `src/core/acpDelegation.ts`.
+   */
+  delegation?: DelegatedExecutionRecord;
+}
+
+/**
+ * AtlasMind's record of a turn an ACP agent carried out with its own tools.
+ * `changedFiles` is read from the workspace (git) before and after, not from
+ * the agent's account; the agent's account is the cross-check.
+ */
+export interface DelegatedExecutionRecord {
+  /** The routed model, e.g. `acp/codex@gpt-5.6-terra`. */
+  model: string;
+  /** `git`: compared against the working tree. `unverified`: the agent's report only, with the reason. */
+  verification: 'git' | 'unverified';
+  verificationNote?: string;
+  changedFiles: ChangedWorkspaceFile[];
+  /** Changed, but named by no tool call the agent reported — a command, usually. */
+  unreportedChanges: string[];
+  /** Changed with no rollback point AtlasMind took first, so a rollback will not restore them. */
+  notCheckpointed: string[];
+  /** The checkpoint the approved edits were captured under (`CheckpointManager`). */
+  checkpointTaskId?: string;
+  toolCallCount: number;
+  /** The agent's own last published plan for the turn. */
+  plan?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed'; priority?: 'high' | 'medium' | 'low' }>;
 }
 
 export interface SubTaskResult {
@@ -5011,6 +5039,8 @@ export interface ProjectRunSubTaskArtifact {
    * third-party — unknown is not clear.
    */
   provenance?: TurnProvenance;
+  /** Present when the subtask was handed to an ACP agent; see `DelegatedExecutionRecord`. */
+  delegation?: DelegatedExecutionRecord;
 }
 
 export interface ProjectRunLogEntry {
