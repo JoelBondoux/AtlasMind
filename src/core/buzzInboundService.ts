@@ -36,12 +36,16 @@ import {
 } from './buzzConversation.js';
 import {
   createBuzzDirectory,
+  describeIdentity,
   identitiesMissingProfiles,
   listIdentities,
   observeEvent,
+  recordAttestation,
   type BuzzIdentity,
 } from './buzzDirectory.js';
 import type { DerivedWorkItem } from './buzzInboundDerivation.js';
+import { verifyOwnerAttestation } from './buzzOwnerAttestation.js';
+import { checkBuzzRevocation, readBuzzRevocations, type BuzzRevocationList } from './buzzRevocation.js';
 import {
   readProjectDirectorConfig,
   writeProjectDirectorConfig,
@@ -50,6 +54,24 @@ import type { FollowUp } from '../types.js';
 
 /** Reason string used for the keep-awake hold while a subscription is live. */
 export const BUZZ_PRESENCE_REASON = 'buzz';
+
+/** Bound on owner-attestation checks remembered while their work items are pending. */
+const MAX_PENDING_ATTESTATIONS = 500;
+
+/**
+ * `atlasmind.buzz.revokedIdentities`, read from every scope as a union — a
+ * revocation anywhere wins, so a repository can add one and cannot lift one a
+ * user made. See `buzzRevocation.ts`.
+ */
+export function readBuzzRevocationSettings(): BuzzRevocationList {
+  const cfg = vscode.workspace.getConfiguration('atlasmind');
+  const inspected = typeof cfg.inspect === 'function' ? cfg.inspect<unknown>('buzz.revokedIdentities') : undefined;
+  return readBuzzRevocations(inspected
+    ? [inspected.globalValue, inspected.workspaceValue, inspected.workspaceFolderValue]
+    // A host without `inspect` still has the effective value — read that rather
+    // than nothing, since an unread revocation list is a list with no revocations.
+    : [cfg.get<unknown>('buzz.revokedIdentities', [])]);
+}
 
 /** Cap on follow-ups a single inbound batch may add, so a busy channel can't flood memory. */
 export const MAX_INBOUND_FOLLOWUPS_PER_BATCH = 20;
@@ -174,6 +196,10 @@ export class BuzzInboundService implements vscode.Disposable {
   private readonly conversations = new Map<string, BuzzConversation>();
   /** The local identity, so my own reactions can be marked as mine. */
   private selfPubkey: string | undefined;
+  /** Owner-attestation checks in flight or done, by event id; bounded. */
+  private readonly attestations = new Map<string, Promise<string | undefined>>();
+  /** Identities whose bad attestation has been reported, so the log says it once. */
+  private readonly reportedInvalidAttestations = new Set<string>();
 
   constructor(private readonly deps: BuzzInboundDeps) {}
 
@@ -215,6 +241,17 @@ export class BuzzInboundService implements vscode.Disposable {
     for (const issue of settings.agentBindingIssues) {
       this.log(`Buzz agent binding ignored ("${issue.input}"): ${issue.reason}`);
     }
+    // Reported, not removed: the binding is the user's, and a revoked identity's
+    // messages are dropped before any binding is consulted anyway.
+    const revocations = readBuzzRevocationSettings();
+    for (const problem of revocations.problems) {
+      this.log(`Buzz revocation entry not used ("${problem.input}"): ${problem.reason}`);
+    }
+    for (const binding of settings.agentBindings) {
+      if (revocations.revoked.has(binding.pubkey)) {
+        this.log(`Buzz agent binding for ${binding.pubkey.slice(0, 12)}… has no effect: that identity is revoked in AtlasMind.`);
+      }
+    }
 
     this.signerKeyFingerprint = fingerprint;
     // Knowing my own key lets a reaction I sent be shown as mine.
@@ -246,6 +283,7 @@ export class BuzzInboundService implements vscode.Disposable {
    */
   private observe(event: NostrEvent, channelIds: string[]): void {
     observeEvent(this.directory, event);
+    this.verifyAttestation(event);
     this.recordConversation(event);
     if (identitiesMissingProfiles(this.directory, MAX_PROFILE_LOOKUP).length > 0) {
       this.scheduleProfileLookup(channelIds);
@@ -411,7 +449,22 @@ export class BuzzInboundService implements vscode.Disposable {
    * from a network event without consent is not a default anyone should get by
    * upgrading.
    */
-  private async handleWorkItems(items: DerivedWorkItem[], settings: BuzzInboundSettings): Promise<void> {
+  private async handleWorkItems(derived: DerivedWorkItem[], settings: BuzzInboundSettings): Promise<void> {
+    // Read now rather than from `settings`, which was captured at connect time:
+    // a revocation must take effect on the next message, not the next reconnect.
+    const revocations = readBuzzRevocationSettings();
+    const items: DerivedWorkItem[] = [];
+    for (const item of derived) {
+      const owner = await this.attestedOwnerOf(item.pointer.eventId, item.pointer.authorPubkey);
+      const check = checkBuzzRevocation(item.pointer.authorPubkey, owner, revocations.revoked);
+      if (check.revoked) {
+        const identity = this.directory.get(item.pointer.authorPubkey);
+        const name = identity ? describeIdentity(identity) : `${item.pointer.authorPubkey.slice(0, 12)}…`;
+        this.log(`Buzz: ignored a message from ${name} — ${check.via === 'owner' ? 'the owner who authorised it is' : 'it is'} revoked in AtlasMind (${check.reason}).`);
+        continue;
+      }
+      items.push(item);
+    }
     if (items.length === 0) {
       return;
     }
@@ -441,6 +494,56 @@ export class BuzzInboundService implements vscode.Disposable {
     } catch (error) {
       this.log(`Buzz: could not record inbound follow-ups: ${error instanceof Error ? error.message : 'unknown error'}`);
     }
+  }
+
+  /**
+   * Check an event's owner attestation (NIP-OA) in the background, and record
+   * the owner on the identity when it verifies. Kept by event id so a work item
+   * derived from the same event waits for the verdict before the revocation
+   * check — otherwise an agent of a revoked owner could slip through on its
+   * first message, before anything had checked who authorised it.
+   */
+  private verifyAttestation(event: NostrEvent): void {
+    if (!event.tags.some(tag => tag[0] === 'auth')) {
+      return;
+    }
+    const verdict = verifyOwnerAttestation(event).then(result => {
+      if (result.status === 'verified') {
+        recordAttestation(this.directory, event.pubkey, result.ownerPubkey);
+        return result.ownerPubkey;
+      }
+      if (result.status === 'invalid' && !this.reportedInvalidAttestations.has(event.pubkey)) {
+        this.reportedInvalidAttestations.add(event.pubkey);
+        const identity = this.directory.get(event.pubkey);
+        this.log(`Buzz: ${identity ? describeIdentity(identity) : event.pubkey.slice(0, 12)}'s owner attestation did not verify (${result.reason}), so it is not shown as authorised by anyone.`);
+      }
+      return undefined;
+    }).catch(() => undefined);
+    this.attestations.set(event.id, verdict);
+    if (this.attestations.size > MAX_PENDING_ATTESTATIONS) {
+      const oldest = this.attestations.keys().next().value;
+      if (oldest !== undefined) {
+        this.attestations.delete(oldest);
+      }
+    }
+  }
+
+  /** The verified owner behind an event's author, once its attestation is checked. */
+  private async attestedOwnerOf(eventId: string, authorPubkey: string): Promise<string | undefined> {
+    const pending = this.attestations.get(eventId);
+    if (pending) {
+      this.attestations.delete(eventId);
+      const owner = await pending;
+      if (owner) {
+        return owner;
+      }
+    }
+    return this.directory.get(authorPubkey)?.attestedBy;
+  }
+
+  /** Buzz identities this session has seen sign with a verified owner attestation. */
+  attestedOwnerOfIdentity(pubkey: string): string | undefined {
+    return this.directory.get(pubkey)?.attestedBy;
   }
 
   private log(message: string): void {

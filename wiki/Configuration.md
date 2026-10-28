@@ -548,6 +548,7 @@ For long runs, a live connection, or a gateway session.
 | `atlasmind.buzz.inboundChannels` | `[]` | Which channels. Empty means every channel your key can read |
 | `atlasmind.buzz.autoCreateFollowUps` | `false` | Record inbound activity as follow-ups. Off by default — project memory is committed to your repository |
 | `atlasmind.buzz.agentBindings` | `{}` | Route a particular person's messages to a particular AtlasMind agent |
+| `atlasmind.buzz.revokedIdentities` | `[]` | Identities AtlasMind no longer trusts — their messages, and those of agents they authorised, never become work. A revocation in any scope wins |
 | `atlasmind.buzz.autonomousReplies` | `false` | ⚠️ **Declared but not active** — nothing reads it yet |
 | `atlasmind.buzz.autonomousReplyLimitPerHour` | `10` | ⚠️ **Declared but not active** — nothing reads it yet |
 
