@@ -263,18 +263,22 @@ async function preparePersonaDeployment(deps: BuzzPersonaCommandDeps): Promise<v
     void vscode.window.showErrorMessage('AtlasMind produced a manifest it could not verify, so nothing was written.');
     return;
   }
+  let harnessSteps = '';
   try {
     await fs.mkdir(path.dirname(manifestPath), { recursive: true });
     await fs.writeFile(manifestPath, text, 'utf8');
-    const { buildBuzzAcpRuntimeSetup } = await import('../acp/buzzAcpSetup.js');
+    const { buildBuzzAcpRuntimeSetup, describeBuzzHarnessSteps } = await import('../acp/buzzAcpSetup.js');
     const setup = buildBuzzAcpRuntimeSetup({
       workspaceRoot: root,
       runtimeExecutable: process.execPath,
       agentEntrypoint: path.join(launcherDirectory, 'atlasmind-acp-runner.js'),
       personaManifestPath: manifestPath,
       manifestAcpAgentIds: acpAgentIds,
+      // One harness per persona: the manifest is in the arguments.
+      harnessName: `AtlasMind ${picked.profile.displayName}`,
     });
     await vscode.env.clipboard.writeText(JSON.stringify(setup, null, 2));
+    harnessSteps = describeBuzzHarnessSteps(setup);
   } catch (error) {
     void vscode.window.showErrorMessage(`AtlasMind could not prepare the persona: ${error instanceof Error ? error.message : String(error)}`);
     return;
@@ -292,7 +296,7 @@ async function preparePersonaDeployment(deps: BuzzPersonaCommandDeps): Promise<v
     },
   });
   void vscode.window.showInformationMessage(
-    `Copied the Buzz custom-agent fields for ${picked.profile.displayName}. In Buzz, create or edit the agent ${picked.profile.displayName}: Provider → Custom command, paste the Agent command, and under Advanced paste the Agent runtime args and set Parallelism to 1. Add it to the project channel, then run "AtlasMind: Verify Buzz Persona Deployment" to record which identity runs it.`,
+    `Copied the Buzz custom-harness fields for ${picked.profile.displayName}. ${harnessSteps} Add the agent to the project channel, then run "AtlasMind: Verify Buzz Persona Deployment" to record which identity runs it.`,
   );
 }
 

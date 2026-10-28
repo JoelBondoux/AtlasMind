@@ -740,9 +740,11 @@ under a running signed identity without review is not a safe convenience.
 **Progress (0.513.0, 2026-10-28).** Two AM identities exist on the local relay (Atlas Engineer
 `2d8927…`, Atlas Coordinator `88e215…`). Both failed to start because they were created with Buzz's own
 `buzz-agent` runtime and an LLM provider named "Atlas Mind" (`BUZZ_AGENT_PROVIDER=Atlas Mind not
-supported`). AtlasMind is a **Custom command** in Buzz, not an LLM provider. Buzz Desktop 0.5.28 labels
-the fields Provider → Custom command, Agent command, and under Advanced, Agent runtime args (stored
-comma-separated) and Parallelism (default 10). A persona process launched with a manifest now answers
+supported`). AtlasMind is a **custom harness** in Buzz, not an LLM provider. Buzz Desktop 0.5.28 (read from its
+`desktop-v0.5.28` source, corrected in 0.514.1) registers one at Edit agent → AI configuration: Customize
+for this agent → Agent harness → Add custom harness… (Name, Command, one Argument per row, Env vars), still
+requires a Model (never sent to AtlasMind, which offers no model options), and has Advanced →
+Parallelism (default 10). A persona process launched with a manifest now answers
 from the user's ACP subscriptions. Verified end to end over ACP: AM Engineer selected `docs-writer`,
 which answered through `acp/codex@gpt-6-luna` with no API key. Still owed for Phase 0: the two
 identities reconfigured as custom commands, one shared channel, and the mention/default/allowlist/replay

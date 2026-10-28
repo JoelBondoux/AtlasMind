@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.514.1] - 2026-10-28
+
+### Fixed
+
+- **The Buzz recipe and setup guide now match Buzz Desktop 0.5's agent editor.** 0.513.0 claimed its
+  field names were verified against 0.5.28; they came from 0.4.x source. They sent people looking for a
+  *Provider → Custom command* choice and a comma-separated *Agent runtime args* field that 0.5 does not
+  have. The names are now read from Buzz's own `desktop-v0.5.28` source (`CustomHarnessForm`,
+  `AgentDefinitionDialog`), and the recipe is schema version 2:
+  - **Edit agent → AI configuration: Customize for this agent → Agent harness → Add custom harness…**,
+    with a Name, a Command, one Argument per row, and the harness's Env vars.
+  - Each persona gets a harness of its own, named after it, because its manifest is in the arguments
+    and every agent that picks a harness shares it.
+  - Buzz still requires a **Model** once a custom harness is selected, so the recipe says to type any
+    value. buzz-acp sends a model only to an agent whose `session/new` offers model choices, and
+    AtlasMind offers none, so the value never reaches it.
+  - **AtlasMind: Copy Buzz ACP Agent Setup**, **AtlasMind: Prepare Buzz Persona Deployment**, the `/buzz`
+    walkthrough and the *Buzz agents* card all take their wording from one `describeBuzzHarnessSteps`
+    (`src/acp/buzzAcpSetup.ts`).
+- Checked against Buzz's harness source while fixing this: buzz-acp passes the agent's key, relay
+  address and owner attestation to the process it starts, so a persona's reply publishes as that
+  identity. The `ws://` relay address it passes is accepted by AtlasMind's Buzz bridge.
+
 ## [0.514.0] - 2026-10-28
 
 ### Added

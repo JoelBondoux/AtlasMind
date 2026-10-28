@@ -1012,8 +1012,8 @@ options. A client response naming `allow_always`, a missing prompt context, or
 a failed permission request denies. Client-declared MCP commands are ignored
 rather than spawned.
 
-Buzz uses this endpoint as a **Custom command** behind its own `buzz-acp`
-harness. The Director's Person/channel record remains contact and inbound-work
+Buzz uses this endpoint as a **custom harness** (Buzz Desktop 0.5: *Agent harness → Add custom
+harness…*) behind its own `buzz-acp`. The Director's Person/channel record remains contact and inbound-work
 routing metadata; it neither creates nor starts that managed agent. The
 workspace-specific recipe from **AtlasMind: Copy Buzz ACP Agent Setup** supplies
 the executable and arguments, while AtlasMind continues to own model selection.
