@@ -755,6 +755,12 @@ checks below.
   default dispatch.
 - Pin the two-agent real-relay scenario above, including Windows custom-command launch behavior.
 
+**Harness registration (0.515.0).** The owner's Buzz 0.5.28 build has no command/arguments editor at
+all (Agent harness, ACP command, LLM provider, Model only). Buzz loads custom harnesses from
+`<app-data>/custom_harnesses/*.json`, so the prepare command now registers `atlasmind-<persona>.json`
+there; the person only picks it. Registered by hand for the live test: `atlasmind-am-engineer`,
+`atlasmind-am-coordinator`.
+
 #### Phase 1 — project model
 
 - Add pure profile types/sanitizer/validator, versioned manager, and JSON schema.

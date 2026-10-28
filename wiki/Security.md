@@ -691,6 +691,12 @@ or whose value looks like a secret, stops the manifest being written; the messag
 never shows its value. In the persona those agents only answer: they get no permission to act, and every
 credential-shaped variable, including the Buzz key the persona was started with, is withheld from them.
 
+**AtlasMind writes one kind of file into Buzz, and only after you confirm.** Preparing a persona
+registers its harness, the command and arguments that start AtlasMind, in Buzz Desktop's own
+custom-harness folder, which Buzz documents for exactly this. The file carries no credential, and nothing
+touches Buzz's agent database. A harness AtlasMind did not register, or one Buzz cannot read, is never
+overwritten.
+
 **A persona's identity is proven, not assumed.** Copying a launch recipe records nothing. An identity is
 recorded as running a persona only after it answers a one-time check. AtlasMind verifies that answer's
 signature itself and requires the owner's signed authorisation of the key, so a person who types the answer

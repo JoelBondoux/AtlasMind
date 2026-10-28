@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.515.0] - 2026-10-28
+
+### Added
+
+- **AtlasMind: Prepare Buzz Persona Deployment registers the persona's harness in Buzz itself.** Buzz
+  Desktop 0.5 loads custom harness definitions from JSON files in its app-data `custom_harnesses` folder
+  and re-reads the folder on every discovery. Not every 0.5 build has an editor for adding one: the build
+  this was tested on shows only *Agent harness*, *ACP command*, *LLM provider* and *Model*, with no
+  command or arguments anywhere. Preparing now writes `atlasmind-<persona>.json` into that folder, after
+  the same confirmation, which names the folder.
+  - The person picks the harness under **Agent harness**, types any Model and sets Parallelism to 1.
+  - The file holds the launch command and arguments, never a credential. It goes into the folder
+    Buzz documents for exactly this, never into Buzz's agent database.
+  - It is written only when Buzz's app-data folder exists. A file AtlasMind did not register, or one Buzz
+    cannot read, is never overwritten; the notice names it instead. An identical file is left untouched.
+  - The definition passes Buzz's own validation before it is written (id alphabet, no comma inside an
+    argument, no Buzz-reserved environment name), so Buzz never silently skips a file AtlasMind wrote
+    (`buildBuzzHarnessDefinition`, `planBuzzHarnessWrite`, `buzzCustomHarnessDirectory` in
+    `src/acp/buzzAcpSetup.ts`).
+
+### Fixed
+
+- **0.514.1 sent people to *Add custom harness…*, which not every Buzz 0.5 build shows.** The recipe,
+  the `/buzz` walkthrough and the notices now say to pick the harness AtlasMind registered. The
+  hand-entry route is named only as an alternative where a build offers it.
+- Checked in Buzz's source: with **ACP command** left at *Buzz ACP (default)*, Desktop gives the harness
+  process the agent's key and owner attestation, and starts AtlasMind with the harness's command and
+  arguments. A persona's replies therefore publish as that identity.
+
 ## [0.514.1] - 2026-10-28
 
 ### Fixed

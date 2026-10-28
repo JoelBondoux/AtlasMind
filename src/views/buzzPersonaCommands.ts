@@ -14,6 +14,15 @@ import * as vscode from 'vscode';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
+import * as os from 'node:os';
+import {
+  buildBuzzAcpRuntimeSetup,
+  buildBuzzHarnessDefinition,
+  buzzCustomHarnessDirectory,
+  buzzHarnessIdFor,
+  describeBuzzHarnessSteps,
+  planBuzzHarnessWrite,
+} from '../acp/buzzAcpSetup.js';
 import type { AgentRegistry } from '../core/agentRegistry.js';
 import {
   describeRecommendation,
@@ -228,6 +237,11 @@ async function preparePersonaDeployment(deps: BuzzPersonaCommandDeps): Promise<v
   const previous = deployments[picked.profile.id];
   const changed = previous !== undefined && previous.manifestFingerprint !== built.manifest.fingerprint;
   const CONTINUE = changed ? 'Resynchronise' : 'Write manifest and copy recipe';
+  // Buzz is installed for this user when its app-data folder exists; only
+  // then is there a harness folder for AtlasMind to register into.
+  const harnessFolder = buzzCustomHarnessDirectory(process.platform, process.env, os.homedir());
+  const buzzInstalled = harnessFolder !== undefined && await pathExists(path.dirname(harnessFolder));
+  const harnessName = `AtlasMind ${picked.profile.displayName}`;
   const confirm = await vscode.window.showInformationMessage(
     changed
       ? `${picked.profile.displayName}'s agents changed since it was prepared on ${previous!.preparedAt.slice(0, 10)}. Resynchronise its manifest?`
@@ -242,6 +256,9 @@ async function preparePersonaDeployment(deps: BuzzPersonaCommandDeps): Promise<v
         ...built.notices,
         changed ? 'A Buzz identity already running this persona will use the new definitions when it next starts.' : '',
         'AtlasMind writes the manifest to its own storage (not the repository) and copies a launch recipe with no credentials in it. You create the managed agent in Buzz yourself.',
+        buzzInstalled
+          ? `It also registers a Buzz harness named "${harnessName}" in Buzz's custom-harness folder (${harnessFolder}), which Buzz reads by itself. The harness holds the launch command and arguments, no credentials; then you pick it for the agent. A harness AtlasMind did not register is never overwritten.`
+          : '',
       ].filter(Boolean).join('\n\n'),
     },
     CONTINUE,
@@ -264,10 +281,10 @@ async function preparePersonaDeployment(deps: BuzzPersonaCommandDeps): Promise<v
     return;
   }
   let harnessSteps = '';
+  let registrationNote = '';
   try {
     await fs.mkdir(path.dirname(manifestPath), { recursive: true });
     await fs.writeFile(manifestPath, text, 'utf8');
-    const { buildBuzzAcpRuntimeSetup, describeBuzzHarnessSteps } = await import('../acp/buzzAcpSetup.js');
     const setup = buildBuzzAcpRuntimeSetup({
       workspaceRoot: root,
       runtimeExecutable: process.execPath,
@@ -275,10 +292,26 @@ async function preparePersonaDeployment(deps: BuzzPersonaCommandDeps): Promise<v
       personaManifestPath: manifestPath,
       manifestAcpAgentIds: acpAgentIds,
       // One harness per persona: the manifest is in the arguments.
-      harnessName: `AtlasMind ${picked.profile.displayName}`,
+      harnessName,
     });
     await vscode.env.clipboard.writeText(JSON.stringify(setup, null, 2));
-    harnessSteps = describeBuzzHarnessSteps(setup);
+    let registered = false;
+    if (buzzInstalled && harnessFolder) {
+      const definition = buildBuzzHarnessDefinition(setup, buzzHarnessIdFor(picked.profile.id));
+      const target = path.join(harnessFolder, `${definition.id}.json`);
+      const existing = await fs.readFile(target, 'utf8').catch(() => undefined);
+      const plan = planBuzzHarnessWrite(existing, definition);
+      if (plan.kind === 'refuse') {
+        registrationNote = ` AtlasMind did not register the harness: ${plan.reason} (${target}).`;
+      } else {
+        if (plan.kind !== 'unchanged') {
+          await fs.mkdir(harnessFolder, { recursive: true });
+          await fs.writeFile(target, `${JSON.stringify(definition, null, 2)}\n`, 'utf8');
+        }
+        registered = true;
+      }
+    }
+    harnessSteps = describeBuzzHarnessSteps(setup, registered);
   } catch (error) {
     void vscode.window.showErrorMessage(`AtlasMind could not prepare the persona: ${error instanceof Error ? error.message : String(error)}`);
     return;
@@ -296,8 +329,17 @@ async function preparePersonaDeployment(deps: BuzzPersonaCommandDeps): Promise<v
     },
   });
   void vscode.window.showInformationMessage(
-    `Copied the Buzz custom-harness fields for ${picked.profile.displayName}. ${harnessSteps} Add the agent to the project channel, then run "AtlasMind: Verify Buzz Persona Deployment" to record which identity runs it.`,
+    `Prepared ${picked.profile.displayName}.${registrationNote} ${harnessSteps} Add the agent to the project channel, then run "AtlasMind: Verify Buzz Persona Deployment" to record which identity runs it.`,
   );
+}
+
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await fs.stat(target);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

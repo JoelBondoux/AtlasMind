@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.514.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.515.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,13 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.515.0
+
+**AtlasMind registers the Buzz harness for you.** Some Buzz 0.5 builds have no place to type a command
+or its arguments. **AtlasMind: Prepare Buzz Persona Deployment** now writes the persona's harness into
+Buzz's own custom-harness folder, after you confirm, so in Buzz you only pick it under *Agent harness*.
+It never overwrites a harness AtlasMind did not register.
+
 ## What's new in 0.514.1
 
 **Buzz setup steps that match Buzz.** The recipe AtlasMind copies for Buzz now uses Buzz Desktop 0.5's
@@ -191,13 +198,6 @@ one-time check to post in Buzz. The persona answers it without a model, and Atla
 that answered, only if its signature and its owner's authorisation check out and you recognise the owner.
 The Director page has a new *Buzz agents* card showing each persona, its state and the suggested teams.
 Personas stay mention-only until channel default routing is proven.
-
-## What's new in 0.513.0
-
-**A Buzz persona answers from your subscriptions.** A persona's manifest now carries your ACP agents'
-launch settings, never their sign-ins, so the persona Buzz launches answers through the same Claude
-and Codex agents the editor uses, with no API key. They answer only and run no tools of their own. The
-recipe now uses Buzz Desktop's own field names and asks Buzz to start one copy, not ten.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.509.0**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
