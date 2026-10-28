@@ -208,6 +208,13 @@ Buzz Persona Deployment** writes to its own storage. The agent registers exactly
 only among them, and checks the fingerprint first. It stops at start-up if the manifest was edited, is newer,
 is inside the workspace, or is not a plain file under 1 MB.
 
+**A persona answers from your subscriptions.** When your editor has ACP agents configured, the manifest
+also names them: their command, arguments and declared launch variables, never a sign-in. The persona
+starts them as answer-only sources and asks them what models they offer on the first message, not at
+start-up. With no ACP agent configured, it uses the `ATLASMIND_PROVIDER_*` variables as before. In Buzz,
+set **Parallelism** to 1: Buzz starts that many copies of the command, and AtlasMind schedules its own
+work.
+
 **`--dry-run` is the editor's dry run for the ACP agent.** It runs in its own process, launched by a client
 that is not VS Code, so it cannot read `atlasmind.dryRun.enabled` and takes a flag instead, on for the life
 of the process. Every tool call that would act is described instead of run, and with `--buzz-auto-reply`

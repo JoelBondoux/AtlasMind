@@ -414,6 +414,15 @@ When a routed model fails during execution, AtlasMind marks that model as failed
 
 The `acp` provider drives a coding agent over the [Agent Client Protocol](https://agentclientprotocol.com) — JSON-RPC 2.0 over a subprocess's stdio — so a subscription or eligible product license you already pay for becomes capacity the router can select. Four things about it are easy to get wrong, and each one was got wrong at some point before v0.209.0.
 
+### Inside a Buzz persona process
+
+The process Buzz launches for a persona (`atlasmind-acp --buzz-persona-manifest`) has no settings to read
+`atlasmind.acp.agents` from, so the manifest carries them (`src/cli/manifestModelAccess.ts`). It builds the
+same `AcpAdapter` with no permission policy, so those agents complete text and never run their own tools.
+On the first prompt it registers what they report through the shared `inferModelMetadata`, so routing
+there matches routing in the editor. A discovery that times out keeps the seeded `acp/claude` entry and
+logs why.
+
 ### Launch commands come from the registry, transcribed by hand
 
 `VERIFIED_ACP_AGENTS` in `src/providers/acp.ts` is the single list of agents AtlasMind will name, and every install command is **derived from it**. Each entry was read from the [ACP registry](https://github.com/agentclientprotocol/registry)'s own `agent.json` at the version pinned in `ACP_SPEC_VERIFIED_AT`.

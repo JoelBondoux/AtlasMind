@@ -3367,6 +3367,16 @@ process rather than answering as the default agent. With a manifest, `AtlasMindA
 turn through `processTaskInScope`; without one, the legacy fixed-default path is unchanged.
 `manifestIsStale` lets the prepare command say when definitions changed under a running identity.
 
+**Model access** (`src/cli/manifestModelAccess.ts`). The headless process has no settings and no
+SecretStorage, so a manifest may also carry `modelAccess`: the user's `atlasmind.acp.agents`, read through
+the editor's own `parseAcpAgentSettings`, plus the Windows console choice. These are launch settings,
+never a sign-in. A credential-shaped launch-variable name (`classifyEnvironmentName`) or a secret-shaped
+value refuses the build, and model access is inside the fingerprint. The process builds the same
+`AcpAdapter` the editor routes through, with no permission policy, so the agents answer and never act.
+On the first prompt it discovers and registers their models with the shared `inferModelMetadata`, now in
+`src/providers/modelMetadataInference.ts`. Discovery waits for the first prompt because Buzz starts
+*Parallelism* copies of the command; a timeout or failure keeps the seeded catalogue and is logged.
+
 ### BuzzDirectory (`src/core/buzzDirectory.ts`)
 
 The identities AtlasMind has *observed*, so a Buzz handle can be picked rather than typed.

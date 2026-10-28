@@ -110,6 +110,10 @@ Switch on `atlasmind.acp.toolsEnabled` (**Let subscription agents act**) and the
 tool-backed work, where it uses its *own* tools and each operation is logged. Ordinary completions stay
 isolated even with that on.
 
+**A Buzz persona uses the same agents.** The process Buzz starts for a persona can't read your settings,
+so the persona's manifest carries the agents' launch commands, never their sign-ins. There they only answer;
+they never act.
+
 **The agent list is read from a pinned copy of the official registry, not fetched live.** A launch
 command that arrived over the network and was then executed would be remote code execution with extra
 steps.

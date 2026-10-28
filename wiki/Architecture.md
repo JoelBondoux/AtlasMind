@@ -1787,7 +1787,7 @@ never accepted.
 | `src/views/` | Settings, dashboards, editors and sidebar surfaces, the Buzz revoke/restore commands (`buzzRevocationCommands.ts`), the Buzz persona recommend/prepare commands (`buzzPersonaCommands.ts`), the Check Execution Sandbox report (`sandboxCheckCommand.ts`), the Prepare / Remove Sandbox Dependencies commands (`sandboxDependenciesCommand.ts`) and the Connect Unsloth Studio / Manage Unsloth Models commands (`unslothModelCommands.ts`) |
 | `src/mcp/` and `src/ard/` | MCP connectivity and resource discovery, including tool pinning and the tool-description scan (`mcpToolPins.ts`) |
 | `src/voice/` and `src/remote/` | Voice backends and remote control |
-| `src/cli/` | The command-line tool and the agent endpoint |
+| `src/cli/` | The command-line tool and the agent endpoint, including the subscription agents a Buzz persona's manifest names (`manifestModelAccess.ts`) |
 | `src/acp/` | Agent-side sessions and permission brokering |
 | `tests/` | Unit, integration, webview, security and regression coverage |
 

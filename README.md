@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.512.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.513.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,13 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.513.0
+
+**A Buzz persona answers from your subscriptions.** A persona's manifest now carries your ACP agents'
+launch settings, never their sign-ins, so the persona Buzz launches answers through the same Claude
+and Codex agents the editor uses, with no API key. They answer only and run no tools of their own. The
+recipe now uses Buzz Desktop's own field names and asks Buzz to start one copy, not ten.
+
 ## What's new in 0.512.0
 
 **One Buzz identity, a team behind it.** **AtlasMind: Recommend Buzz Personas** suggests teams such as
@@ -194,15 +201,6 @@ attestation, AtlasMind now checks it, and shows the agent as *authorised by* tha
 Revoke a Buzz Identity** stops a person's or an agent's messages, and those of every agent a revoked
 person authorised, from becoming work, and shows the owner the Buzz-side command to run. A repository
 can add a revocation and can never lift yours.
-
-## What's new in 0.510.0
-
-**Hand a step to Codex or Claude, and keep the record.** With ACP tools on, a step routed to a
-subscription agent is now handed over whole: the agent does the work in the step's own folder, each
-file it edits is snapshotted before AtlasMind approves the edit, and the files it changed are read
-from git afterwards, not from its own description. The Project Run Center shows what changed, what
-the agent did not mention, what has no rollback point, and the agent's plan. Codex's approval prompts
-now name the files. A step an agent has already acted on is never retried automatically.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.509.0**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
