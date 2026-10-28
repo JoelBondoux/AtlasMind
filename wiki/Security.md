@@ -22,6 +22,14 @@ comes from git, not from the agent, and an unmentioned change is listed as such.
 passes the egress guard: the delegated call receives only the cleared request (`dispatch` on
 `dispatchGuardedCompletion`). A turn that may have changed files is never retried automatically.
 
+**A Buzz agent is answerable to a named person, and can be cut off.** An agent's event that carries a
+NIP-OA owner attestation is checked — the event's own id and signature, then the owner's signature —
+before AtlasMind shows it as *authorised by* anyone, and never as sent by the owner. Revoking an identity
+in AtlasMind drops its messages, and those of every agent it authorised, before they become work; the
+list is a union of every settings scope, so a repository cannot lift a revocation. AtlasMind holds no
+owner key and revokes nothing in Buzz: an archived identity can un-archive itself, so the relay owner
+removing it from the relay's members is what locks it out.
+
 Auto approvals use a separate no-tool reviewer. `approvalModes.ts` owns eligibility, payload/reply
 bounds, strict JSON validation and timeout fallback. A model may waive an eligible prompt, never a
 denial; missing intent and withheld evidence ask. Bypass is an explicit session grant. Fresh

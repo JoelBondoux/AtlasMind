@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.510.0",
+  "version": "0.511.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -478,6 +478,16 @@
         "command": "atlasmind.buzz.fetchChannels",
         "title": "AtlasMind: Fetch My Buzz Channels",
         "icon": "$(list-selection)"
+      },
+      {
+        "command": "atlasmind.buzz.revokeIdentity",
+        "title": "AtlasMind: Revoke a Buzz Identity",
+        "icon": "$(circle-slash)"
+      },
+      {
+        "command": "atlasmind.buzz.restoreIdentity",
+        "title": "AtlasMind: Trust a Revoked Buzz Identity Again",
+        "icon": "$(pass)"
       },
       {
         "command": "atlasmind.research.runScan",
@@ -1716,6 +1726,39 @@
           },
           "description": "Map a Buzz identity (npub or 64-character hex) to an AtlasMind agent id, so inbound work from that Buzz agent lands with the right specialist.",
           "markdownDescription": "Assign specific **AtlasMind agents** to specific **Buzz agents**.\n\nMaps a Buzz identity to an AtlasMind agent id, so inbound work from that identity is attributed to the right specialist — a Buzz build-bot's messages can land with your DevOps agent instead of arriving unattributed.\n\n```json\n{\n  \"npub1abc…\": \"devops-engineer\",\n  \"7e7e9c42…\": \"security-specialist\"\n}\n```\n\nKeys accept an `npub…` or a 64-character hex key (the bech32 checksum is validated, so a mistyped npub is rejected rather than binding to the wrong identity; an `nsec` secret key is refused). An unbound identity simply stays unassigned — AtlasMind never guesses an agent.\n\nThis is a **local routing preference only**. Buzz still owns the keypair, the directory, and the authorship ledger."
+        },
+        "atlasmind.buzz.revokedIdentities": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": [
+              "pubkey"
+            ],
+            "properties": {
+              "pubkey": {
+                "type": "string",
+                "description": "An npub or 64-character hex public key."
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "compromised",
+                  "rotated",
+                  "retired",
+                  "bot-rebuilt",
+                  "left-organization",
+                  "spam"
+                ]
+              },
+              "revokedAt": {
+                "type": "string",
+                "description": "The date it was revoked (YYYY-MM-DD)."
+              }
+            }
+          },
+          "description": "Buzz identities AtlasMind no longer trusts. Their messages, and messages from any agent they authorised, are not turned into work.",
+          "markdownDescription": "Buzz identities AtlasMind **no longer trusts**. Messages from a revoked identity — and from any agent whose verified owner (NIP-OA) is revoked — are ignored and never turned into work. Use **AtlasMind: Revoke a Buzz Identity** rather than editing this by hand.\n\nRead from **every scope as a union**: a revocation anywhere wins, so a repository can revoke an identity and cannot lift one you revoked.\n\nThis does **not** revoke the identity in Buzz — AtlasMind holds no owner key. The revoke command shows the `buzz agents archive` command for the identity's owner to run, and the relay owner should also remove it from the relay's members, since an archived identity can un-archive itself."
         },
         "atlasmind.acp.hideConsoleWindows": {
           "type": "boolean",

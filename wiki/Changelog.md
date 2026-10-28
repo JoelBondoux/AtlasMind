@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.511.0 -- Know who authorised a Buzz agent, and cut one off
+
+When a Buzz agent's message carries its owner's attestation, AtlasMind checks it, and shows the agent as
+*authorised by* that person. **AtlasMind: Revoke a Buzz Identity** stops a person's or an agent's
+messages from becoming work, including messages from any agent a revoked person authorised, and shows
+the owner the Buzz-side command to run. A repository can add a revocation and can never lift yours.
+
 ## v0.510.0 -- Hand a step to Codex or Claude, and keep the record
 
 With ACP tools on, a step routed to a subscription agent is handed over whole: the agent works in the

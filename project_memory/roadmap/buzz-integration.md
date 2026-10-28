@@ -496,7 +496,27 @@ read-thread / send-DM only).
 ## Tier 4 — Self-sovereign agent identities & A2A
 
 **Status:** reciprocal `buzz-acp` → `atlasmind-acp` execution and reply transport shipped v0.238.0.
-The identity/key-custody/grant/revocation work below remains planned.
+**The grant and revocation halves shipped v0.511.0, redesigned around what Buzz 0.5 actually ships**
+(see the decision below). Signed agent-to-agent handoff is folded into Tier 5's persona deployment.
+
+### Decided (2026-10-28): verify, don't custody
+
+The plan below had AtlasMind mint a keypair per agent and record the human's grant itself. By Buzz
+Desktop 0.5.28 Buzz does both: a managed agent's key is minted by Desktop after the owner reviews it
+(`buzz agents draft-create` opens the prefilled form), and the owner's grant is a **NIP-OA** `auth` tag
+the agent attaches to its events. Custodying keys AtlasMind does not need would add the secret material
+the MAJOR-version warning was about, for no capability Buzz lacks. So:
+
+- **Grant → verified.** `buzzOwnerAttestation.ts` checks NIP-OA against the published spec and test
+  vectors; checked against the four grants Desktop 0.5.28 issued on the owner's machine, all valid.
+  Desktop's grants carry **empty conditions** — they never expire.
+- **Revocation → AtlasMind's own list.** NIP-IA archiving hides an identity on a relay, but the archived
+  identity can un-archive itself (the spec's anti-shadowban rule), and an unconditioned grant cannot be
+  aged out. `atlasmind.buzz.revokedIdentities` (union of scopes) drops a revoked identity's work and that
+  of every agent it authorised; the revoke command shows the owner `buzz agents archive`, and says that
+  removing the key from the relay's members (NIP-43/NIP-AA) is what locks it out.
+- **Not done:** reading the relay's NIP-IA archive snapshot (kind 13535, signed by the NIP-11 `self`
+  key — the local relay publishes one) as an additional signal.
 
 **Goal:** AtlasMind's orchestrated agents get their own Buzz Nostr keypairs, sign their own work,
 and coordinate in channels with a full, human-attributable audit trail.

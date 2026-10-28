@@ -256,6 +256,8 @@ The session drawer above the transcript starts closed and remembers your choice 
 | `AtlasMind: Set Buzz Agent Key` | Stores your key in the OS keychain. Empty removes it; cancel leaves it alone. Never written to settings or memory |
 | `AtlasMind: Fetch My Buzz Channels` | Asks Buzz which channels your key can see and offers them as a ticklist. **The only Buzz control that writes a setting** — and only the channel list, only after you confirm |
 | `AtlasMind: Copy Buzz ACP Agent Setup` | Copies a credential-free recipe for running AtlasMind as a Buzz agent |
+| `AtlasMind: Revoke a Buzz Identity` | Stops AtlasMind turning an identity's messages — and those of any agent it authorised — into work. Writes your own settings, and shows the `buzz agents archive` command for the identity's owner to run: AtlasMind holds no owner key and cannot revoke it in Buzz |
+| `AtlasMind: Trust a Revoked Buzz Identity Again` | Removes a revocation from your settings. One this workspace's settings also hold stays in force — a revocation anywhere wins |
 
 ### Lens — reading your code
 

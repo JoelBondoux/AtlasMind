@@ -980,6 +980,11 @@ the agent, gathers SSOT memory, routes the model, resolves skills, and applies
 its tool policy. The client does not choose an AtlasMind specialist merely by
 naming a Buzz identity or Director contact.
 
+Inbound Buzz work reaches a bound agent only if its author is still trusted: an item from an identity
+revoked in `atlasmind.buzz.revokedIdentities`, or from an agent whose verified NIP-OA owner is revoked,
+is dropped before any binding is consulted, and a binding to a revoked identity is reported as having
+no effect (`src/core/buzzRevocation.ts`).
+
 The endpoint is local stdio only. It accepts text and text-bearing embedded
 resources, retains at most 80,000 characters of session history, streams
 `agent_message_chunk` updates, and propagates `session/cancel` through the task's

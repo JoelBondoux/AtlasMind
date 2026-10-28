@@ -59,6 +59,7 @@ import {
 } from './constants.js';
 import { BUZZ_AGENT_KEY_SECRET } from './core/buzzSigner.js';
 import { BuzzInboundService } from './core/buzzInboundService.js';
+import { registerBuzzRevocationCommands } from './views/buzzRevocationCommands.js';
 import { BUZZ_SETUP_COMMANDS } from './core/buzzSetupPlan.js';
 import {
   clampTestResourceShare,
@@ -4184,6 +4185,8 @@ async function bootstrapAtlasMind(
         void buzzInbound.sync();
       }
     }),
+    // Revoke and restore a Buzz identity in AtlasMind (Buzz Tier 4).
+    ...registerBuzzRevocationCommands({ listIdentities: () => buzzInbound.listIdentities() }),
   );
   /**
    * Resolve what a research scan could look with, right now.

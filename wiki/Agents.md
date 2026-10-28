@@ -118,6 +118,12 @@ policy and release routine rather than importing AtlasMind's habits into your re
 
 ---
 
+## Work that arrives from Buzz
+
+A Buzz identity can be bound to an AtlasMind agent, so a colleague's or a bot's messages land with the
+right specialist. If you revoke an identity (**AtlasMind: Revoke a Buzz Identity**), its messages — and
+those of any agent it authorised — stop reaching any agent at all, whatever it is bound to.
+
 ## Agents can ask each other
 
 An agent that hits something outside its speciality can hand the question to a better-placed colleague

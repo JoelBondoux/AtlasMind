@@ -3289,6 +3289,29 @@ The wiring that turns the Tier-3 modules into a running feature, plus the mappin
 
 **Deny-by-default, two gates deep.** `BuzzInboundService` connects nothing unless both `atlasmind.buzz.enabled` and `atlasmind.buzz.inboundEnabled` are on, so upgrading never starts a network subscription. Persistence is a *third* gate: `autoCreateFollowUps` defaults off, because `project_memory/` is git-tracked and writing to it from a network event is something to opt into rather than inherit. While off, inbound activity is reported without being written.
 
+### BuzzOwnerAttestation + BuzzRevocation (`src/core/buzzOwnerAttestation.ts`, `src/core/buzzRevocation.ts`)
+
+**Buzz Tier 4, verified rather than custodied.** The plan once had AtlasMind mint a keypair per agent and
+record the human's grant. Buzz 0.5 ships both halves: Buzz Desktop mints a managed agent's key after the
+owner reviews it, and the owner's grant is a NIP-OA `auth` tag on the agent's events — an owner signature
+over `nostr:agent-auth:<agent pubkey>:<conditions>`. AtlasMind therefore holds no agent secret and checks the
+claim: `verifyOwnerAttestation` validates the event's own id and signature first (the inbound pipeline does
+not verify event signatures, so it must happen here before provenance is claimed), then exactly one
+four-element tag, the exact conditions grammar (never normalised, since it is signed byte for byte), and the
+owner signature; an owner attesting itself is invalid. It is tested against the spec's published vectors and
+was checked against the grants Buzz Desktop 0.5.28 actually issued. `BuzzInboundService` verifies attestations
+as events arrive and records the owner on the directory entry as *authorised by* — never as the sender.
+
+**Revocation is AtlasMind's own list**, because Buzz has no lever AtlasMind can rely on: a relay archive
+(NIP-IA) can be undone by the archived identity itself, and Desktop issues grants with no conditions, which
+never expire. `atlasmind.buzz.revokedIdentities` is read from every scope as a union (a repository can revoke
+and cannot un-revoke), keys are validated through the checksummed decoder and an `nsec` is refused by name, and
+it is re-read for every batch of work items so a revocation takes effect on the next message. A revoked author's
+items are dropped, and so are items from an agent whose verified owner is revoked; a work item waits for its
+event's attestation verdict, so an agent cannot slip through on its first message. **AtlasMind: Revoke a Buzz
+Identity** writes the user scope and shows the `buzz agents archive` command for the owner to run with their own
+key; AtlasMind signs nothing.
+
 ### BuzzDirectory (`src/core/buzzDirectory.ts`)
 
 The identities AtlasMind has *observed*, so a Buzz handle can be picked rather than typed.

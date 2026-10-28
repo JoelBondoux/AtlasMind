@@ -75,6 +75,12 @@ export interface BuzzIdentity {
    * and never persisted, like everything else here.
    */
   lastMessage?: string;
+  /**
+   * The owner whose NIP-OA attestation on this identity's events verified —
+   * "authorised by", never "sent by" (`buzzOwnerAttestation.ts`). Absent means
+   * no verified attestation has been seen, not that there is none.
+   */
+  attestedBy?: string;
 }
 
 /** The observed-identity map. Keyed by lowercase hex pubkey. */
@@ -214,6 +220,18 @@ export function observeEvent(directory: BuzzDirectory, event: NostrEvent): void 
     return;
   }
   recordSighting(directory, event);
+}
+
+/**
+ * Record that an identity's events carry a verified owner attestation. Only a
+ * verified one: an invalid or absent tag changes nothing, because an
+ * attribution AtlasMind could not check is not one it may show.
+ */
+export function recordAttestation(directory: BuzzDirectory, pubkey: string, ownerPubkey: string): void {
+  const identity = directory.get(pubkey);
+  if (identity && /^[0-9a-f]{64}$/.test(ownerPubkey) && ownerPubkey !== pubkey) {
+    identity.attestedBy = ownerPubkey;
+  }
 }
 
 /**

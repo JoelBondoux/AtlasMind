@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.511.0] - 2026-10-28
+
+### Added
+
+- **Buzz owner attestation (NIP-OA).** When a Buzz agent's event carries an owner's `auth` tag, AtlasMind
+  verifies it: the event's own id and signature first, then exactly one four-element tag, the exact
+  conditions grammar, and the owner's signature. An owner attesting itself is rejected. A verified
+  owner is recorded on the identity as *authorised by*, never as the sender
+  (`src/core/buzzOwnerAttestation.ts`). Tested against the spec's published vectors, and checked against
+  the grants Buzz Desktop 0.5.28 issued.
+- **Buzz revocation.** `atlasmind.buzz.revokedIdentities`, read from every settings scope as a union, so
+  a revocation anywhere wins. Messages from a revoked identity, and from any agent whose verified
+  owner is revoked, are dropped before they become work. A work item waits for its event's attestation
+  check, so an agent of a revoked owner cannot slip through on its first message. Bindings to a revoked
+  identity are reported. Keys are validated through the checksummed decoder, and an `nsec` is refused
+  by name and never echoed (`src/core/buzzRevocation.ts`).
+- **AtlasMind: Revoke a Buzz Identity** and **AtlasMind: Trust a Revoked Buzz Identity Again**. Both
+  write your user settings. Revoking shows the `buzz agents archive` command for the identity's owner
+  to run with their own key: AtlasMind holds no owner key and cannot revoke anything in Buzz.
+
+### Changed
+
+- Buzz Tier 4 follows the identity model Buzz ships. Buzz Desktop mints agent keys after the owner
+  reviews them, and the owner's grant is a NIP-OA tag. AtlasMind holds no agent secret, and verifies
+  instead of custodying.
+
 ## [0.510.0] - 2026-10-28
 
 ### Added
