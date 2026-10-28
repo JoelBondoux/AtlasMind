@@ -985,6 +985,17 @@ revoked in `atlasmind.buzz.revokedIdentities`, or from an agent whose verified N
 is dropped before any binding is consulted, and a binding to a revoked identity is reported as having
 no effect (`src/core/buzzRevocation.ts`).
 
+**Buzz personas.** Started with `--buzz-persona-manifest`, the ACP endpoint answers as one persona and
+selects with `Orchestrator.processTaskInScope` instead of the fixed default. The persona's members are
+the only agents it may select, and the scoring is otherwise unchanged. A request no member matches goes
+to the persona's lead, nobody is synthesised, and no member at all refuses the turn. Handoffs follow the
+same rule: a worker may hand off only to another member, and the delegate inherits the scope. Skills
+are the member's own, never the union of the team's. An `allowlist` ceiling intersects them, and a
+`read-only` ceiling applies the read-only turn envelope to every member. When the host publishes the
+Buzz reply, Buzz send tools are withheld from every worker. Which agents form which team is suggested
+from a declared rule table (`src/core/buzzAgentRecommendations.ts`). Read-only advisors stay in
+AM Oversight alone, so oversight keeps its independence.
+
 The endpoint is local stdio only. It accepts text and text-bearing embedded
 resources, retains at most 80,000 characters of session history, streams
 `agent_message_chunk` updates, and propagates `session/cancel` through the task's

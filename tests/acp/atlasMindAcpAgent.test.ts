@@ -65,6 +65,39 @@ describe('AtlasMindAcpAgent', () => {
     });
   });
 
+  it('answers as a Buzz persona through the scoped entry point, never the fixed default', async () => {
+    const runtime = createRuntime();
+    const processTaskInScope = vi.fn(async () => ({
+      id: 'task-1', agentId: 'backend-engineer', modelUsed: 'local/echo', response: 'Scoped answer',
+      costUsd: 0, inputTokens: 1, outputTokens: 1, durationMs: 1,
+    }));
+    runtime.orchestrator.processTaskInScope = processTaskInScope;
+    const workspaceRoot = path.resolve('C:/workspace');
+    const scope = {
+      personaId: 'am-engineer',
+      allowedAgentIds: ['backend-engineer', 'frontend-engineer'],
+      preferredAgentId: 'backend-engineer',
+      skillCeiling: { mode: 'member' as const },
+      hostDelivery: 'buzz-acp' as const,
+    };
+    const log = vi.fn();
+    const agent = new AtlasMindAcpAgent({ workspaceRoot, version: '1.0.0', runtime, personaScope: scope, log });
+    const { sessionId } = await agent.newSession({ cwd: workspaceRoot, mcpServers: [] } as any);
+    const { client } = createClient();
+
+    await expect(agent.prompt({ sessionId, prompt: [{ type: 'text', text: 'Fix the API.' }] } as any, client))
+      .resolves.toEqual({ stopReason: 'end_turn' });
+    expect(processTaskInScope).toHaveBeenCalledWith(
+      expect.objectContaining({ userMessage: 'Fix the API.' }),
+      scope,
+      expect.any(Function),
+      expect.any(Function),
+    );
+    expect(runtime.orchestrator.processTaskWithAgent).not.toHaveBeenCalled();
+    expect(runtime.agentRegistry.get).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith('Persona am-engineer: backend-engineer answered with local/echo.');
+  });
+
   it('rejects sessions whose cwd escapes the configured workspace', async () => {
     const workspaceRoot = path.resolve('C:/workspace');
     const agent = new AtlasMindAcpAgent({

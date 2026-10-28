@@ -253,6 +253,8 @@ const PUBLIC_METADATA = `Reads public model or pricing metadata; sends nothing o
 const SCRIPT_TEXT = 'The match is inside script text this module generates for another runtime (a preview page, a CI runner); the extension host never runs it.';
 
 const DRY_RUN_EXEMPT: Readonly<Record<string, string>> = {
+  'views/buzzPersonaCommands.ts': `Accepting a suggested Buzz persona writes .atlasmind/buzz-agents.json after a modal showing the team (${OPERATOR_SAVE}); preparing a deployment writes the persona manifest to AtlasMind's own storage and copies a recipe, and starts nothing (${BOOKKEEPING}).`,
+  'core/buzzPersonaProfiles.ts': `${REGISTER} Nothing writes it automatically: the only caller is the Recommend Buzz Personas command, after its modal.`,
   'views/routineScheduleCommands.ts': `Writes the built-in dependency-check routine, create-only, when an operator runs the command for it (${OPERATOR_SAVE}). Approving a routine to run on its own writes only to workspace state; the run itself is held by RoutineScheduler.`,
   'bootstrap/projectBriefOnboarding.ts': `Writes the project brief the operator has just typed: create-only from /bootstrap, which a dry run refuses at its entry, and from the Describe the Project command, which asks before replacing an existing brief (${OPERATOR_SAVE}).`,
   'cli/nodeMemoryManager.ts': 'The CLI and ACP memory store. It persists only when upsert is called, which happens through the upsertMemory skill-context member: in a dry turn B1 simulates memory-write and its context backstop refuses that member.',

@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.512.0 -- One Buzz identity, a team behind it
+
+**AtlasMind: Recommend Buzz Personas** suggests teams such as AM Engineer and AM Oversight from your
+enabled agents, using a published rule table, and shows why each agent is in each team. A saved
+persona answers in Buzz as one identity, but chooses its worker only from its members. It never hands
+off outside them and never gives a member more authority than its own; AM Oversight only reads.
+**AtlasMind: Prepare Buzz Persona Deployment** writes the launch recipe. Creating the identity in Buzz
+stays your step.
+
 ## v0.511.0 -- Know who authorised a Buzz agent, and cut one off
 
 When a Buzz agent's message carries its owner's attestation, AtlasMind checks it, and shows the agent as

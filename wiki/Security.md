@@ -677,6 +677,14 @@ An empty overlap **refuses** rather than running a tool-less delegate, because a
 anything still produces confident prose. Chains are capped at three deep, cycles are refused, and the
 answer comes back fenced as another agent's opinion rather than a verified result.
 
+**A Buzz persona is a boundary, not a label.** A persona's worker is chosen only from its members, may
+hand off only to them, and keeps only its own skills. Adding an agent to a team never widens what another
+member may do, and AM Oversight's ceiling lets every member only read. The team's definitions reach the
+Buzz-launched process in a manifest AtlasMind writes to its own storage. That process refuses a manifest
+someone edited, one inside your repository, or one written by a newer build, and stops rather than
+answering as a different agent. Nothing in the manifest or the persona file can hold a key: a file that
+tries is refused whole.
+
 ---
 
 ## Autonomous runs are contained

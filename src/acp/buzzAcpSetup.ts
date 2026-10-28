@@ -23,6 +23,11 @@ export interface BuzzAcpRuntimeSetupOptions {
   workspaceRoot: string;
   runtimeExecutable: string;
   agentEntrypoint: string;
+  /**
+   * A persona manifest AtlasMind wrote to its own storage. When given, the
+   * Buzz identity answers as that persona's team instead of the default agent.
+   */
+  personaManifestPath?: string;
 }
 
 function requireSafeAbsolutePath(value: string, label: string): string {
@@ -49,10 +54,15 @@ export function buildBuzzAcpRuntimeSetup(
   const agentCommand = requireSafeAbsolutePath(options.runtimeExecutable, 'Runtime executable');
   const agentEntrypoint = requireSafeAbsolutePath(options.agentEntrypoint, 'Agent entrypoint');
   const agentArguments = [agentEntrypoint, '--workspace', workspaceRoot, '--buzz-auto-reply'];
+  if (options.personaManifestPath !== undefined) {
+    agentArguments.push('--buzz-persona-manifest', requireSafeAbsolutePath(options.personaManifestPath, 'Persona manifest'));
+  }
 
   return {
     schemaVersion: 1,
-    purpose: 'Run AtlasMind as the ACP agent behind a Buzz managed agent.',
+    purpose: options.personaManifestPath === undefined
+      ? 'Run AtlasMind as the ACP agent behind a Buzz managed agent.'
+      : 'Run one AtlasMind persona as the ACP agent behind a Buzz managed agent.',
     buzzFields: {
       provider: 'Custom command',
       agentCommand,

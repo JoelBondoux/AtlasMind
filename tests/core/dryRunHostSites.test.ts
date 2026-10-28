@@ -349,6 +349,8 @@ describe('Buzz', () => {
   it('gives the ACP agent a --dry-run flag, off unless asked for', () => {
     expect(parseAcpAgentArgs([], 'C:/w').options?.dryRun).toBe(false);
     expect(parseAcpAgentArgs(['--dry-run'], 'C:/w').options?.dryRun).toBe(true);
+    expect(parseAcpAgentArgs(['--buzz-persona-manifest', 'C:/s/m.json'], 'C:/w').options?.buzzPersonaManifest).toMatch(/m\.json$/);
+    expect(parseAcpAgentArgs(['--buzz-persona-manifest'], 'C:/w').errors).toEqual(['Missing value for --buzz-persona-manifest.']);
   });
 });
 

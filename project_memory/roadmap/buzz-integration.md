@@ -5,9 +5,12 @@
 > protocol/policy/derivation **foundation** shipped (v0.147.0) and its `BuzzClient` subscription
 > (v0.148.0), NIP-42 Schnorr signing (v0.149.0), **real-relay validation (v0.149.2 — which caught a
 > wrong message kind)**, and the wiring + agent bindings (v0.150.0). **Tier 3 is complete and
-> switchable-on.** Tier 4 reciprocal ACP transport shipped in v0.238.0; per-agent key generation,
-> authorization grants, signed A2A handoff, and revocation remain planned. Tier 5 — Director-
-> recommended, orchestration-backed Buzz persona teams — is specified below and remains planned.
+> switchable-on.** Tier 4 reciprocal ACP transport shipped in v0.238.0, and its grant and revocation
+> halves in v0.511.0 (verified NIP-OA attestations plus AtlasMind's own revocation list — Buzz mints the
+> keys). Tier 5 — Director-recommended, orchestration-backed Buzz persona teams — shipped Phases 1–4 in
+> v0.512.0 (persona file, rule-table suggestions, scoped orchestration, manifest + ACP flag) with a
+> command surface; Phase 0's two-identity check, the Director cards, nonce verification and default
+> routing remain.
 > **Owner:** AtlasMind core. **Created:** 2026-07-25.
 > This is the SSOT north star for integrating Buzz into AtlasMind. Build incrementally,
 > respecting the entry criteria between tiers. Nothing here overrides AtlasMind's
@@ -379,17 +382,15 @@ Deliberate design choices:
 repeat sightings update nothing rather than duplicating, with a per-batch cap.
 
 **Remaining across the whole integration:**
-- Tier 1b's real-relay **smoke test for outbound** (Joel's, still open).
+- ~~Tier 1b's real-relay **smoke test for outbound**~~ — passed 2026-10-27 (v0.509.3).
 - Tier 2's **ARD Agent Finder** — still blocked on whether Buzz publishes a verifiable
-  `ai-catalog.json`.
+  `ai-catalog.json` (buzz.xyz published none as of 2026-10-28).
 - The **p-gate** remains confirmed only indirectly: auth intercepts a kind-less query before the gate
   can answer. Re-run `--discover` on a relay without auth to close it.
-- **Tier 4 identity half** (agent keypairs, signed A2A handoffs, revocation) — unstarted, and gated
-  on a threat model + security review. The reciprocal ACP transport shipped in v0.238.0: Buzz can
-  launch AtlasMind as a managed Custom-command agent and AtlasMind can reply through validated Buzz
-  context. The new agent bindings remain a *natural stepping stone*: they already express "this
-  AtlasMind agent corresponds to that Buzz identity", which the remaining work would extend from a
-  reference into a custodied keypair and revocable grant.
+- ~~**Tier 4 identity half**~~ — shipped v0.511.0 as *verify, don't custody* (see Tier 4). Still open
+  there: reading the relay's NIP-IA archive snapshot as an extra signal.
+- **Tier 5 Phases 0, 5 and 6** — the two-identity compatibility check on a real relay, the Director
+  *Buzz Agents* cards, nonce verification of a deployed identity, and default routing (see Tier 5).
 
 **Still owed for Tier 3:**
 1. ~~**Schnorr signing**~~ — **done in v0.149.0.** `buildAuthEventTemplate` returns an *unsigned*
@@ -537,7 +538,18 @@ and revocation; explicit opt-in. This is a MAJOR-version-class change (new secre
 
 ## Tier 5 — Director-recommended Buzz persona teams
 
-**Status:** planned. This section is the implementation contract for future agents.
+**Status:** Phases 1–4 shipped in v0.512.0; Phases 0, 5 (Director cards) and 6 remain. This section is
+the implementation contract for future agents.
+
+**Shipped in v0.512.0.** `buzzPersonaProfiles.ts` (the persona file, schema kind `buzz-agents`,
+`schemas/buzz-agents.schema.json`), `buzzAgentRecommendations.ts` (the family rule table — role words
+count only for an agent that declares no routing needs, and read-only advisors stay in AM Oversight),
+`personaScope.ts` plus `Orchestrator.processTaskInScope` (members-only selection, handoff and skill
+ceilings, host-delivery envelope with Buzz sends withheld), and `buzzPersonaManifest.ts` plus
+`atlasmind-acp --buzz-persona-manifest`. In place of the Director cards for now: **AtlasMind: Recommend
+Buzz Personas** (accept / not now, dismissals in workspace state) and **AtlasMind: Prepare Buzz Persona
+Deployment** (manifest to extension storage, recipe to the clipboard, resynchronise when definitions
+change). Nothing reports an identity created or verified: that is Phase 5's nonce check.
 
 **Goal:** expose a small, comprehensible AtlasMind team in Buzz — for example **AM Engineer**,
 **AM Business**, **AM Marketing**, and **AM Oversight** — without publishing every internal

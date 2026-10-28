@@ -844,6 +844,13 @@ cannot detect that, so start Studio with `--disable-tools`. See [Security](Secur
 Managing Studio's models is held to the same rules as any other effect: downloading and loading, unloading
 and deleting each pass the dry-run guard, and downloading and deleting ask first.
 
+### A Buzz persona narrows every tool its team uses
+
+A turn answered as a Buzz persona uses the same approval gate as any other turn, with less to approve.
+Each worker keeps only its own skills, intersected with the persona's allowlist if it has one. A
+read-only persona such as AM Oversight lets every member only read. When AtlasMind's ACP host publishes
+the reply to Buzz, the Buzz send tools are not offered to the model at all, so a turn cannot post twice.
+
 ---
 
 ## Remote sessions get no shortcuts

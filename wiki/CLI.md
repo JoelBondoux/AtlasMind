@@ -201,7 +201,12 @@ atlasmind-acp --workspace /absolute/path/to/project
 ```
 
 It opens no network port. Options are `--workspace`, `--ssot`, `--daily-limit-usd`, `--buzz-auto-reply`,
-`--dry-run`, `--help` and `--version`.
+`--dry-run`, `--buzz-persona-manifest`, `--help` and `--version`.
+
+**`--buzz-persona-manifest <path>` answers as one Buzz persona.** The manifest is the one **AtlasMind: Prepare
+Buzz Persona Deployment** writes to its own storage. The agent registers exactly the agents it names, selects
+only among them, and checks the fingerprint first. It stops at start-up if the manifest was edited, is newer,
+is inside the workspace, or is not a plain file under 1 MB.
 
 **`--dry-run` is the editor's dry run for the ACP agent.** It runs in its own process, launched by a client
 that is not VS Code, so it cannot read `atlasmind.dryRun.enabled` and takes a flag instead, on for the life

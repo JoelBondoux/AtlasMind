@@ -6,6 +6,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.512.0] - 2026-10-28
+
+### Added
+
+- **Buzz persona teams (Buzz Tier 5, Phases 1–4).** A persona is one Buzz identity backed by a team of
+  AtlasMind agents. `.atlasmind/buzz-agents.json` records the project's intent: members, the member
+  that leads, an independence class and a skill ceiling. One agent may serve several personas. The
+  file is versioned through `schemaMigration` (kind `buzz-agents`). A file from a newer AtlasMind is
+  refused and left untouched. An invalid profile is reported and left out, not repaired. Unknown fields
+  survive. A secret, a key-shaped field or a local path refuses the whole file. Nothing writes the file
+  until you accept a team (`src/core/buzzPersonaProfiles.ts`, `schemas/buzz-agents.schema.json`).
+- **Suggested teams from a declared rule table** (`src/core/buzzAgentRecommendations.ts`). Each enabled
+  agent is placed by its declared routing needs first, then its testing duties. Role words count only
+  for an agent that declares no needs. The families are AM Engineer, AM Business, AM Marketing,
+  AM Research (two researchers or more), AM Oversight (read-only), and an optional AM Coordinator once
+  three teams are suggested. Advisors whose skills only read are kept out of every team but Oversight,
+  and the suggestion says so. Each suggestion names the rule behind every member and carries a ruleset
+  version and a registry fingerprint. "Not now" lasts until the registry changes. No model chooses a
+  team.
+- **Scoped orchestration.** `Orchestrator.processTaskInScope(request, scope)` classifies and scores as
+  usual, but only over the persona's members:
+  - A request no member matches goes to the lead.
+  - A missing lead degrades to another member, with a notice.
+  - No usable member refuses the turn without calling a model.
+  - Nothing is synthesised, and no agent is borrowed from the registry.
+  - A worker's handoff outside the members is refused, and the delegate carries the same scope.
+  - Each worker's skills are narrowed by the ceiling: `member` keeps its own, `allowlist` intersects,
+    and `read-only` applies the read-only turn envelope.
+  - When the ACP host publishes the reply, Buzz send tools are withheld, and every worker is told that
+    the host delivers it.
+  - A subscription agent may run its own tools inside a persona only under the `member` ceiling. An
+    allowlist cannot reach tools the agent brings itself.
+
+  See `src/core/personaScope.ts` and `PersonaScope` in `types.ts`.
+- **Persona manifest and `--buzz-persona-manifest`** (`src/core/buzzPersonaManifest.ts`). The manifest
+  is a sanitised snapshot of exactly the member definitions. That includes agents created in the editor,
+  which the headless ACP runtime cannot otherwise see. A member that carries a secret refuses the export.
+  The fingerprint is a full SHA-256, recomputed on load. `atlasmind-acp` refuses a manifest that was
+  edited by hand, is newer, is empty, sits inside the workspace, is a link, or is over 1 MB. A refusal
+  stops the process; it never answers as the default agent instead.
+- **AtlasMind: Recommend Buzz Personas** shows a suggestion and why each agent is in it, and saves it
+  after a modal. **AtlasMind: Prepare Buzz Persona Deployment** writes a persona's manifest to
+  AtlasMind's own storage and copies a credential-free Custom-command recipe. It says when definitions
+  changed since the last preparation, and creates nothing in Buzz.
+
+### Changed
+
+- The ACP facade answers as a persona when it is started with a manifest. Without one, it keeps the
+  legacy fixed-default agent, unchanged.
+
 ## [0.511.0] - 2026-10-28
 
 ### Added

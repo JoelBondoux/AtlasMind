@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atlasmind.dev/schemas/buzz-agents.schema.json",
+  "title": "AtlasMind Buzz persona teams",
+  "description": "The project's intent for Buzz personas: each persona is one Buzz identity backed by a team of AtlasMind agents. This file is committed, so it holds no Buzz key, no workspace path, no provider credential and no channel history — AtlasMind refuses the whole file if it finds one. Creating the Buzz identity is a separate step.",
+  "type": "object",
+  "required": ["version", "profiles"],
+  "properties": {
+    "version": { "const": 1 },
+    "profiles": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "required": ["id", "displayName", "agentIds", "preferredAgentId", "routingMode", "independenceClass", "skillCeiling"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$",
+            "description": "Stable id. Changing it makes a different persona."
+          },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 60 },
+          "purpose": { "type": "string", "maxLength": 300 },
+          "agentIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 24,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$" },
+            "description": "The only agents this persona may select or hand off to. One agent may serve several personas."
+          },
+          "preferredAgentId": {
+            "type": "string",
+            "description": "Answers when no member matches the request. Must be one of agentIds."
+          },
+          "routingMode": { "const": "scoped-orchestration" },
+          "independenceClass": {
+            "enum": ["execution", "advisory", "oversight"],
+            "description": "`oversight` personas review and should use a read-only skill ceiling. An oversight agent inside an `execution` persona is reported as no longer independent."
+          },
+          "skillCeiling": {
+            "oneOf": [
+              { "type": "object", "required": ["mode"], "properties": { "mode": { "const": "member" } }, "description": "Each member keeps its own skills. Members never share skills." },
+              { "type": "object", "required": ["mode"], "properties": { "mode": { "const": "read-only" } }, "description": "Every member may only read." },
+              {
+                "type": "object",
+                "required": ["mode", "skillIds"],
+                "properties": {
+                  "mode": { "const": "allowlist" },
+                  "skillIds": { "type": "array", "minItems": 1, "maxItems": 50, "items": { "type": "string" } }
+                },
+                "description": "Each member keeps only the skills it has that are also in this list."
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

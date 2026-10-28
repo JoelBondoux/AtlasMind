@@ -124,6 +124,16 @@ A Buzz identity can be bound to an AtlasMind agent, so a colleague's or a bot's 
 right specialist. If you revoke an identity (**AtlasMind: Revoke a Buzz Identity**), its messages — and
 those of any agent it authorised — stop reaching any agent at all, whatever it is bound to.
 
+### One Buzz identity, a team behind it
+
+**AtlasMind: Recommend Buzz Personas** suggests a few Buzz identities — AM Engineer, AM Business,
+AM Marketing, AM Research, AM Oversight — each backed by a team of your agents. Each suggestion shows
+why each agent is in it. One agent can be in several teams. The advisors that only read stay in
+AM Oversight, so it can still review independently. A saved persona answers in Buzz as one author, and
+picks its worker only from its own members. A question none of them fits goes to the team's lead, never
+to an agent outside the team. **AtlasMind: Prepare Buzz Persona Deployment** writes the recipe that tells
+Buzz how to launch it.
+
 ## Agents can ask each other
 
 An agent that hits something outside its speciality can hand the question to a better-placed colleague
