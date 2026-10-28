@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.509.3 -- ACP agents ask before they act
+
+Codex's default ACP mode edited files and ran commands without asking, so AtlasMind's approval gate
+never saw them, even with ACP tools off. Every Claude and Codex session now runs in the agent's
+verified asking mode, re-checked before each turn; an agent that switches mode mid-turn has the turn
+cancelled, and an agent with no verified asking mode cannot be given tools. A named model
+(`acp/claude@haiku`) now runs as that model after the probe cache expires, a model your plan refuses
+is dropped after the first refusal, Codex's startup warnings stay out of answers, and a stale
+`CODEX_PATH` is reported as a settings problem. The Buzz outbound smoke test now passes against a
+real relay with both buzz CLI 0.4.26 and the CLI shipped with Buzz Desktop 0.5.28.
+
 ## v0.509.1 -- Published baseline refreshed
 
 The README now names v0.509.0 as the last Marketplace publication.

@@ -5,6 +5,13 @@ another subscription. A failed per-agent probe excludes that agent's discovered 
 Codex warning-plus-JSON HTTP-error compatibility case rejects the turn instead of recording a
 success; permission and delegated-execution gates still apply independently.
 
+An ACP agent's approval gate only runs when the agent asks, so AtlasMind puts every session into
+the agent's verified asking mode before any prompt — `read-only` for codex-acp, `default` for
+claude-agent-acp — confirms it, re-checks it before each turn, and cancels a turn if the agent
+switches itself out of it. Without this, codex-acp's default `agent` mode edited files without
+asking even with `atlasmind.acp.toolsEnabled` off. An agent whose asking mode has not been verified
+cannot be given delegated execution.
+
 ## Session approval modes
 
 Select a mode in Workflow, chat, the status bar or **AtlasMind: Set Approval Mode**. The selector

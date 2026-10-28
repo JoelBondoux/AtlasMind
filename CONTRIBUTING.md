@@ -5,6 +5,13 @@ single-use and retained sessions; a legacy Codex warning-plus-HTTP-error respons
 when its prompt result says `end_turn`. Keep runtime paths in local User settings, never in a PR.
 See [ACP runtime and sign-in checks](docs/model-routing.md#acp-runtime-and-sign-in-checks).
 
+Adding an ACP agent to `ACP_ASKING_MODES` (`src/providers/acpPermission.ts`) requires a live check,
+not a reading of its docs: ask the real agent to write a file and to run a command, and confirm each
+arrives as `session/request_permission` and that refusing it leaves nothing behind. Mode names are
+no guide — Codex's asking mode is `read-only`, and its default `agent` never asks. Record the agent
+version and date in `verifiedWith`. The same applies to `ACP_MESSAGE_IDENTIFYING_AGENTS` and
+`ACP_AGENT_PATH_VARIABLES`: capture the raw `session/update` stream or launch the binary first.
+
 ## Development Setup
 
 1. Clone the repo and install dependencies:

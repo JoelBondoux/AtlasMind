@@ -337,7 +337,7 @@ Perforce boundary as `not-visible` rather than zero.
 | **Routine planner** | Works out the exact commands a routine will run, so they can be shown to you before they are |
 | **Commit message drafter** | Describes your staged diff in the Source Control box. Writes text; never commits |
 | **Provider adapters** | One per model provider, behind a shared contract |
-| **ACP adapter** | Drives a subscription coding agent as a model provider |
+| **ACP adapter** | Drives a subscription coding agent as a model provider. Every session is put into the agent's verified asking mode first, so its edits and commands reach the approval gate |
 | **MCP registry** | Connects external tool servers and dispatches their tools. Every tool is pinned; a tool that is new, changed, or flagged by the description scan is held until you approve it |
 | **Resource discovery** | Finds new servers, agents and skills — from Settings, or from chat when no installed tool fits |
 | **Voice** | Speech in and out — cloud, your OS, or fully on-device |
@@ -1780,7 +1780,7 @@ never accepted.
 | `src/core/sandboxDependencies.ts` | The dependency volume a sandboxed command loads installed packages from: lockfile detection by named rule, the content-addressed key, readiness from a record and a labelled volume that agree, and the one network-on preparation planned in full before it runs |
 | `src/core/quarantinedReader.ts` | How a long third-party result is read by a model with no tools, what its extract must look like to be believed, and how the raw text is released only after you approve |
 | `src/runtime/` | The built-in agents and how the runtime is composed |
-| `src/providers/` | Provider adapters, catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), the local-GPU support layer that measures VRAM and reads what each runtime has loaded, and Unsloth Studio's management API (`unslothStudio.ts`) |
+| `src/providers/` | Provider adapters (including the ACP bridge's launch-path checks, `acpAgentEnvironment.ts`), catalogues, health, local model discovery, `modelRole.ts` (what a model is *for*), the local-GPU support layer that measures VRAM and reads what each runtime has loaded, and Unsloth Studio's management API (`unslothStudio.ts`) |
 | `src/skills/` | Built-in tools and skill handlers |
 | `src/memory/` | Memory retrieval, scanning, redaction, persistence |
 | `src/chat/` | The chat participant and interaction protocol |

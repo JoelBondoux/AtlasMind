@@ -255,10 +255,31 @@ describe('parseSessionUpdate', () => {
   });
 
   it('passes other spec discriminators through as themselves', () => {
-    for (const kind of ['plan', 'available_commands_update', 'current_mode_update']) {
+    for (const kind of ['plan', 'available_commands_update']) {
       expect(parseSessionUpdate({ sessionId: 's', update: { sessionUpdate: kind } }))
         .toEqual({ kind: 'other', sessionId: 's', sessionUpdate: kind });
     }
+  });
+
+  it('reads a mode change, because the mode decides whether the agent asks before it acts', () => {
+    // Captured from claude-agent-acp 0.63.0 after its mode was set.
+    expect(parseSessionUpdate({ sessionId: 's', update: { sessionUpdate: 'current_mode_update', currentModeId: 'default' } }))
+      .toEqual({ kind: 'mode', sessionId: 's', modeId: 'default' });
+    expect(parseSessionUpdate({ sessionId: 's', update: { sessionUpdate: 'current_mode_update' } }))
+      .toEqual({ kind: 'other', sessionId: 's', sessionUpdate: 'current_mode_update:no-mode' });
+  });
+
+  it('reads re-sent config options', () => {
+    const update = parseSessionUpdate({
+      sessionId: 's',
+      update: {
+        sessionUpdate: 'config_option_update',
+        configOptions: [{ id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: 'agent', options: [{ value: 'agent', name: 'Agent' }] }],
+      },
+    });
+    expect(update.kind).toBe('config_options');
+    if (update.kind !== 'config_options') return;
+    expect(update.configOptions.map(option => option.currentValue)).toEqual(['agent']);
   });
 
   it('surfaces tool calls so a delegated agent\'s actions are visible', () => {

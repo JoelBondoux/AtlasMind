@@ -652,6 +652,15 @@ export type AcpSessionUpdate =
    * decides what may run, and this is what lets a user see what did.
    */
   | { kind: 'tool_call'; sessionId: string; toolCall: AcpToolCall }
+  /**
+   * The agent changed its own permission mode (`current_mode_update`), or
+   * re-sent its config options (`config_option_update`). Parsed rather than
+   * passed through because the mode decides whether the agent *asks* before it
+   * acts — and an agent that switched itself out of an asking mode mid-turn
+   * would otherwise act without the approval gate ever running.
+   */
+  | { kind: 'mode'; sessionId: string; modeId: string }
+  | { kind: 'config_options'; sessionId: string; configOptions: AcpConfigOption[] }
   /** Anything else the spec defines (`plan`, `available_commands_update`, …). */
   | { kind: 'other'; sessionId: string; sessionUpdate: string }
   | { kind: 'unusable'; reason: string };
@@ -705,6 +714,17 @@ export function parseSessionUpdate(params: Record<string, unknown>): AcpSessionU
       // and defaulting the currency would invent one.
       ...(amount === undefined || !currency ? {} : { cost: { amount, currency } }),
     };
+  }
+
+  if (discriminator === 'current_mode_update') {
+    const modeId = clampText(update['currentModeId'], MAX_ID);
+    return modeId
+      ? { kind: 'mode', sessionId, modeId }
+      : { kind: 'other', sessionId, sessionUpdate: `${discriminator}:no-mode` };
+  }
+
+  if (discriminator === 'config_option_update') {
+    return { kind: 'config_options', sessionId, configOptions: parseSessionConfigOptions(update) };
   }
 
   return { kind: 'other', sessionId, sessionUpdate: discriminator };

@@ -2501,10 +2501,16 @@ async function bootstrapAtlasMind(
             + 'The turn ran at the agent\'s own default.',
           );
         },
+        // Agent text outside any identified message — kept out of the answer,
+        // but shown here, because a warning nobody sees is a warning wasted.
+        onAgentNotice: event => {
+          outputChannel.appendLine(`[acp] ${event.agentId} notice: ${event.text.replace(/\s+/g, ' ')}`);
+        },
         onProcessLaunch: event => {
           outputChannel.appendLine(
             `[acp] launch boundary: ${event.agentId} started in ${event.mode} mode`
-            + `${event.requestedPrivateDesktop ? ' (private desktop requested)' : ''}.`,
+            + `${event.requestedPrivateDesktop ? ' (private desktop requested)' : ''}`
+            + `${event.adjustedEnvironment ? `; passed ${event.adjustedEnvironment.join(', ')} with forward slashes, which this agent needs on Windows` : ''}.`,
           );
         },
         onLiveSessionChange: updateAcpPrivateDesktopStatusBar,

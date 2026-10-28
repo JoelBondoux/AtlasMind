@@ -13,6 +13,33 @@ runtime or copies desktop credentials automatically. Sign in through the standal
 flow (`claude auth login --claudeai` for Claude); a working Claude Windows app can have a separate
 sign-in from the CLI used by ACP.
 
+Codex Desktop installs its binary under a hash-named folder and moves to a new one when it updates,
+so prefer the stable `…\Programs\OpenAI\Codex\bin\codex.exe` over a versioned path. A `CODEX_PATH`
+naming a file that does not exist is reported as a settings problem before anything starts, never
+as "not signed in". codex-acp 1.1.7 drops backslashes from `CODEX_PATH`, so on Windows AtlasMind
+passes the same path with forward slashes and says so in the launch log
+(`src/providers/acpAgentEnvironment.ts`).
+
+**Every ACP session runs in a mode that asks before it acts.** codex-acp starts each session in
+`agent` mode, which edits files and runs commands without sending `session/request_permission`;
+verified on 2026-10-27, it wrote a file during a turn AtlasMind treated as completion-only. Before
+any prompt, AtlasMind sets the agent's verified asking mode (`ACP_ASKING_MODES`: `read-only` for
+codex-acp, `default` for claude-agent-acp), confirms the agent reports it, re-checks before each
+turn on a reused session, and cancels a turn the moment the agent announces another mode. An
+agent whose asking mode is unverified is refused delegated execution and runs as a completion
+source with a one-time warning.
+
+**A requested model is honoured after the probe cache expires.** `acp/<agent>@<model>` resolves
+against the probe and, failing that, against the session's own options; a model the session does
+not offer is reported. A model the agent refuses for the signed-in plan (codex-acp:
+`The '<model>' model is not supported when using Codex with a ChatGPT account`, after about a
+minute of its own retries) is remembered for the session: the next turn bound for it is refused at
+once, and discovery stops offering it, including the bare id when it is the agent's default.
+
+Codex sends startup warnings (for example "Skill descriptions were shortened") as message text with
+no `messageId`. For agents verified to identify every message chunk, such text is kept out of the
+answer and written to the output channel instead; an answer is never left empty by this rule.
+
 Discovery retains the conservative base row before a probe, but excludes an agent after its own
 probe fails. Provider health still means at least one configured agent can open a session, not that
 every model can answer. Unknown agent ids are refused. For the observed codex-acp 1.1.7 failure,

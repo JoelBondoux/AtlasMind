@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.509.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.509.3</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,15 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.509.3
+
+**ACP agents ask before they act.** Codex's default ACP mode edits files and runs commands without
+asking, so AtlasMind's approval gate never saw them, even with ACP tools switched off. Every Claude
+and Codex session now runs in the agent's verified asking mode, checked before every turn. A turn
+routed to a named model now runs on that model, a model your plan refuses is dropped after the first
+refusal, Codex warnings stay out of answers, and a stale `CODEX_PATH` is reported as a settings
+problem. See [ACP troubleshooting](docs/model-routing.md#acp-runtime-and-sign-in-checks).
+
 ## What's new in 0.509.1
 
 The last Marketplace publication is now **v0.509.0**, which carries everything since v0.504.4: the CI
@@ -192,14 +201,6 @@ or Always this computer. In Automatic, switched workflows run on GitHub until it
 billing, then on your local runner. Pull requests from other repositories and bot-started runs
 always stay on GitHub. Local CI limits now change on the page, and open sections no longer close
 every time the dashboard refreshes.
-
-## What's new in 0.508.1
-
-**ACP failures stay failures.** Failed agent probes no longer become routing candidates through a
-healthy sibling, and an unknown agent cannot fall through to another subscription. The observed
-legacy Codex warning-plus-HTTP-error response is rejected even when its adapter says the turn ended
-normally. ACP agent commands and runtime pins belong in User settings; this repository no longer
-shadows them. See [ACP troubleshooting](docs/model-routing.md#acp-runtime-and-sign-in-checks).
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.509.0**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
@@ -373,7 +374,7 @@ shortcut for the existing session Bypass grant. See the full [command reference]
 | `src/core/capabilitySearch.ts` | When `find-tool` finds no installed skill: sends the redacted, clamped query to the Agent Finders you enabled and returns up to five candidates to review and install — searching installs and grants nothing |
 | `src/runtime/` | Built-in agents and runtime composition |
 | `src/bootstrap/` | `/bootstrap` and its intake (`bootstrapper.ts`), and the question asked first — the project in your own words, kept verbatim and skippable, shared with the Describe the Project command (`projectBriefOnboarding.ts`) |
-| `src/providers/` | Model provider adapters, catalogs, health, `modelRole.ts` (what a model is *for*), the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` — and Unsloth Studio's native API, read from its source: identity before the key, server-side tools off, quant suggestion and its own GGUF catalogue (`unslothStudio.ts`) |
+| `src/providers/` | Model provider adapters (the ACP bridge's launch-path checks live in `acpAgentEnvironment.ts`), catalogs, health, `modelRole.ts` (what a model is *for*), the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` — and Unsloth Studio's native API, read from its source: identity before the key, server-side tools off, quant suggestion and its own GGUF catalogue (`unslothStudio.ts`) |
 | `src/skills/` | Built-in tools and skill handlers |
 | `src/memory/` | Project memory: retrieval, scanning, redaction, persistence |
 | `src/chat/` | The chat participant and interaction protocol |
