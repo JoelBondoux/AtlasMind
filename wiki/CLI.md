@@ -226,8 +226,11 @@ client's agent log — as `[atlasmind-acp] [dry run] …`, never to stdout, whic
 Run **AtlasMind: Copy Buzz ACP Agent Setup** from the Command Palette. What gets copied contains **no
 credentials** — just the exact values for your open workspace.
 
-In Buzz Desktop 0.5, edit the agent, choose **AI configuration → Customize for this agent**, then
-**Agent harness → Add custom harness…**:
+**AtlasMind: Prepare Buzz Persona Deployment** registers the harness in Buzz Desktop's custom-harness
+folder for you. In Buzz, edit the agent, choose **AI configuration → Customize for this agent**, pick that
+harness under **Agent harness**, type any **Model**, and set **Advanced → Parallelism** to **1**.
+
+Where your Buzz build offers **Agent harness → Add custom harness…**, the copied JSON can be entered by hand:
 
 | Buzz field | What to put |
 |---|---|

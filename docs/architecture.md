@@ -3377,6 +3377,14 @@ On the first prompt it discovers and registers their models with the shared `inf
 `src/providers/modelMetadataInference.ts`. Discovery waits for the first prompt because Buzz starts
 *Parallelism* copies of the command; a timeout or failure keeps the seeded catalogue and is logged.
 
+**Harness registration** (`src/acp/buzzAcpSetup.ts`). Buzz Desktop 0.5 loads custom harnesses from
+JSON files in `<app-data>/xyz.block.buzz.app/custom_harnesses/` and re-reads them on every discovery, and
+some 0.5 builds have no editor for adding one. So the prepare command writes `atlasmind-<persona>.json`
+there after its confirmation. `buildBuzzHarnessDefinition` applies Buzz's own validation: the id alphabet,
+no comma inside an argument, no reserved environment name. `planBuzzHarnessWrite` creates a new file,
+leaves an identical one, replaces only a file carrying `ATLASMIND_HARNESS_HINT`, and refuses a foreign or
+unreadable one. Nothing is written when Buzz's app-data folder is absent.
+
 **Verification** (`buzzPersonaVerification.ts`, `buzzPersonaDeployments.ts`). An identity counts as running
 a persona only after it answers a check. **AtlasMind: Verify Buzz Persona Deployment** issues a 32-hex nonce
 for one prepared persona and copies `@<name> atlasmind-verify <persona> <nonce>`. The persona process reads a

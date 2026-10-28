@@ -19,6 +19,17 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.515.0 -- AtlasMind registers the Buzz harness for you
+
+Some Buzz Desktop 0.5 builds have nowhere to type a command or arguments: the agent editor offers only
+*Agent harness*, *ACP command*, *LLM provider* and *Model*. Buzz does load harnesses from JSON files in
+its own `custom_harnesses` folder, so **AtlasMind: Prepare Buzz Persona Deployment** now writes the
+persona's harness there after you confirm. The harness holds the launch command and arguments, no
+credentials. You pick it under **Agent harness**, type any Model and set Parallelism to 1. A harness
+AtlasMind did not register is never overwritten.
+
+---
+
 ## v0.514.1 -- Buzz setup steps that match Buzz
 
 The recipe AtlasMind copies for Buzz described fields from an older Buzz Desktop. It now follows 0.5's

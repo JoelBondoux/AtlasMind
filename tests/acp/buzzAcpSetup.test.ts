@@ -1,7 +1,16 @@
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { BUZZ_DESKTOP_RECIPE_VERIFIED_VERSION, buildBuzzAcpRuntimeSetup, describeBuzzHarnessSteps } from '../../src/acp/buzzAcpSetup.ts';
+import {
+  ATLASMIND_HARNESS_HINT,
+  BUZZ_DESKTOP_RECIPE_VERIFIED_VERSION,
+  buildBuzzAcpRuntimeSetup,
+  buildBuzzHarnessDefinition,
+  buzzCustomHarnessDirectory,
+  buzzHarnessIdFor,
+  describeBuzzHarnessSteps,
+  planBuzzHarnessWrite,
+} from '../../src/acp/buzzAcpSetup.ts';
 
 const base = {
   workspaceRoot: path.resolve('workspace'),
@@ -50,12 +59,58 @@ describe('buildBuzzAcpRuntimeSetup', () => {
     );
   });
 
-  it('describes the steps in Buzz 0.5\'s own words', () => {
-    const steps = describeBuzzHarnessSteps(buildBuzzAcpRuntimeSetup({ ...base, harnessName: 'AtlasMind AM Engineer' }));
-    expect(steps).toMatch(/Agent harness → Add custom harness…/);
-    expect(steps).toMatch(/"AtlasMind AM Engineer"/);
-    expect(steps).toMatch(/Parallelism to 1/);
-    expect(steps).not.toMatch(/Provider → Custom command|Agent runtime args/);
+  it('describes the steps in Buzz 0.5\'s own words, registered or not', () => {
+    const setup = buildBuzzAcpRuntimeSetup({ ...base, harnessName: 'AtlasMind AM Engineer' });
+    const registered = describeBuzzHarnessSteps(setup, true);
+    expect(registered).toMatch(/Agent harness → "AtlasMind AM Engineer"/);
+    expect(registered).toMatch(/Parallelism to 1/);
+    expect(registered).not.toMatch(/Add custom harness/);
+    const byHand = describeBuzzHarnessSteps(setup);
+    expect(byHand).toMatch(/where your Buzz build offers it/);
+    expect(byHand).toMatch(/Prepare Buzz Persona Deployment" can register it/);
+    for (const text of [registered, byHand]) {
+      expect(text).not.toMatch(/Provider → Custom command|Agent runtime args/);
+    }
+  });
+});
+
+describe('registering the harness with Buzz', () => {
+  const setup = buildBuzzAcpRuntimeSetup({ ...base, personaManifestPath: path.resolve('storage', 'am-engineer.json'), harnessName: 'AtlasMind AM Engineer' });
+
+  it('writes the file Buzz deserialises, marked as AtlasMind\'s', () => {
+    const definition = buildBuzzHarnessDefinition(setup, buzzHarnessIdFor('am-engineer'));
+    expect(definition).toEqual({
+      id: 'atlasmind-am-engineer',
+      label: 'AtlasMind AM Engineer',
+      command: setup.buzzHarness.command,
+      args: setup.buzzHarness.arguments,
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+      installInstructionsUrl: '',
+      installHint: ATLASMIND_HARNESS_HINT,
+    });
+  });
+
+  it('refuses what Buzz would skip: a bad id, a comma in an argument, a reserved env var', () => {
+    expect(() => buildBuzzHarnessDefinition(setup, 'AtlasMind AM')).toThrow(/not one Buzz accepts/);
+    expect(() => buildBuzzHarnessDefinition({ ...setup, buzzHarness: { ...setup.buzzHarness, arguments: ['a,b'] } }, 'atlasmind-x')).toThrow(/comma/);
+    expect(() => buildBuzzHarnessDefinition({ ...setup, buzzHarness: { ...setup.buzzHarness, envVars: { BUZZ_PRIVATE_KEY: 'x' } } }, 'atlasmind-x')).toThrow(/reserved/);
+    expect(() => buzzHarnessIdFor('AM Engineer')).toThrow();
+  });
+
+  it('creates a new file, leaves an identical one, replaces only its own, and never a foreign or unreadable one', () => {
+    const definition = buildBuzzHarnessDefinition(setup, 'atlasmind-am-engineer');
+    expect(planBuzzHarnessWrite(undefined, definition)).toEqual({ kind: 'create' });
+    expect(planBuzzHarnessWrite(JSON.stringify(definition, null, 2), definition)).toEqual({ kind: 'unchanged' });
+    expect(planBuzzHarnessWrite(JSON.stringify({ ...definition, args: ['old'] }), definition)).toEqual({ kind: 'replace' });
+    expect(planBuzzHarnessWrite(JSON.stringify({ ...definition, installHint: 'mine' }), definition)).toMatchObject({ kind: 'refuse' });
+    expect(planBuzzHarnessWrite('{', definition)).toMatchObject({ kind: 'refuse', reason: expect.stringMatching(/cannot read/) });
+  });
+
+  it('finds Buzz\'s folder under each platform\'s app-data directory', () => {
+    expect(buzzCustomHarnessDirectory('win32', { APPDATA: 'C:\\Users\\me\\AppData\\Roaming' }, 'C:\\Users\\me'))
+      .toBe(path.join('C:\\Users\\me\\AppData\\Roaming', 'xyz.block.buzz.app', 'custom_harnesses'));
+    expect(buzzCustomHarnessDirectory('linux', {}, '/home/me')).toBe(path.join('/home/me', '.local', 'share', 'xyz.block.buzz.app', 'custom_harnesses'));
+    expect(buzzCustomHarnessDirectory('win32', {}, '')).toBeUndefined();
   });
 
   it('refuses paths Buzz would split at a comma', () => {
