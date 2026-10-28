@@ -185,11 +185,18 @@ async function preparePersonaDeployment(deps: BuzzPersonaCommandDeps): Promise<v
   if (!picked) {
     return;
   }
-  const built = buildBuzzPersonaManifest(picked.profile, agentRegistry.listAgents(), id => agentRegistry.isEnabled(id));
+  // The persona reaches models through the same ACP agents the editor does;
+  // their launch settings travel in the manifest, their sign-ins stay put.
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  const built = buildBuzzPersonaManifest(picked.profile, agentRegistry.listAgents(), id => agentRegistry.isEnabled(id), {
+    acpAgents: configuration.get<unknown>('acp.agents'),
+    hideConsoleWindows: configuration.get<boolean>('acp.hideConsoleWindows', false),
+  });
   if (built.kind === 'refused') {
     void vscode.window.showErrorMessage(built.reason);
     return;
   }
+  const acpAgentIds = built.manifest.modelAccess?.acpAgents.map(agent => agent.id) ?? [];
 
   const deployments = deps.workspaceState.get<Record<string, PersonaDeploymentRecord>>(DEPLOYMENTS_KEY, {});
   const previous = deployments[picked.profile.id];
@@ -203,6 +210,9 @@ async function preparePersonaDeployment(deps: BuzzPersonaCommandDeps): Promise<v
       modal: true,
       detail: [
         `Members: ${built.manifest.persona.agentIds.join(', ')} (leads ${built.manifest.persona.preferredAgentId}).`,
+        acpAgentIds.length > 0
+          ? `Models: your ACP agents ${acpAgentIds.join(', ')}, answering only — their launch settings are copied, their sign-ins stay where they are.`
+          : 'Models: no ACP agent is configured, so the Buzz agent needs an ATLASMIND_PROVIDER_* variable in its environment.',
         ...built.notices,
         changed ? 'A Buzz identity already running this persona will use the new definitions when it next starts.' : '',
         'AtlasMind writes the manifest to its own storage (not the repository) and copies a launch recipe with no credentials in it. You create the managed agent in Buzz yourself.',
@@ -236,6 +246,7 @@ async function preparePersonaDeployment(deps: BuzzPersonaCommandDeps): Promise<v
       runtimeExecutable: process.execPath,
       agentEntrypoint: path.join(launcherDirectory, 'atlasmind-acp-runner.js'),
       personaManifestPath: manifestPath,
+      manifestAcpAgentIds: acpAgentIds,
     });
     await vscode.env.clipboard.writeText(JSON.stringify(setup, null, 2));
   } catch (error) {
@@ -247,6 +258,6 @@ async function preparePersonaDeployment(deps: BuzzPersonaCommandDeps): Promise<v
     [picked.profile.id]: { manifestFingerprint: built.manifest.fingerprint, preparedAt: new Date().toISOString(), status: 'prepared' },
   });
   void vscode.window.showInformationMessage(
-    `Copied the Buzz custom-agent fields for ${picked.profile.displayName}. In Buzz, create a managed agent named ${picked.profile.displayName}, choose Provider → Custom command, paste the command and arguments, add it to the project channel, then mention it once to check it answers.`,
+    `Copied the Buzz custom-agent fields for ${picked.profile.displayName}. In Buzz, create or edit the agent ${picked.profile.displayName}: Provider → Custom command, paste the Agent command, and under Advanced paste the Agent runtime args and set Parallelism to 1. Add it to the project channel, then mention it once to check it answers.`,
   );
 }

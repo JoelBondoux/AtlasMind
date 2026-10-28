@@ -42,6 +42,21 @@ describe('buildBuzzAcpRuntimeSetup', () => {
     expect(() => buildBuzzAcpRuntimeSetup({ ...base, personaManifestPath: 'relative.json' })).toThrow(/absolute/);
   });
 
+  it('asks Buzz for one copy, and says no model variable is needed when the manifest names ACP agents', () => {
+    const base = {
+      workspaceRoot: path.resolve('workspace'),
+      runtimeExecutable: path.resolve('runtime', 'Code.exe'),
+      agentEntrypoint: path.resolve('storage', 'bin', 'atlasmind-acp-runner.js'),
+      personaManifestPath: path.resolve('storage', 'buzz-personas', 'am-engineer.json'),
+    };
+    const withAgents = buildBuzzAcpRuntimeSetup({ ...base, manifestAcpAgentIds: ['codex', 'claude'] });
+    expect(withAgents.buzzFields.parallelism).toBe(1);
+    expect(withAgents.environment.requiredForModels).toEqual([expect.stringMatching(/^None — .*codex, claude.*signed in/)]);
+    expect(buildBuzzAcpRuntimeSetup(base).environment.requiredForModels).toEqual(
+      expect.arrayContaining([expect.stringMatching(/ATLASMIND_PROVIDER_ANTHROPIC_APIKEY/)]),
+    );
+  });
+
   it('refuses paths Buzz cannot represent safely in its comma-separated field', () => {
     expect(() => buildBuzzAcpRuntimeSetup({
       workspaceRoot: path.resolve('workspace,other'),

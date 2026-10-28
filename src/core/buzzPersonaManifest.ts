@@ -30,13 +30,25 @@
  *    deliberately.
  * 6. **No Buzz key, no provider credential, no channel history** — there is no
  *    field that could hold one.
+ *
+ * Since 0.513.0 a manifest may also say how the persona reaches **models**: the
+ * ACP subscription agents from `atlasmind.acp.agents`. The headless process has
+ * no SecretStorage and no settings, so without this a subscription-only user's
+ * persona started, said hello, and had nothing to answer with. What crosses is
+ * launch settings — a command, its arguments, declared launch variables — and
+ * never a sign-in: each agent keeps its own login on this machine. A launch
+ * variable with a credential-shaped name or a secret-shaped value refuses the
+ * manifest, naming the agent and the variable, for the reason rule 2 refuses a
+ * secret in a prompt.
  */
 
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { AgentDefinition, AgentSkillPolicy, PersonaScope, PersonaSkillCeiling } from '../types.js';
+import { parseAcpAgentSettings, type AcpAgentConfig } from '../providers/acp.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
+import { classifyEnvironmentName } from './hostCommandEnvironment.js';
 import { canonicalJson } from './workflowAuditRecord.js';
 import type { BuzzPersonaProfile, PersonaIndependenceClass } from './buzzPersonaProfiles.js';
 import { PERSONA_INDEPENDENCE_CLASSES } from './buzzPersonaProfiles.js';
@@ -75,12 +87,31 @@ export interface ManifestPersona {
   skillCeiling: PersonaSkillCeiling;
 }
 
+/**
+ * How the headless runtime reaches models: the user's ACP agents, as
+ * `parseAcpAgentSettings` reads `atlasmind.acp.agents`. Launch settings only.
+ */
+export interface ManifestModelAccess {
+  acpAgents: AcpAgentConfig[];
+  /** Windows: `atlasmind.acp.hideConsoleWindows`, so a Buzz-launched agent behaves as the editor's does. */
+  hideConsoleWindows: boolean;
+}
+
+/** What the extension reads from settings and offers the manifest. */
+export interface ManifestModelAccessInput {
+  /** The raw `atlasmind.acp.agents` value; read through the same parser the editor uses. */
+  acpAgents: unknown;
+  hideConsoleWindows?: boolean;
+}
+
 export interface BuzzPersonaManifest {
   kind: typeof BUZZ_PERSONA_MANIFEST_KIND;
   version: number;
   persona: ManifestPersona;
   agents: ManifestAgent[];
-  /** SHA-256 over the canonical persona and agents. */
+  /** Absent when no ACP agent is configured: the persona then uses the CLI's provider variables. */
+  modelAccess?: ManifestModelAccess;
+  /** SHA-256 over the canonical persona, agents and model access. */
   fingerprint: string;
 }
 
@@ -117,19 +148,70 @@ function secretField(agent: ManifestAgent): string | undefined {
   return undefined;
 }
 
-function computeFingerprint(persona: ManifestPersona, agents: readonly ManifestAgent[]): string {
-  return createHash('sha256').update(canonicalJson({ persona, agents }), 'utf8').digest('hex');
+function computeFingerprint(persona: ManifestPersona, agents: readonly ManifestAgent[], modelAccess?: ManifestModelAccess): string {
+  const contents = modelAccess ? { persona, agents, modelAccess } : { persona, agents };
+  return createHash('sha256').update(canonicalJson(contents), 'utf8').digest('hex');
+}
+
+/**
+ * Why an ACP agent's launch settings cannot travel in a manifest, or
+ * `undefined`. Names the agent and the variable, never the value.
+ */
+function modelAccessRefusal(agents: readonly AcpAgentConfig[]): string | undefined {
+  for (const agent of agents) {
+    const texts: Array<[string, string]> = [
+      ['command', agent.command],
+      ...(agent.args ?? []).map((arg, index): [string, string] => [`args[${index}]`, arg]),
+      ...(agent.label ? [['label', agent.label] as [string, string]] : []),
+    ];
+    for (const [field, value] of texts) {
+      if (redactSecrets(value).redactedCount > 0) {
+        return `ACP agent ${agent.id} has what looks like a secret in its ${field}`;
+      }
+    }
+    for (const [name, value] of Object.entries(agent.env ?? {})) {
+      const rule = classifyEnvironmentName(name);
+      if (rule) {
+        return `ACP agent ${agent.id} passes ${name}, a credential-shaped variable (${rule}); a manifest carries launch settings, never credentials — let the agent use its own sign-in`;
+      }
+      if (redactSecrets(value).redactedCount > 0) {
+        return `ACP agent ${agent.id} passes ${name} with what looks like a secret`;
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Read the user's ACP settings into model access, or refuse. Empty is absent. */
+function buildModelAccess(input: ManifestModelAccessInput | undefined): { access?: ManifestModelAccess } | { refused: string } {
+  const acpAgents = parseAcpAgentSettings(input?.acpAgents);
+  if (acpAgents.length === 0) {
+    return {};
+  }
+  const refusal = modelAccessRefusal(acpAgents);
+  if (refusal) {
+    return { refused: refusal };
+  }
+  return { access: { acpAgents, hideConsoleWindows: input?.hideConsoleWindows === true } };
 }
 
 /**
  * Snapshot a persona's usable members. `registry` is every agent the editor
- * holds and `isEnabled` says which are switched on.
+ * holds and `isEnabled` says which are switched on. `modelAccess` is what the
+ * editor's settings say about ACP agents; omitted, the persona relies on the
+ * CLI's provider variables.
  */
 export function buildBuzzPersonaManifest(
   profile: BuzzPersonaProfile,
   registry: readonly AgentDefinition[],
   isEnabled: (agentId: string) => boolean,
+  modelAccessInput?: ManifestModelAccessInput,
 ): ManifestBuild {
+  const builtAccess = buildModelAccess(modelAccessInput);
+  if ('refused' in builtAccess) {
+    return { kind: 'refused', reason: `${builtAccess.refused}, so the manifest was not written.` };
+  }
+  const modelAccess = builtAccess.access;
   const byId = new Map(registry.map(agent => [agent.id, agent]));
   const notices: string[] = [];
   const agents: ManifestAgent[] = [];
@@ -175,20 +257,25 @@ export function buildBuzzPersonaManifest(
       version: BUZZ_PERSONA_MANIFEST_VERSION,
       persona,
       agents,
-      fingerprint: computeFingerprint(persona, agents),
+      ...(modelAccess ? { modelAccess } : {}),
+      fingerprint: computeFingerprint(persona, agents, modelAccess),
     },
     notices,
   };
 }
 
-/** Whether what the registry would export now differs from the stored manifest. */
+/**
+ * Whether what the registry and settings would export now differs from the
+ * stored manifest — a changed prompt, member or ACP agent all count.
+ */
 export function manifestIsStale(
   stored: BuzzPersonaManifest,
   profile: BuzzPersonaProfile,
   registry: readonly AgentDefinition[],
   isEnabled: (agentId: string) => boolean,
+  modelAccessInput?: ManifestModelAccessInput,
 ): boolean {
-  const current = buildBuzzPersonaManifest(profile, registry, isEnabled);
+  const current = buildBuzzPersonaManifest(profile, registry, isEnabled, modelAccessInput);
   return current.kind !== 'ok' || current.manifest.fingerprint !== stored.fingerprint;
 }
 
@@ -308,7 +395,26 @@ export function parseBuzzPersonaManifest(text: string): { kind: 'ok'; manifest: 
     independenceClass: independenceClass as PersonaIndependenceClass,
     skillCeiling: scope.skillCeiling,
   };
-  const fingerprint = computeFingerprint(manifestPersona, agents);
+  let modelAccess: ManifestModelAccess | undefined;
+  if (record['modelAccess'] !== undefined) {
+    const rawAccess = record['modelAccess'] && typeof record['modelAccess'] === 'object' && !Array.isArray(record['modelAccess'])
+      ? record['modelAccess'] as Record<string, unknown>
+      : undefined;
+    const acpAgents = parseAcpAgentSettings(rawAccess?.['acpAgents']);
+    // Read through the editor's own parser and refused unless it reads back
+    // exactly as written: the parser cleans, and a cleaned command is not the
+    // one the manifest's author approved.
+    if (!rawAccess || typeof rawAccess['hideConsoleWindows'] !== 'boolean' || acpAgents.length === 0
+      || canonicalJson(acpAgents) !== canonicalJson(rawAccess['acpAgents'])) {
+      return refuse('its model access is malformed');
+    }
+    const refusal = modelAccessRefusal(acpAgents);
+    if (refusal) {
+      return refuse(refusal);
+    }
+    modelAccess = { acpAgents, hideConsoleWindows: rawAccess['hideConsoleWindows'] };
+  }
+  const fingerprint = computeFingerprint(manifestPersona, agents, modelAccess);
   if (record['fingerprint'] !== fingerprint) {
     return refuse('its contents do not match its fingerprint, so it was changed after AtlasMind wrote it');
   }
@@ -319,6 +425,7 @@ export function parseBuzzPersonaManifest(text: string): { kind: 'ok'; manifest: 
       version: record['version'],
       persona: manifestPersona,
       agents,
+      ...(modelAccess ? { modelAccess } : {}),
       fingerprint,
     },
   };

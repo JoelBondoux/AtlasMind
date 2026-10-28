@@ -685,6 +685,12 @@ someone edited, one inside your repository, or one written by a newer build, and
 answering as a different agent. Nothing in the manifest or the persona file can hold a key: a file that
 tries is refused whole.
 
+A persona's manifest can name your ACP subscription agents so the persona has models to answer with. It
+copies how to *start* them, never how they sign in. A launch variable whose name looks like a credential,
+or whose value looks like a secret, stops the manifest being written; the message names the variable and
+never shows its value. In the persona those agents only answer: they get no permission to act, and every
+credential-shaped variable, including the Buzz key the persona was started with, is withheld from them.
+
 ---
 
 ## Autonomous runs are contained

@@ -19,6 +19,19 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.513.0 -- A Buzz persona answers from your subscriptions
+
+The process Buzz launches for a persona had no way to reach the Claude or Codex subscriptions you use in
+the editor, so a subscription-only persona started and had nothing to answer with. Its manifest now
+carries your ACP agents' launch settings (command, arguments, declared launch variables), never a sign-in.
+The persona answers through the same agents the editor routes to, as completion sources only. A launch
+variable that looks like a credential refuses the manifest and is named, and its value is never shown.
+Models are discovered on the first message, not at start-up. The Buzz recipe now uses Buzz Desktop's own
+field names (Provider → Custom command, Agent command, Agent runtime args, Parallelism) and asks for one
+copy instead of Buzz's default ten.
+
+---
+
 ## v0.512.0 -- One Buzz identity, a team behind it
 
 **AtlasMind: Recommend Buzz Personas** suggests teams such as AM Engineer and AM Oversight from your

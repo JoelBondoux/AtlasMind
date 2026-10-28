@@ -994,7 +994,9 @@ are the member's own, never the union of the team's. An `allowlist` ceiling inte
 `read-only` ceiling applies the read-only turn envelope to every member. When the host publishes the
 Buzz reply, Buzz send tools are withheld from every worker. Which agents form which team is suggested
 from a declared rule table (`src/core/buzzAgentRecommendations.ts`). Read-only advisors stay in
-AM Oversight alone, so oversight keeps its independence.
+AM Oversight alone, so oversight keeps its independence. The persona's models come from the ACP agents its
+manifest names (answer-only, discovered on the first prompt), or from `ATLASMIND_PROVIDER_*` variables
+when none are configured.
 
 The endpoint is local stdio only. It accepts text and text-bearing embedded
 resources, retains at most 80,000 characters of session history, streams

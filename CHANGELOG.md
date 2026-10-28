@@ -6,6 +6,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.513.0] - 2026-10-28
+
+### Added
+
+- **A Buzz persona answers from your subscriptions.** The process Buzz launches for a persona has no
+  settings and no SecretStorage, so until now its only models were the `ATLASMIND_PROVIDER_*` variables,
+  which a subscription-only user does not have. The persona started, connected and had nothing to answer
+  with. The manifest written by **AtlasMind: Prepare Buzz Persona Deployment** now carries your
+  `atlasmind.acp.agents` launch settings: the command, its arguments, declared launch variables and the
+  Windows console choice. It never carries a sign-in; each agent keeps its own login on this machine.
+  - The persona process starts those agents with the same `AcpAdapter` the editor routes through, as
+    completion sources only. No permission policy is passed, so the agents answer and never run their own
+    tools. Every credential-shaped variable is withheld from them, including the Buzz key the persona
+    process was handed.
+  - It registers what they report through the same `inferModelMetadata` the editor uses, so the persona
+    and the chat panel agree about what `acp/codex@…` is.
+  - Models are discovered on the first prompt, not at start-up. Buzz starts several copies of an agent,
+    and each copy would otherwise launch every subscription agent before anybody asked anything. A slow
+    or failed discovery keeps the seeded catalogue and says why.
+  - A launch variable with a credential-shaped name (the same rule `hostCommandEnvironment` applies) or a
+    secret-shaped value refuses the manifest, naming the agent and the variable, never the value. The
+    model access is inside the fingerprint, so editing a command in the manifest by hand is refused. So is
+    one the settings parser would have had to clean.
+  - A changed ACP agent or console setting makes the manifest stale, like a changed prompt
+    (`src/cli/manifestModelAccess.ts`, `src/core/buzzPersonaManifest.ts`).
+
+### Changed
+
+- **The Buzz recipe matches Buzz Desktop 0.5.28's agent editor and asks for one copy.** Buzz starts
+  *Parallelism* copies of a custom command, ten by default. AtlasMind schedules its own work, so the
+  recipe now asks for `parallelism: 1`. When the manifest names ACP agents, the recipe says no model
+  variable is needed, and which agents must be signed in. The notification names the editor's real
+  fields: Provider → Custom command, Agent command, and under Advanced, Agent runtime args and
+  Parallelism.
+- **`inferModelMetadata` and `normalizeModelId` moved to `src/providers/modelMetadataInference.ts`**,
+  beside the heuristics they use, so the headless runtime registers discovered models with the editor's
+  own rules rather than a second copy. `extension.ts` re-exports `inferModelMetadata`, so existing
+  imports still resolve.
+
+### Fixed
+
+- **Found while live-testing two persona identities on a local relay:** an agent created in Buzz Desktop
+  with an LLM provider named after AtlasMind runs Buzz's own `buzz-agent`, which rejects it
+  (`BUZZ_AGENT_PROVIDER=… not supported`) and exits. AtlasMind is a *custom command* there, not an LLM
+  provider. The prepare command's guidance now says so in Buzz's own words.
+
 ## [0.512.0] - 2026-10-28
 
 ### Added

@@ -22,8 +22,11 @@ import {
   loadBuzzPersonaManifestFile,
   manifestAgentDefinitions,
   manifestToScope,
+  type BuzzPersonaManifest,
 } from '../core/buzzPersonaManifest.js';
+import { readCliPassEnvironment } from '../core/hostCommandEnvironment.js';
 import type { PersonaScope } from '../types.js';
+import { createManifestAcpAdapter, discoverManifestModels, once } from './manifestModelAccess.js';
 import { DryRunHost, installDryRunHost } from '../core/dryRunHost.js';
 import {
   BuzzCliBridge,
@@ -150,7 +153,35 @@ export async function runAcpAgent(
 
   const costTracker = new NodeCostTracker(options.dailyLimitUsd);
   const skillContext = createNodeSkillExecutionContext(options.workspaceRoot, memoryManager);
+  const log = (message: string): void => { process.stderr.write(`[atlasmind-acp] ${message}\n`); };
+
+  // A persona manifest is loaded and verified before anything can answer, and
+  // a refusal stops the process: answering as the legacy default instead would
+  // put a different team behind the persona's signed identity.
+  let manifest: BuzzPersonaManifest | undefined;
+  if (options.buzzPersonaManifest) {
+    const loaded = loadBuzzPersonaManifestFile(options.buzzPersonaManifest, options.workspaceRoot);
+    if (loaded.kind === 'refused') {
+      throw new Error(loaded.reason);
+    }
+    manifest = loaded.manifest;
+  }
+
   const adapters = createCliProviderAdapters();
+  // The manifest's ACP agents are the persona's subscription models. Without
+  // them a subscription-only user's persona has nothing to answer with.
+  const manifestAcpAdapter = manifest?.modelAccess
+    ? createManifestAcpAdapter({
+      access: manifest.modelAccess,
+      workspaceRoot: options.workspaceRoot,
+      clientVersion: version,
+      passEnvironment: readCliPassEnvironment(process.env).names,
+      log,
+    })
+    : undefined;
+  if (manifestAcpAdapter) {
+    adapters.push(manifestAcpAdapter);
+  }
   const permissionBroker = new AcpPermissionBroker();
   // Dry-run records go to stderr, which the ACP client shows as the agent's
   // log, never to stdout, which is the protocol stream.
@@ -178,24 +209,31 @@ export async function runAcpAgent(
   });
   syncProviderAvailability(runtime.modelRouter, adapters);
 
-  // A persona manifest is loaded and verified before anything can answer, and
-  // a refusal stops the process: answering as the legacy default instead would
-  // put a different team behind the persona's signed identity.
   let personaScope: PersonaScope | undefined;
-  if (options.buzzPersonaManifest) {
-    const loaded = loadBuzzPersonaManifestFile(options.buzzPersonaManifest, options.workspaceRoot);
-    if (loaded.kind === 'refused') {
-      throw new Error(loaded.reason);
-    }
-    for (const agent of manifestAgentDefinitions(loaded.manifest)) {
+  if (manifest) {
+    for (const agent of manifestAgentDefinitions(manifest)) {
       runtime.agentRegistry.register(agent);
       runtime.agentRegistry.enable(agent.id);
     }
-    personaScope = manifestToScope(loaded.manifest, options.buzzAutoReply);
-    process.stderr.write(`[atlasmind-acp] Answering as persona ${loaded.manifest.persona.displayName} `
-      + `(${loaded.manifest.persona.agentIds.join(', ')}; manifest ${loaded.manifest.fingerprint.slice(0, 12)}).
-`);
+    personaScope = manifestToScope(manifest, options.buzzAutoReply);
+    const models = manifest.modelAccess
+      ? `models from ACP agents ${manifest.modelAccess.acpAgents.map(agent => agent.id).join(', ')}`
+      : 'models from ATLASMIND_PROVIDER_* variables';
+    log(`Answering as persona ${manifest.persona.displayName} `
+      + `(${manifest.persona.agentIds.join(', ')}; ${models}; manifest ${manifest.fingerprint.slice(0, 12)}).`);
   }
+  // Discovered on the first prompt, not at start-up: Buzz starts several copies
+  // of this process, and each would otherwise launch every agent before anybody
+  // asked anything.
+  const modelsReady = once(async () => {
+    if (!manifestAcpAdapter) {
+      return;
+    }
+    const discovery = await discoverManifestModels(runtime.modelRouter, manifestAcpAdapter);
+    log(discovery.kept
+      ? `ACP model discovery kept the seeded catalogue: ${discovery.kept}.`
+      : `ACP model discovery registered ${discovery.registered} model(s).`);
+  });
 
   let replyPublisher: BuzzAcpReplyPublisher | undefined;
   if (options.buzzAutoReply) {
@@ -214,7 +252,7 @@ export async function runAcpAgent(
     permissionBroker,
     replyPublisher,
     ...(personaScope ? { personaScope } : {}),
-    log: message => process.stderr.write(`[atlasmind-acp] ${message}\n`),
+    log,
   });
 
   // Keep the ESM-only official SDK behind a dynamic import so AtlasMind's
@@ -228,10 +266,18 @@ export async function runAcpAgent(
     .onRequest('initialize', ctx => implementation.initialize(ctx.params))
     .onRequest('authenticate', async () => ({}))
     .onRequest('session/new', ctx => implementation.newSession(ctx.params))
-    .onRequest('session/prompt', ctx => implementation.prompt(ctx.params, ctx.client))
+    .onRequest('session/prompt', async ctx => {
+      await modelsReady();
+      return implementation.prompt(ctx.params, ctx.client);
+    })
     .onNotification('session/cancel', ctx => implementation.cancel(ctx.params))
     .connect(stream);
-  await connection.closed;
+  try {
+    await connection.closed;
+  } finally {
+    // Live subscription sessions are child processes; they end with this one.
+    manifestAcpAdapter?.dispose();
+  }
 }
 
 export async function runAcpAgentCli(): Promise<number> {

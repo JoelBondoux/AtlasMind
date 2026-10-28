@@ -114,6 +114,67 @@ describe('parseBuzzPersonaManifest', () => {
   });
 });
 
+describe('model access', () => {
+  const ACP_SETTINGS = [
+    { id: 'codex', command: 'codex-acp', args: [], env: { CODEX_PATH: 'C:/Programs/Codex/bin/codex.exe' } },
+    { id: 'claude', command: 'claude-agent-acp' },
+  ];
+  const withAccess = (acpAgents: unknown, hideConsoleWindows = true) =>
+    buildBuzzPersonaManifest(PROFILE, registry(), enabled, { acpAgents, hideConsoleWindows });
+
+  it('carries the ACP agents through the editor\'s own parser and round-trips them', () => {
+    const built = withAccess(ACP_SETTINGS);
+    expect(built.kind).toBe('ok');
+    if (built.kind !== 'ok') return;
+    expect(built.manifest.modelAccess).toEqual({
+      acpAgents: [
+        { id: 'codex', command: 'codex-acp', args: [], env: { CODEX_PATH: 'C:/Programs/Codex/bin/codex.exe' } },
+        { id: 'claude', command: 'claude-agent-acp', args: [] },
+      ],
+      hideConsoleWindows: true,
+    });
+    expect(parseBuzzPersonaManifest(JSON.stringify(built.manifest))).toEqual({ kind: 'ok', manifest: built.manifest });
+  });
+
+  it('leaves model access out when no ACP agent is configured, and the fingerprint as before', () => {
+    const without = buildBuzzPersonaManifest(PROFILE, registry(), enabled);
+    const empty = withAccess([]);
+    expect(empty.kind === 'ok' && empty.manifest.modelAccess).toBeUndefined();
+    expect(empty.kind === 'ok' && without.kind === 'ok' && empty.manifest.fingerprint).toBe(without.kind === 'ok' && without.manifest.fingerprint);
+  });
+
+  it('refuses a launch variable with a credential-shaped name, naming it and not its value', () => {
+    const built = withAccess([{ id: 'claude', command: 'claude-agent-acp', env: { ANTHROPIC_API_KEY: 'not-printed-anywhere' } }]);
+    expect(built).toEqual({ kind: 'refused', reason: expect.stringMatching(/ACP agent claude passes ANTHROPIC_API_KEY, a credential-shaped variable/) });
+    expect(built.kind === 'refused' && built.reason).not.toContain('not-printed-anywhere');
+  });
+
+  it('refuses a secret-shaped value under an innocent name, or in an argument', () => {
+    const token = 'ghp_' + 'a'.repeat(36);
+    expect(withAccess([{ id: 'codex', command: 'codex-acp', env: { CODEX_HOME: token } }]).kind).toBe('refused');
+    expect(withAccess([{ id: 'codex', command: 'codex-acp', args: [`--token=${token}`] }]).kind).toBe('refused');
+  });
+
+  it('is stale once an ACP agent setting changes', () => {
+    const built = withAccess(ACP_SETTINGS);
+    if (built.kind !== 'ok') throw new Error('expected a manifest');
+    expect(manifestIsStale(built.manifest, PROFILE, registry(), enabled, { acpAgents: ACP_SETTINGS, hideConsoleWindows: true })).toBe(false);
+    expect(manifestIsStale(built.manifest, PROFILE, registry(), enabled, { acpAgents: ACP_SETTINGS.slice(1), hideConsoleWindows: true })).toBe(true);
+    expect(manifestIsStale(built.manifest, PROFILE, registry(), enabled, { acpAgents: ACP_SETTINGS, hideConsoleWindows: false })).toBe(true);
+  });
+
+  it('refuses a manifest whose model access was edited, or that the parser would have to clean', () => {
+    const built = withAccess(ACP_SETTINGS);
+    if (built.kind !== 'ok') throw new Error('expected a manifest');
+    const swapped = JSON.parse(JSON.stringify(built.manifest));
+    swapped.modelAccess.acpAgents[1].command = 'C:/Users/me/evil.exe';
+    expect(parseBuzzPersonaManifest(JSON.stringify(swapped))).toEqual({ kind: 'refused', reason: expect.stringMatching(/do not match its fingerprint/) });
+    const uncleaned = JSON.parse(JSON.stringify(built.manifest));
+    uncleaned.modelAccess.acpAgents[1].id = 'Claude!';
+    expect(parseBuzzPersonaManifest(JSON.stringify(uncleaned))).toEqual({ kind: 'refused', reason: expect.stringMatching(/model access is malformed/) });
+  });
+});
+
 describe('loadBuzzPersonaManifestFile', () => {
   const dirs: string[] = [];
   const dir = (): string => {
