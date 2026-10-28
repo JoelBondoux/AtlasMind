@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.514.0] - 2026-10-28
+
+### Added
+
+- **AtlasMind: Verify Buzz Persona Deployment proves which Buzz identity runs a persona** (Buzz Tier 5,
+  Phase 5). Copying a launch recipe proves nothing about what Buzz did with it: the agent may never have
+  been created, may run Buzz's own runtime, or may run an older manifest. So AtlasMind records only an
+  identity that answered a check.
+  - The command copies a one-time check to post in a channel AtlasMind watches. The persona process
+    answers its own check with a fixed line naming the nonce and its manifest, without calling a model.
+  - AtlasMind sees the answer through its inbound subscription. It recomputes the event id and verifies the
+    Schnorr signature itself, rather than trusting the relay. It requires a valid NIP-OA owner attestation,
+    so a channel member who types the answer line with their own key is refused.
+  - You confirm in a dialog that names the authorising owner key. AtlasMind can check the attestation; it
+    cannot know whose key the owner is.
+  - The check is read only from the triggering message, never from the channel history Buzz includes, so
+    an old check cannot fire again. A persona answers only a check naming itself.
+  - An answer from an older manifest is reported, not accepted. A check expires after 15 minutes, measured
+    on the signed timestamp. A revoked identity or owner is refused.
+  - The record lives in workspace state on this machine, never in the repository. One identity runs one
+    persona; recording a key moves it off any persona that held it, and says so
+    (`src/core/buzzPersonaVerification.ts`, `src/core/buzzPersonaDeployments.ts`).
+- **A *Buzz agents* card on the Project Dashboard's Director page.** It lists each persona with its lead,
+  team size, ceiling and state (not prepared, prepared, verified, definitions changed, or verify again),
+  plus the authorising owner when verified, the suggested teams not yet accepted, and buttons for the
+  three persona commands. The card is absent when Buzz is off and the project has no persona file. It
+  posts only allowlisted command ids and carries no prompt, path, key or message.
+
+### Changed
+
+- **Default routing is shown as unavailable, with the reason** (Buzz Tier 5, Phase 6 gate). Every persona
+  is mention-only. A channel default needs Buzz to give one persona every unaddressed message and none
+  addressed to another persona, and that is not verified for the Buzz build in use. Offering it could
+  produce two answers to one message.
+- `BuzzInboundService.onDidObserveEvent` lets a session-scoped observer hear each event. An observer that
+  throws is dropped for that event only and never interrupts the subscription.
+
 ## [0.513.0] - 2026-10-28
 
 ### Added

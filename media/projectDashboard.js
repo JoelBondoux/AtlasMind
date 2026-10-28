@@ -19800,6 +19800,78 @@
       </article>`;
   }
 
+  // ── Buzz agents ────────────────────────────────────────────────────────
+  // The project's Buzz personas — one identity, a team behind it — and which
+  // identity on this machine answered each one's check. The card only reports
+  // and opens the three commands; each asks for its own persona and confirms.
+
+  const BUZZ_PERSONA_STATE = {
+    'not-prepared': { label: 'Not prepared', tone: 'tag-muted' },
+    prepared: { label: 'Prepared, not verified', tone: 'tag-warn' },
+    verified: { label: 'Verified', tone: 'tag-good' },
+    'stale-manifest': { label: 'Definitions changed', tone: 'tag-warn' },
+    reverify: { label: 'Verify again', tone: 'tag-warn' },
+  };
+
+  function renderBuzzAgents(snapshot) {
+    const view = snapshot.buzzPersonas;
+    if (!view) { return ''; }
+
+    const help = renderWorkflowHelp('buzz.personas', {
+      label: 'what verified means',
+      why: 'Copying a launch recipe proves nothing about what Buzz did with it. An identity counts as running a persona only once it has answered a check: a one-time code AtlasMind issues, answered by the persona itself without a model, signed by the identity’s own key and carrying its owner’s authorisation.',
+      how: [
+        { text: 'Suggestions come from a published rule table, never a model. Accepting one writes the persona file; it creates no Buzz identity.' },
+        { text: 'Preparing writes the persona’s manifest to AtlasMind’s own storage and copies a recipe with no credentials in it. You create or edit the agent in Buzz yourself.' },
+        { text: 'Verifying copies a check to post in a channel AtlasMind watches. The identity that answers it is offered for recording, and you confirm the owner key that authorised it.' },
+      ],
+      commonMistakes: [
+        'Choosing AtlasMind as an LLM provider in Buzz. AtlasMind is a custom command there, and Buzz’s own agent rejects it.',
+        'Leaving Parallelism at Buzz’s default of ten. AtlasMind schedules its own work, so one copy is enough.',
+      ],
+    });
+
+    const personaRows = view.personas.map(persona => {
+      const state = BUZZ_PERSONA_STATE[persona.state] || { label: persona.state, tone: '' };
+      const ceiling = persona.ceiling === 'read-only' ? ' · reads only' : persona.ceiling === 'allowlist' ? ' · named skills only' : '';
+      return `
+        <div class="recent-item">
+          <div class="row-head">
+            <strong>${escapeHtml(persona.displayName)}</strong>
+            <span class="tag ${escapeAttr(state.tone)}">${escapeHtml(state.label)}</span>
+          </div>
+          <div class="list-meta">Leads ${escapeHtml(persona.lead)} · ${escapeHtml(String(persona.members.length))} agent${persona.members.length === 1 ? '' : 's'}${escapeHtml(ceiling)}${persona.independence === 'oversight' ? ' · oversight' : ''}</div>
+          ${persona.purpose ? `<div class="list-meta">${escapeHtml(persona.purpose)}</div>` : ''}
+          <div class="list-meta">${escapeHtml(persona.stateDetail)}</div>
+          ${(persona.problems || []).map(problem => `<div class="list-meta wf-unknown">${escapeHtml(problem)}</div>`).join('')}
+        </div>`;
+    }).join('');
+
+    const suggestions = view.suggestions.length
+      ? `<div class="row-head" style="margin-top:12px"><p class="card-kicker">Suggested</p><span class="list-meta">${escapeHtml(String(view.suggestions.length))}</span></div>
+        <div class="tag-row">${view.suggestions.map(suggestion => `<span class="tag" title="Leads ${escapeAttr(suggestion.lead)}">${escapeHtml(suggestion.displayName)} · ${escapeHtml(String(suggestion.memberCount))}${suggestion.optional ? ' · optional' : ''}</span>`).join('')}</div>`
+      : '';
+
+    return `
+      <article class="panel-card" style="grid-column: 1 / -1">
+        <div class="row-head">
+          <div><p class="card-kicker">Buzz agents${help.button}</p><h3>One Buzz identity, a team behind it</h3></div>
+          <span class="tag">${escapeHtml(view.responseMode.mode === 'mention-only' ? 'Mention-only' : view.responseMode.mode)}</span>
+        </div>
+        ${help.panel}
+        <p class="section-copy">Each persona answers in Buzz as one identity and picks its worker only from its own team. Recorded in <code>${escapeHtml(view.file)}</code>; which identity runs each one is kept on this machine only.</p>
+        ${view.fileState === 'unreadable' ? `<p class="stat-detail wf-unknown">The persona file could not be read: ${escapeHtml(view.fileNotice || 'unknown reason')}. Nothing will be written over it.</p>` : ''}
+        <div class="stack-list">${personaRows || '<div class="dashboard-empty">No persona yet. Review the suggestions to accept a team.</div>'}</div>
+        ${suggestions}
+        <div class="tag-row" style="margin-top:8px">
+          <button type="button" class="action-link" data-action="command" data-payload="atlasmind.buzz.recommendPersonas">Review suggestions</button>
+          <button type="button" class="action-link" data-action="command" data-payload="atlasmind.buzz.preparePersonaDeployment">Prepare a deployment</button>
+          <button type="button" class="action-link" data-action="command" data-payload="atlasmind.buzz.verifyPersonaDeployment">Verify an identity</button>
+        </div>
+        <p class="stat-detail">${escapeHtml(view.responseMode.reason)}</p>
+      </article>`;
+  }
+
   // ── Team workload ──────────────────────────────────────────────────────
   // What each person has been asked to do, against what they said they could.
   // The Director page knew who owned what and the roadmap knew what things were
@@ -20075,6 +20147,7 @@
         ${renderTeamWorkload(snapshot)}
       </div>
       ${renderPortalAudience(snapshot)}
+      ${snapshot.buzzPersonas ? `<div class="review-grid">${renderBuzzAgents(snapshot)}</div>` : ''}
       <div class="review-grid">
         ${renderTeamRoles(snapshot)}
         ${renderDirectorResponsibilities(cfg)}

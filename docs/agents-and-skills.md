@@ -996,7 +996,8 @@ Buzz reply, Buzz send tools are withheld from every worker. Which agents form wh
 from a declared rule table (`src/core/buzzAgentRecommendations.ts`). Read-only advisors stay in
 AM Oversight alone, so oversight keeps its independence. The persona's models come from the ACP agents its
 manifest names (answer-only, discovered on the first prompt), or from `ATLASMIND_PROVIDER_*` variables
-when none are configured.
+when none are configured. A persona's identity is recorded only after it answers a signed, owner-attested
+check (**AtlasMind: Verify Buzz Persona Deployment**); the check is answered without a model.
 
 The endpoint is local stdio only. It accepts text and text-bearing embedded
 resources, retains at most 80,000 characters of session history, streams

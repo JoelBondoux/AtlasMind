@@ -13,7 +13,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { AgentRegistry } from '../core/agentRegistry.js';
 import {
   describeRecommendation,
@@ -30,18 +30,30 @@ import {
   writeBuzzPersonaDocument,
   type BuzzPersonaDocument,
 } from '../core/buzzPersonaProfiles.js';
-import { buildBuzzPersonaManifest, parseBuzzPersonaManifest } from '../core/buzzPersonaManifest.js';
+import { buildBuzzPersonaManifest, parseBuzzPersonaManifest, type ManifestModelAccessInput } from '../core/buzzPersonaManifest.js';
+import {
+  PERSONA_DEPLOYMENTS_KEY,
+  PERSONA_RECOMMENDATION_DISMISSALS_KEY,
+  readPersonaDeployments,
+  recordVerifiedIdentity,
+} from '../core/buzzPersonaDeployments.js';
+import {
+  createPersonaChallenge,
+  personaChallengeMessage,
+  verifyPersonaAnswer,
+  type PersonaChallenge,
+} from '../core/buzzPersonaVerification.js';
+import type { NostrEvent } from '../core/buzzProtocol.js';
+import type { BuzzClientStatus } from '../core/buzzClient.js';
 import { CURRENT_SCHEMA_VERSIONS } from '../core/schemaMigration.js';
 import { openWorkspaceFolders } from '../utils/workspaceRoots.js';
 
-const DISMISSALS_KEY = 'atlasmind.buzz.personaRecommendationDismissals';
-const DEPLOYMENTS_KEY = 'atlasmind.buzz.personaDeployments';
+const DISMISSALS_KEY = PERSONA_RECOMMENDATION_DISMISSALS_KEY;
 
-/** What this machine knows about a prepared persona. Never a key, never a message. */
-export interface PersonaDeploymentRecord {
-  manifestFingerprint: string;
-  preparedAt: string;
-  status: 'prepared';
+/** The part of the inbound subscription a persona check needs. */
+export interface PersonaCheckInbound {
+  getStatus(): BuzzClientStatus;
+  onDidObserveEvent(observer: (event: NostrEvent) => void): vscode.Disposable;
 }
 
 export interface BuzzPersonaCommandDeps {
@@ -51,13 +63,31 @@ export interface BuzzPersonaCommandDeps {
   globalStorageUri: vscode.Uri;
   /** Ensures the ACP launcher exists and returns its directory. */
   prepareLauncher: () => Promise<string | undefined>;
+  /** The inbound subscription, which is how a check's answer is seen. */
+  getBuzzInbound?: () => PersonaCheckInbound | undefined;
+  /** Inbound settings, read when a check starts. */
+  readInboundGates?: () => { enabled: boolean; inboundEnabled: boolean; channelIds: string[] };
+  /** AtlasMind's revocation list. */
+  isRevoked?: (pubkey: string) => boolean;
 }
 
 export function registerBuzzPersonaCommands(deps: BuzzPersonaCommandDeps): vscode.Disposable[] {
+  const checks = new PersonaChecks(deps);
   return [
     vscode.commands.registerCommand('atlasmind.buzz.recommendPersonas', async () => recommendPersonas(deps)),
     vscode.commands.registerCommand('atlasmind.buzz.preparePersonaDeployment', async () => preparePersonaDeployment(deps)),
+    vscode.commands.registerCommand('atlasmind.buzz.verifyPersonaDeployment', async () => checks.start()),
+    checks,
   ];
+}
+
+/** The editor's ACP settings, as a persona manifest carries them. */
+export function readManifestModelAccess(): ManifestModelAccessInput {
+  const configuration = vscode.workspace.getConfiguration('atlasmind');
+  return {
+    acpAgents: configuration.get<unknown>('acp.agents'),
+    hideConsoleWindows: configuration.get<boolean>('acp.hideConsoleWindows', false),
+  };
 }
 
 async function pickWorkspaceRoot(purpose: string): Promise<string | undefined> {
@@ -187,18 +217,14 @@ async function preparePersonaDeployment(deps: BuzzPersonaCommandDeps): Promise<v
   }
   // The persona reaches models through the same ACP agents the editor does;
   // their launch settings travel in the manifest, their sign-ins stay put.
-  const configuration = vscode.workspace.getConfiguration('atlasmind');
-  const built = buildBuzzPersonaManifest(picked.profile, agentRegistry.listAgents(), id => agentRegistry.isEnabled(id), {
-    acpAgents: configuration.get<unknown>('acp.agents'),
-    hideConsoleWindows: configuration.get<boolean>('acp.hideConsoleWindows', false),
-  });
+  const built = buildBuzzPersonaManifest(picked.profile, agentRegistry.listAgents(), id => agentRegistry.isEnabled(id), readManifestModelAccess());
   if (built.kind === 'refused') {
     void vscode.window.showErrorMessage(built.reason);
     return;
   }
   const acpAgentIds = built.manifest.modelAccess?.acpAgents.map(agent => agent.id) ?? [];
 
-  const deployments = deps.workspaceState.get<Record<string, PersonaDeploymentRecord>>(DEPLOYMENTS_KEY, {});
+  const deployments = readPersonaDeployments(deps.workspaceState.get<unknown>(PERSONA_DEPLOYMENTS_KEY));
   const previous = deployments[picked.profile.id];
   const changed = previous !== undefined && previous.manifestFingerprint !== built.manifest.fingerprint;
   const CONTINUE = changed ? 'Resynchronise' : 'Write manifest and copy recipe';
@@ -253,11 +279,186 @@ async function preparePersonaDeployment(deps: BuzzPersonaCommandDeps): Promise<v
     void vscode.window.showErrorMessage(`AtlasMind could not prepare the persona: ${error instanceof Error ? error.message : String(error)}`);
     return;
   }
-  await deps.workspaceState.update(DEPLOYMENTS_KEY, {
+  // A verified identity is kept on the record: it still names who ran the
+  // persona, and the card asks for a fresh check when the manifest moved on.
+  const identity = previous?.identity;
+  await deps.workspaceState.update(PERSONA_DEPLOYMENTS_KEY, {
     ...deployments,
-    [picked.profile.id]: { manifestFingerprint: built.manifest.fingerprint, preparedAt: new Date().toISOString(), status: 'prepared' },
+    [picked.profile.id]: {
+      manifestFingerprint: built.manifest.fingerprint,
+      preparedAt: new Date().toISOString(),
+      status: identity && identity.manifestFingerprint === built.manifest.fingerprint ? 'verified' : 'prepared',
+      ...(identity ? { identity } : {}),
+    },
   });
   void vscode.window.showInformationMessage(
-    `Copied the Buzz custom-agent fields for ${picked.profile.displayName}. In Buzz, create or edit the agent ${picked.profile.displayName}: Provider → Custom command, paste the Agent command, and under Advanced paste the Agent runtime args and set Parallelism to 1. Add it to the project channel, then mention it once to check it answers.`,
+    `Copied the Buzz custom-agent fields for ${picked.profile.displayName}. In Buzz, create or edit the agent ${picked.profile.displayName}: Provider → Custom command, paste the Agent command, and under Advanced paste the Agent runtime args and set Parallelism to 1. Add it to the project channel, then run "AtlasMind: Verify Buzz Persona Deployment" to record which identity runs it.`,
   );
+}
+
+/**
+ * Persona checks in flight. Session-scoped: a challenge is worth fifteen
+ * minutes and is never written anywhere, so a reload simply asks again.
+ */
+class PersonaChecks implements vscode.Disposable {
+  private readonly open = new Map<string, { challenge: PersonaChallenge; displayName: string }>();
+  private observer: vscode.Disposable | undefined;
+  private expiryTimer: NodeJS.Timeout | undefined;
+
+  constructor(private readonly deps: BuzzPersonaCommandDeps) {}
+
+  async start(): Promise<void> {
+    const inbound = this.deps.getBuzzInbound?.();
+    const gates = this.deps.readInboundGates?.();
+    if (!inbound || !gates || !gates.enabled || !gates.inboundEnabled) {
+      const OPEN = 'Open Buzz setup';
+      const choice = await vscode.window.showWarningMessage(
+        'AtlasMind sees a persona\'s answer through its Buzz inbound subscription, which is off. Turn on atlasmind.buzz.enabled and atlasmind.buzz.inboundEnabled, and watch the channel the persona is in, then run the check again.',
+        OPEN,
+      );
+      if (choice === OPEN) {
+        await vscode.commands.executeCommand('atlasmind.buzz.openGuide');
+      }
+      return;
+    }
+    const root = await pickWorkspaceRoot('Choose the project whose Buzz persona you are checking');
+    if (!root) {
+      return;
+    }
+    const read = readBuzzPersonaDocument(root);
+    const deployments = readPersonaDeployments(this.deps.workspaceState.get<unknown>(PERSONA_DEPLOYMENTS_KEY));
+    const prepared = (read.document?.profiles ?? []).filter(profile => deployments[profile.id]);
+    if (prepared.length === 0) {
+      void vscode.window.showWarningMessage('No persona has been prepared on this machine yet. Run "AtlasMind: Prepare Buzz Persona Deployment" first.');
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(
+      prepared.map(profile => ({
+        label: profile.displayName,
+        description: deployments[profile.id]!.identity ? `verified ${deployments[profile.id]!.identity!.verifiedAt.slice(0, 10)}` : 'not verified',
+        profile,
+      })),
+      { title: 'Check which Buzz identity runs a persona' },
+    );
+    if (!picked) {
+      return;
+    }
+    const challenge = createPersonaChallenge(
+      picked.profile.id,
+      deployments[picked.profile.id]!.manifestFingerprint,
+      Date.now(),
+      randomBytes(16).toString('hex'),
+    );
+    this.open.set(picked.profile.id, { challenge, displayName: picked.profile.displayName });
+    this.ensureObserving(inbound);
+    const message = personaChallengeMessage(challenge, picked.profile.displayName);
+    await vscode.env.clipboard.writeText(message);
+    const status = inbound.getStatus();
+    void vscode.window.showInformationMessage(
+      `Copied a check for ${picked.profile.displayName}. Post it in a channel AtlasMind watches where ${picked.profile.displayName} is a member, mentioning the agent. `
+      + `The identity that answers it within 15 minutes, with a signature its owner authorised, is offered for recording.`
+      + (status === 'live' || status === 'subscribed' ? '' : ` The Buzz subscription is ${status} right now, so an answer may not be seen until it reconnects.`),
+    );
+  }
+
+  private ensureObserving(inbound: PersonaCheckInbound): void {
+    if (!this.observer) {
+      this.observer = inbound.onDidObserveEvent(event => { void this.judge(event); });
+    }
+    if (!this.expiryTimer) {
+      this.expiryTimer = setInterval(() => this.expire(), 60_000);
+      this.expiryTimer.unref?.();
+    }
+  }
+
+  private expire(): void {
+    const now = Date.now();
+    for (const [personaId, entry] of this.open) {
+      if (now > entry.challenge.expiresAt) {
+        this.open.delete(personaId);
+        void vscode.window.showWarningMessage(`Nothing answered the check for ${entry.displayName} within 15 minutes, so no identity was recorded. Check the agent runs as a Custom command in Buzz and is in that channel, then try again.`);
+      }
+    }
+    if (this.open.size === 0) {
+      this.stopObserving();
+    }
+  }
+
+  private async judge(event: NostrEvent): Promise<void> {
+    if (this.open.size === 0) {
+      return;
+    }
+    const verdict = await verifyPersonaAnswer(event, [...this.open.values()].map(entry => entry.challenge), {
+      now: Date.now(),
+      ...(this.deps.isRevoked ? { isRevoked: this.deps.isRevoked } : {}),
+    });
+    if (verdict.status === 'ignored' || verdict.status === 'unknown-challenge') {
+      return;
+    }
+    const entry = this.open.get(verdict.personaId);
+    if (!entry) {
+      return;
+    }
+    if (verdict.status === 'expired') {
+      this.open.delete(verdict.personaId);
+      void vscode.window.showWarningMessage(`The answer for ${entry.displayName} arrived after its check expired, so nothing was recorded. Run the check again.`);
+      return;
+    }
+    if (verdict.status === 'invalid') {
+      void vscode.window.showWarningMessage(`An answer for ${entry.displayName} was not accepted: ${verdict.reason}. The check stays open.`);
+      return;
+    }
+    if (verdict.status === 'stale-manifest') {
+      void vscode.window.showWarningMessage(
+        `${entry.displayName} answered from ${verdict.pubkey.slice(0, 12)}… with manifest ${verdict.answeredWith}, but the prepared one is ${verdict.expected}. Restart the agent in Buzz so it loads the prepared manifest; the check stays open.`,
+      );
+      return;
+    }
+    this.open.delete(verdict.personaId);
+    if (this.open.size === 0) {
+      this.stopObserving();
+    }
+    const RECORD = 'Record this identity';
+    const choice = await vscode.window.showInformationMessage(
+      `${entry.displayName} answered the check. Record its Buzz identity?`,
+      {
+        modal: true,
+        detail: [
+          `Identity: ${verdict.pubkey}`,
+          `Authorised by: ${verdict.ownerPubkey}`,
+          'Record it only if you recognise that owner key — usually your own Buzz Desktop identity. AtlasMind checked the signature and the owner attestation; it cannot know whose key the owner is.',
+          'This is stored in this workspace on this machine only, never in the repository.',
+        ].join('\n\n'),
+      },
+      RECORD,
+    );
+    if (choice !== RECORD) {
+      return;
+    }
+    const deployments = readPersonaDeployments(this.deps.workspaceState.get<unknown>(PERSONA_DEPLOYMENTS_KEY));
+    const { next, displaced } = recordVerifiedIdentity(deployments, verdict.personaId, {
+      pubkey: verdict.pubkey,
+      ownerPubkey: verdict.ownerPubkey,
+      verifiedAt: new Date(verdict.verifiedAt).toISOString(),
+      manifestFingerprint: entry.challenge.manifestFingerprint,
+    });
+    await this.deps.workspaceState.update(PERSONA_DEPLOYMENTS_KEY, next);
+    void vscode.window.showInformationMessage(
+      `Recorded ${verdict.pubkey.slice(0, 12)}… as ${entry.displayName}.${displaced.length > 0 ? ` It was recorded for ${displaced.join(', ')} before; one identity runs one persona, so that record was cleared.` : ''}`,
+    );
+  }
+
+  private stopObserving(): void {
+    this.observer?.dispose();
+    this.observer = undefined;
+    if (this.expiryTimer) {
+      clearInterval(this.expiryTimer);
+      this.expiryTimer = undefined;
+    }
+  }
+
+  dispose(): void {
+    this.open.clear();
+    this.stopObserving();
+  }
 }
