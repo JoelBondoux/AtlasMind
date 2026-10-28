@@ -2326,3 +2326,119 @@ describe('AcpAdapter — behaviour found against live agents', () => {
     expect(adjusted).toContainEqual(['CODEX_PATH']);
   });
 });
+
+/**
+ * A subtask handed whole to the agent. The scenario agent replays codex-acp's
+ * observed order (2026-10-27): announce the edit with its path in a diff
+ * block, ask permission with only the call's id and kind, wait for the answer,
+ * then report completion, publish its plan and end the turn.
+ */
+describe('AcpAdapter — handing a turn over', () => {
+  beforeEach(() => { FakeAgent.verifiedAs = VERIFIED_CODEX; });
+
+  function handoverAgent() {
+    const agents: FakeAgent[] = [];
+    const cwds: Array<string | undefined> = [];
+    let promptId: unknown;
+    const update = (self: FakeAgent, body: Record<string, unknown>) => self.emitFrame({
+      jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'sess_1', update: body },
+    });
+    const factory: AcpProcessFactory = (_config, cwd) => {
+      cwds.push(cwd);
+      const agent = new FakeAgent((self, frame) => {
+        const id = frame['id'];
+        if (id === 77 && 'result' in frame) {
+          const selected = ((frame['result'] as Record<string, unknown>)['outcome'] as Record<string, unknown>)['optionId'];
+          update(self, { sessionUpdate: 'tool_call_update', toolCallId: 'exec-1', status: selected === 'once' ? 'completed' : 'failed' });
+          update(self, { sessionUpdate: 'plan', entries: [{ content: 'Create a.txt', status: 'completed', priority: 'medium' }] });
+          update(self, { sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { type: 'text', text: 'done' } });
+          self.emitFrame({ jsonrpc: '2.0', id: promptId, result: { stopReason: 'end_turn' } });
+          return;
+        }
+        switch (frame['method']) {
+          case 'initialize':
+            self.emitFrame({ jsonrpc: '2.0', id, result: INITIALIZE_OK });
+            return;
+          case 'session/new':
+            self.emitFrame({ jsonrpc: '2.0', id, result: { sessionId: 'sess_1' } });
+            return;
+          case 'session/prompt':
+            promptId = id;
+            update(self, {
+              sessionUpdate: 'tool_call', toolCallId: 'exec-1', title: 'Editing files', kind: 'edit', status: 'in_progress',
+              content: [{ type: 'diff', path: '/work/a.txt', oldText: null, newText: '1\n' }],
+            });
+            self.emitFrame({
+              jsonrpc: '2.0', id: 77, method: 'session/request_permission',
+              params: {
+                sessionId: 'sess_1',
+                toolCall: { toolCallId: 'exec-1', kind: 'edit', status: 'pending' },
+                options: [
+                  { optionId: 'once', name: 'Allow once', kind: 'allow_once' },
+                  { optionId: 'no', name: 'Reject', kind: 'reject_once' },
+                ],
+              },
+            });
+            return;
+          default:
+            return;
+        }
+      });
+      agents.push(agent);
+      return agent;
+    };
+    return { factory, agents, cwds };
+  }
+
+  const delegatedRequest = () => request({ model: 'acp/codex', allowDelegatedToolExecution: true });
+  const codexAgent = { id: 'codex', command: 'codex-acp' };
+
+  it('refuses outright — never answers in prose — without delegated authority', async () => {
+    const { factory, agents } = handoverAgent();
+    const adapter = new AcpAdapter({ agents: [codexAgent], spawnProcess: factory, delegatedExecutionEnabled: false, permissionPolicy: async () => true });
+
+    await expect(adapter.runDelegatedTurn(delegatedRequest())).rejects.toThrow(/delegated execution is not authorized/);
+    expect(agents).toHaveLength(0);
+  });
+
+  it('shows the policy the file a bare permission request leaves out, and comes back with the calls and the plan', async () => {
+    const { factory, cwds } = handoverAgent();
+    const asked: Array<{ title: string; locations: string[] }> = [];
+    const observed: string[] = [];
+    const adapter = new AcpAdapter({
+      agents: [codexAgent], cwd: '/main', spawnProcess: factory, delegatedExecutionEnabled: true,
+      permissionPolicy: async request => { asked.push({ title: request.toolCall.title, locations: request.toolCall.locations }); return true; },
+    });
+
+    const turn = await adapter.runDelegatedTurn(delegatedRequest(), {
+      cwd: '/work',
+      observer: { onToolCall: call => observed.push(`${call.status}:${call.locations.join(',')}`) },
+    });
+
+    expect(asked).toEqual([{ title: 'Editing files', locations: ['/work/a.txt'] }]);
+    expect(cwds).toEqual(['/work']);
+    expect(turn.response.content).toBe('done');
+    expect(turn.toolCalls).toEqual([
+      { toolCallId: 'exec-1', title: 'Editing files', kind: 'edit', status: 'completed', locations: ['/work/a.txt'], isUpdate: true },
+    ]);
+    expect(turn.plan).toEqual([{ content: 'Create a.txt', status: 'completed', priority: 'medium' }]);
+    expect(observed.at(-1)).toBe('completed:/work/a.txt');
+  });
+
+  it('takes the rollback point after approval, and refuses the edit when it cannot be taken', async () => {
+    const { factory, agents } = handoverAgent();
+    const adapter = new AcpAdapter({
+      agents: [codexAgent], spawnProcess: factory, delegatedExecutionEnabled: true, permissionPolicy: async () => true,
+    });
+    const checkpointed: string[][] = [];
+
+    const turn = await adapter.runDelegatedTurn(delegatedRequest(), {
+      observer: { beforeApprove: async call => { checkpointed.push(call.locations); throw new Error('no store'); } },
+    });
+
+    expect(checkpointed).toEqual([['/work/a.txt']]);
+    const answer = agents[0]!.written.find(frame => frame['id'] === 77);
+    expect(((answer!['result'] as Record<string, unknown>)['outcome'] as Record<string, unknown>)['optionId']).toBe('no');
+    expect(turn.toolCalls[0]!.status).toBe('failed');
+  });
+});

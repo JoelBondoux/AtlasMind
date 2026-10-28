@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.510.0 -- Hand a step to Codex or Claude, and keep the record
+
+With ACP tools on, a step routed to a subscription agent is handed over whole: the agent works in the
+step's own folder, each file it edits is snapshotted before AtlasMind approves the edit, and the files
+it changed are read from git afterwards rather than taken from its description. The Project Run Center
+shows what changed, what the agent did not mention, what has no rollback point, and the agent's plan.
+Codex's approval prompts now name the files, and a step an agent has already acted on is never
+retried automatically.
+
 ## v0.509.3 -- ACP agents ask before they act
 
 Codex's default ACP mode edited files and ran commands without asking, so AtlasMind's approval gate

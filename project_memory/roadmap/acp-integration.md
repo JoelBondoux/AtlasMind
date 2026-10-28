@@ -153,16 +153,23 @@ order — the alternative is an execution path with nothing behind it.
 
 ### Outstanding
 
-- [ ] **The delegated-subtask path itself.** Today an ACP agent acts within an ordinary completion
-      turn. Handing it a *subtask* — with the Orchestrator standing down as a distinct execution path,
-      not an extra tool round — is unbuilt. This is the item that makes the tier "differentiating";
-      everything above is the safety floor it needs.
-- [ ] **Checkpoint before delegation** (`CheckpointManager`). Needed the moment a subtask path exists:
-      an external process editing the workspace needs a rollback point AtlasMind created.
-- [ ] **Changed files reconciled back into the run record**, and tool-call events routed to the
-      tool-progress UI + `ProjectRunHistory` rather than only the output channel.
-- [ ] **Plan updates → the Planner surface** (`plan` session updates are still passed through as
-      `other`).
+- [x] **The delegated-subtask path itself.** Shipped v0.510.0 (`src/core/acpDelegation.ts`,
+      `Orchestrator.runDelegatedRound`, `ProviderAdapter.runDelegatedTurn`). Built *inside* the agentic
+      loop's single provider call rather than as a parallel path, so the taint refusal, the dry-run stop,
+      the budget cap and the completion-integrity gate all still apply; the agent works in the subtask's
+      worktree when it has one.
+- [x] **Checkpoint before delegation.** Not one checkpoint at the start — `CheckpointManager` needs the
+      paths, and a delegated agent's paths are not known in advance — but one per approved edit, taken
+      *after* AtlasMind's policy approves and *before* the approval is sent, while the file is still as
+      it was. An edit naming no file or a file outside the turn's folder is refused. codex-acp's bare
+      permission request is read with the `tool_call` it announced first, which carries the path.
+- [x] **Changed files reconciled back into the run record**, from git (`status --porcelain` +
+      `hash-object`, before and after) rather than the agent's account; unreported changes and changes
+      with no rollback point are listed. Tool calls reach the chat's tool-round view and the run record.
+      **Not yet:** a subtask's *live* tool and plan progress inside a project run — subtasks run with no
+      string progress channel today, so the record appears when the subtask finishes.
+- [x] **Plan updates → the Planner surface.** Parsed, recorded on the subtask's
+      `DelegatedExecutionRecord`, shown on the Run Center artifact card and as a progress line in chat.
 - [x] **Verify against a real ACP binary.** Done 2026-10-27 against claude-agent-acp 0.63.0 and
       codex-acp 1.1.7 (v0.509.3) — and it found the hole this item was worried about. See the live
       verification log below.

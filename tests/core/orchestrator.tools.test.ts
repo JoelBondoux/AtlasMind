@@ -17,7 +17,9 @@ import { CostTracker } from '../../src/core/costTracker.ts';
 import { ProviderRegistry } from '../../src/providers/index.ts';
 import { TaskProfiler } from '../../src/core/taskProfiler.ts';
 import type { AgentDefinition, MemoryEntry, ModelCapability, ModelStruggleState, SkillDefinition, SkillExecutionContext } from '../../src/types.ts';
-import type { ChatMessage, CompletionRequest, CompletionResponse, ProviderAdapter } from '../../src/providers/adapter.ts';
+import type { ChatMessage, CompletionRequest, CompletionResponse, DelegatedTurnResult, ProviderAdapter } from '../../src/providers/adapter.ts';
+
+type DelegatedTurnOptions = Parameters<NonNullable<ProviderAdapter['runDelegatedTurn']>>[1];
 
 function makeSkillContext(overrides: Partial<SkillExecutionContext> = {}): SkillExecutionContext {
   return {
@@ -104,6 +106,7 @@ function makeOrchestrator(
       }>;
     }>;
     readSetting?: <T>(key: string, fallback: T) => T;
+    runGit?: (args: readonly string[], cwd: string, stdin?: string) => Promise<string>;
   },
 ): Orchestrator {
   const agents = new AgentRegistry();
@@ -179,6 +182,7 @@ function makeOrchestrator(
       postToolVerifier,
       generatedSkillApprovalGate,
       onModelStruggleRecorded: options?.onModelStruggleRecorded,
+      runGit: options?.runGit,
     } as never,
   );
 }
@@ -1832,6 +1836,144 @@ describe('Orchestrator agentic loop', () => {
     expect(acpRequest.messages.map(message => message.content).join('\n')).not.toContain('Likely tool matches');
     expect(readSkill.execute).not.toHaveBeenCalled();
     expect(progress.join('\n')).toMatch(/approval-gated native tools/i);
+  });
+
+  it('hands a delegated turn over whole: checkpoints at approval, and records what changed from git, not from the agent', async () => {
+    let tree: 'before' | 'after' = 'before';
+    const gitCalls: string[] = [];
+    const runGit = vi.fn(async (args: readonly string[]) => {
+      gitCalls.push(args.join(' '));
+      if (args[0] === 'rev-parse') return '';
+      if (args[0] === 'status') return tree === 'before' ? '' : '?? src/a.ts\0?? build.log\0';
+      if (args[0] === 'hash-object') return 'h1\nh2\n';
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+    const writeCheckpointHook = vi.fn().mockResolvedValue(undefined);
+    const edit = { toolCallId: 'exec-1', title: 'Editing files', kind: 'edit', status: 'pending' as const, locations: ['/workspace/src/a.ts'], isUpdate: false };
+    const acpProvider: ProviderAdapter = {
+      providerId: 'acp',
+      complete: vi.fn(),
+      listModels: vi.fn().mockResolvedValue(['acp/codex']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+      runDelegatedTurn: vi.fn(async (_request: CompletionRequest, options?: DelegatedTurnOptions): Promise<DelegatedTurnResult> => {
+        options?.observer?.onToolCall?.(edit);
+        await options?.observer?.beforeApprove?.(edit);
+        options?.observer?.onToolCall?.({ ...edit, status: 'completed', isUpdate: true });
+        options?.observer?.onPlan?.([{ content: 'Create src/a.ts', status: 'completed' }]);
+        // The agent also ran a build that wrote a log it never mentioned.
+        tree = 'after';
+        return {
+          response: { content: 'I created src/a.ts.', model: 'acp/codex', inputTokens: 10, outputTokens: 5, finishReason: 'stop' },
+          toolCalls: [{ ...edit, status: 'completed', isUpdate: true }],
+          plan: [{ content: 'Create src/a.ts', status: 'completed' }],
+        };
+      }),
+    };
+    const orchestrator = makeOrchestrator(
+      makeMockProvider([{ content: 'local fallback should stay unused', model: 'local/echo-1', inputTokens: 1, outputTokens: 1, finishReason: 'stop' }]),
+      [{ id: 'file-write', name: 'Write', description: 'Write a file', parameters: { type: 'object', properties: {} }, execute: vi.fn() }],
+      makeSkillContext(),
+      undefined, [], [], undefined,
+      writeCheckpointHook,
+      undefined, undefined,
+      {
+        readSetting: <T>(key: string, fallback: T) => (key === 'acp.toolsEnabled' ? true : fallback) as T,
+        runGit,
+        extraProviders: [{
+          providerId: 'acp',
+          adapter: acpProvider,
+          models: [{ id: 'acp/codex', name: 'Codex via ACP', contextWindow: 200000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'reasoning'], delegatedToolExecution: true }],
+        }],
+      },
+    );
+    const progress: string[] = [];
+
+    const result = await orchestrator.processTaskWithAgent({
+      id: 'task-acp-handover',
+      userMessage: 'Create src/a.ts with a hello function.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced', preferredProvider: 'acp' },
+      timestamp: new Date().toISOString(),
+    }, {
+      id: 'implementer', name: 'Implementer', role: 'implementation', description: 'Writes code.',
+      systemPrompt: 'Implement the change.', skills: ['file-write'], allowedModels: ['acp/codex'],
+    }, undefined, message => progress.push(message));
+
+    expect(acpProvider.complete).not.toHaveBeenCalled();
+    const [delegatedRequest, delegatedOptions] = vi.mocked(acpProvider.runDelegatedTurn!).mock.calls[0]!;
+    expect(delegatedRequest.allowDelegatedToolExecution).toBe(true);
+    expect(delegatedOptions?.cwd).toBe('/workspace');
+    expect(writeCheckpointHook).toHaveBeenCalledWith('task-acp-handover', 'acp-delegated-edit', { paths: [expect.stringMatching(/src[\\/]a\.ts$/)] });
+    expect(gitCalls).toEqual([
+      'rev-parse --show-prefix', 'status --porcelain=v1 -z --untracked-files=all -- .',
+      'rev-parse --show-prefix', 'status --porcelain=v1 -z --untracked-files=all -- .', 'hash-object --stdin-paths',
+    ]);
+    expect(result.artifacts?.delegation).toEqual({
+      model: 'acp/codex',
+      verification: 'git',
+      changedFiles: [{ relativePath: 'build.log', status: 'created' }, { relativePath: 'src/a.ts', status: 'created' }],
+      unreportedChanges: ['build.log'],
+      notCheckpointed: ['build.log'],
+      checkpointTaskId: 'task-acp-handover',
+      toolCallCount: 1,
+      plan: [{ content: 'Create src/a.ts', status: 'completed' }],
+    });
+    expect(result.artifacts?.toolCalls).toEqual([expect.objectContaining({ toolName: 'acp:edit', checkpointed: true })]);
+    const shown = progress.join('\n');
+    expect(shown).toContain('[TOOL_EXEC]');
+    expect(shown).toContain('Agent plan: 1/1 done');
+    expect(shown).toContain('Delegated agent changed 2 files, checked against git');
+  });
+
+  it('refuses a delegated edit outside the folder the turn was given, before anything is checkpointed', async () => {
+    const writeCheckpointHook = vi.fn().mockResolvedValue(undefined);
+    let refusal: unknown;
+    const acpProvider: ProviderAdapter = {
+      providerId: 'acp',
+      complete: vi.fn(),
+      listModels: vi.fn().mockResolvedValue(['acp/codex']),
+      healthCheck: vi.fn().mockResolvedValue(true),
+      runDelegatedTurn: vi.fn(async (_request: CompletionRequest, options?: DelegatedTurnOptions): Promise<DelegatedTurnResult> => {
+        try {
+          await options?.observer?.beforeApprove?.({ toolCallId: 'x', title: 'Edit hosts', kind: 'edit', status: 'pending', locations: ['/etc/hosts'], isUpdate: false });
+        } catch (error) {
+          refusal = error;
+        }
+        return { response: { content: 'I could not edit it.', model: 'acp/codex', inputTokens: 1, outputTokens: 1, finishReason: 'stop' }, toolCalls: [] };
+      }),
+    };
+    const orchestrator = makeOrchestrator(
+      makeMockProvider([{ content: 'unused', model: 'local/echo-1', inputTokens: 1, outputTokens: 1, finishReason: 'stop' }]),
+      [{ id: 'file-write', name: 'Write', description: 'Write a file', parameters: { type: 'object', properties: {} }, execute: vi.fn() }],
+      makeSkillContext(),
+      undefined, [], [], undefined,
+      writeCheckpointHook,
+      undefined, undefined,
+      {
+        readSetting: <T>(key: string, fallback: T) => (key === 'acp.toolsEnabled' ? true : fallback) as T,
+        extraProviders: [{
+          providerId: 'acp',
+          adapter: acpProvider,
+          models: [{ id: 'acp/codex', name: 'Codex via ACP', contextWindow: 200000, inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'reasoning'], delegatedToolExecution: true }],
+        }],
+      },
+    );
+
+    const result = await orchestrator.processTaskWithAgent({
+      id: 'task-acp-outside',
+      userMessage: 'Edit /etc/hosts and change the localhost line.',
+      context: {},
+      constraints: { budget: 'balanced', speed: 'balanced', preferredProvider: 'acp' },
+      timestamp: new Date().toISOString(),
+    }, {
+      id: 'implementer', name: 'Implementer', role: 'implementation', description: 'Writes code.',
+      systemPrompt: 'Implement the change.', skills: ['file-write'], allowedModels: ['acp/codex'],
+    });
+
+    expect(String(refusal)).toMatch(/outside the folder/);
+    expect(writeCheckpointHook).not.toHaveBeenCalled();
+    // No git runner here, so the record says it could not check — never "nothing changed".
+    expect(result.artifacts?.delegation).toMatchObject({ verification: 'unverified', verificationNote: expect.stringContaining('no git runner') });
   });
 
   it('sends exact-ref Change Story evidence to the model without authorizing ACP or workspace tools', async () => {

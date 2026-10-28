@@ -40,6 +40,14 @@ Codex sends startup warnings (for example "Skill descriptions were shortened") a
 no `messageId`. For agents verified to identify every message chunk, such text is kept out of the
 answer and written to the output channel instead; an answer is never left empty by this rule.
 
+`ProviderAdapter.runDelegatedTurn` is an optional capability for providers whose models declare
+`delegatedToolExecution`. It hands a whole turn to the agent and returns its response with the agent's
+folded tool calls and last plan (`DelegatedTurnResult`); it takes an observer (`onToolCall`, `onPlan`,
+`beforeApprove`) and a working directory. The ACP adapter implements it with a fresh single-use
+session that is never coalesced with a retry, and refuses outright without delegated authority rather
+than answering in prose. A permission request is read together with what that call already announced,
+because codex-acp sends only the call id and kind when it asks.
+
 Discovery retains the conservative base row before a probe, but excludes an agent after its own
 probe fails. Provider health still means at least one configured agent can open a session, not that
 every model can answer. Unknown agent ids are refused. For the observed codex-acp 1.1.7 failure,

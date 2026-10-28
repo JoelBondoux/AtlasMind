@@ -311,6 +311,21 @@ Two properties now bound it. The undeclared-failure heuristic only judges result
 
 Each occurrence is still logged with the tools involved and which predicate fired, distinguishing a tool that declared its own failure from a bare substring or keyword match. Trigger tokens only are recorded, never tool output, which can carry secrets.
 
+### Delegated ACP turns (`src/core/acpDelegation.ts`)
+
+A turn routed to an ACP model with delegated execution is **handed over whole** rather than sent as a
+completion (`runDelegatedRound` in the Orchestrator, `src/core/acpDelegation.ts`). The agent works with
+its own tools in the subtask's worktree when it has one; the send still goes through
+`completeWithRetry` → `dispatchGuardedCompletion`, whose new `dispatch` input lets the delegated call
+send only what the egress guard cleared. AtlasMind reads the working tree with `git status --porcelain`
+and `git hash-object` before and after (constant commands, paths on stdin), checkpoints the files each
+approved edit names *before* the approval is sent (`AcpTurnObserver.beforeApprove` →
+`writeCheckpointHook` with `acp-delegated-edit`), and refuses an edit that names no file or a file
+outside the turn's folder. The result carries a `DelegatedExecutionRecord` on its artifacts: changed
+files from git (or `unverified` with the reason), changes the agent did not report, changes with no
+rollback point, the checkpoint id and the agent's last plan. Delegated turns in one working tree are
+serialised, and a subtask an agent has acted on is never retried automatically.
+
 ### AgentRegistry (`src/core/agentRegistry.ts`)
 
 In-memory map of `AgentDefinition` objects. Supports `register()`, `unregister()`, `get()`, `listAgents()`, `listEnabledAgents()`, and persisted enable/disable state for operator toggles.
@@ -3538,6 +3553,7 @@ extension.ts
   ├── views/treeViews.ts
   ├── views/modelSidebarVisibility.ts (user-level Models tree filtering + exact-entry restore)
   └── core/orchestrator.ts
+        ├── core/acpDelegation.ts   (subtask handover: git before/after record, approval-time checkpoint, pure)
         ├── core/agentRegistry.ts
         ├── core/skillsRegistry.ts
         ├── core/modelRouter.ts

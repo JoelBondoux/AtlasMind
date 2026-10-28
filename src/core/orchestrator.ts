@@ -1,4 +1,4 @@
-import type { AgentDefinition, ArdDiscoveredResource, ProvenanceSource, TurnProvenance, UntrustedEscalationScope, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, ReasoningDirective, ReasoningLevel, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolApprovalAudit, ToolExecutionArtifact } from '../types.js';
+import type { AgentDefinition, ArdDiscoveredResource, DelegatedExecutionRecord, ProvenanceSource, TurnProvenance, UntrustedEscalationScope, BudgetMode, ProjectTestingConfig, DataPrivacyMatch, MemoryEntry, ModelCapability, ModelStruggleKind, OrchestratorConfig, OrchestratorHooks, PricingModel, ProjectPlan, ProjectProgressUpdate, ProjectResult, ProviderId, ReasoningDirective, ReasoningLevel, RoutingConstraints, SkillDefinition, SkillExecutionContext, SubTask, SubTaskExecutionArtifacts, SubTaskResult, SubTaskStatus, TaskModelAttempt, TaskProfile, TaskRequest, TaskResult, TestingMethodologyId, ToolApprovalAudit, ToolExecutionArtifact } from '../types.js';
 import type { AgentAutoUpdater } from './agentAutoUpdater.js';
 import { describeCapabilityOutcome, prepareCapabilityQuery, type ExternalCapabilitySearch } from './capabilitySearch.js';
 import { buildDebtMarkerGuidance, parseCustomDebtMarkers } from './debtRegister.js';
@@ -26,7 +26,18 @@ import type { ProviderRegistry } from '../providers/index.js';
 import { LOCAL_ECHO_RESPONSE_PREFIX } from '../providers/registry.js';
 import { inferParametersBillions } from '../providers/modelMetadataInference.js';
 import { isCapacityDeferral } from './localModelArbiter.js';
-import type { ChatMessage, CompletionResponse, ProviderAdapter, ToolCall, ToolDefinition } from '../providers/adapter.js';
+import type { ChatMessage, CompletionRequest, CompletionResponse, DelegatedToolCall, DelegatedTurnObserver, ProviderAdapter, ToolCall, ToolDefinition } from '../providers/adapter.js';
+import {
+  ACP_DELEGATED_EDIT_CHECKPOINT_TOOL,
+  buildDelegatedExecutionRecord,
+  captureGitWorkingState,
+  delegatedToolArtifacts,
+  describeDelegatedExecution,
+  describeDelegatedPlan,
+  formatDelegatedToolRound,
+  mergeDelegatedExecutionRecords,
+  planDelegatedCheckpoint,
+} from './acpDelegation.js';
 import { toJsonPreview, toTextPreview } from './toolPreview.js';
 import type { ToolWebhookDispatcher } from './toolWebhookDispatcher.js';
 import { Planner } from './planner.js';
@@ -694,6 +705,18 @@ const READONLY_EXPLORATION_REPROMPT = [
  * Supports a multi-turn agentic loop for tool/skill execution.
  */
 export class Orchestrator {
+  /**
+   * AtlasMind's record of each delegated turn, by task id, until the task's
+   * result is assembled. Kept here rather than threaded through the agentic
+   * loop's many exits, so no exit can drop it.
+   */
+  private readonly delegatedExecutions = new Map<string, DelegatedExecutionRecord>();
+  /**
+   * One delegated agent per working tree at a time. The record of what changed
+   * is a before/after comparison of the tree, which is only this agent's work
+   * if no other delegated agent is writing to the same tree meanwhile.
+   */
+  private readonly delegationLocks = new Map<string, Promise<unknown>>();
   private toolApprovalGate?: OrchestratorHooks['toolApprovalGate'];
   private onToolApprovalIntent?: OrchestratorHooks['onToolApprovalIntent'];
   private generatedSkillApprovalGate?: OrchestratorHooks['generatedSkillApprovalGate'];
@@ -2995,7 +3018,10 @@ export class Orchestrator {
     // downstream as "no tools ran" — so every subscription-backed turn reported
     // itself as answered from context with nothing done.
     const delegatedToolCallCount = completion.delegatedToolCallCount;
-    const artifactsWithDelegated = delegatedToolCallCount === undefined
+    // AtlasMind's own record of a turn handed to an ACP agent: what changed in
+    // the workspace, what the agent reported, what can be rolled back.
+    const delegationRecord = this.takeDelegatedExecution(request.id);
+    const artifactsWithDelegated = delegatedToolCallCount === undefined && !delegationRecord
       ? executionArtifacts
       : {
         ...(executionArtifacts ?? {
@@ -3005,7 +3031,8 @@ export class Orchestrator {
           toolCalls: [],
           checkpointedTools: [],
         }),
-        delegatedToolCallCount,
+        ...(delegatedToolCallCount !== undefined ? { delegatedToolCallCount } : {}),
+        ...(delegationRecord ? { delegation: delegationRecord } : {}),
       };
 
     let result: TaskResult = {
@@ -3447,9 +3474,13 @@ export class Orchestrator {
 
     const projectBundle = buildProjectSessionContextBundle(projectGoal, sessionContextBundle, sessionContext);
 
+    // The last attempt's request id, so a throw can still recover the record of
+    // what a delegated agent did before it failed.
+    let lastAttemptId: string | undefined;
     const attemptSubTask = async (message: string): Promise<TaskResult> => {
+      lastAttemptId = `subtask-${task.id}-${Date.now()}`;
       const request: TaskRequest = {
-        id: `subtask-${task.id}-${Date.now()}`,
+        id: lastAttemptId,
         userMessage: message,
         context: {
           __subTask: true,
@@ -3475,10 +3506,15 @@ export class Orchestrator {
       // prompt. This covers an empty response, an iteration-capped no-op, and a
       // first-attempt failure to deliver (tool error / incomplete / preamble-only)
       // — giving the subtask one recovery pass before it is recorded as failed.
+      // Never for a subtask an ACP agent has already acted on: a second pass
+      // would hand the same work to an agent that may have done half of it,
+      // over a working tree it has already changed.
       if (
-        result.response.trim().length === 0 ||
-        (result.artifacts && result.artifacts.toolCallCount === 0 && result.iterationLimitHit) ||
-        (!result.iterationLimitHit && classifySubTaskFailure(result.response) !== undefined)
+        !result.artifacts?.delegation && (
+          result.response.trim().length === 0 ||
+          (result.artifacts && result.artifacts.toolCallCount === 0 && result.iterationLimitHit) ||
+          (!result.iterationLimitHit && classifySubTaskFailure(result.response) !== undefined)
+        )
       ) {
         const simplifiedMessage = `${userMessage}\n\n[Recovery attempt] If the previous approach failed, try a simpler, more direct approach to accomplish: ${task.description}`;
         onProgress?.({ type: 'subtask-retry', subTaskId: task.id, title: task.title, reason: 'empty, iteration-capped, or non-delivering response' });
@@ -3529,7 +3565,7 @@ export class Orchestrator {
           ...(typeof result.suggestedToolCallsPerTurnLimit === 'number' ? { suggestedToolCallsPerTurnLimit: result.suggestedToolCallsPerTurnLimit } : {}),
           error: result.response,
           artifacts: result.artifacts
-            ? { ...result.artifacts, output: result.response, outputPreview: truncatePreview(result.response), changedFiles: [], ...(subTaskMethodologyId ? { testingMethodologyId: subTaskMethodologyId } : {}) }
+            ? { ...result.artifacts, output: result.response, outputPreview: truncatePreview(result.response), changedFiles: result.artifacts.delegation?.changedFiles ?? [], ...(subTaskMethodologyId ? { testingMethodologyId: subTaskMethodologyId } : {}) }
             : { output: result.response, outputPreview: truncatePreview(result.response), toolCallCount: 0, toolCalls: [], checkpointedTools: [], changedFiles: [], ...(subTaskMethodologyId ? { testingMethodologyId: subTaskMethodologyId } : {}) },
         };
       }
@@ -3559,7 +3595,9 @@ export class Orchestrator {
             ...result.artifacts,
             output: result.response,
             outputPreview: truncatePreview(result.response),
-            changedFiles: [],
+            // Read from the working tree when an ACP agent did the work; still
+            // empty for AtlasMind's own tools, whose files the run panel diffs.
+            changedFiles: result.artifacts.delegation?.changedFiles ?? [],
             ...(subTaskMethodologyId ? { testingMethodologyId: subTaskMethodologyId } : {}),
           }
           : {
@@ -3574,9 +3612,14 @@ export class Orchestrator {
       };
     } catch (err) {
       const errMessage = err instanceof Error ? err.message : String(err);
+      // What a delegated agent did before the attempt failed. Its presence also
+      // forbids the retry below: a transient error on a turn that may already
+      // have changed files is exactly the uncertain outcome that must not be
+      // run a second time.
+      const delegatedBeforeFailure = lastAttemptId ? this.takeDelegatedExecution(lastAttemptId) : undefined;
 
       // Retry once on transient errors before returning failed.
-      if (isTransientProviderError(err)) {
+      if (isTransientProviderError(err) && !delegatedBeforeFailure) {
         try {
           onProgress?.({ type: 'subtask-retry', subTaskId: task.id, title: task.title, reason: 'transient provider error' });
           const retryResult = await attemptSubTask(userMessage);
@@ -3622,7 +3665,8 @@ export class Orchestrator {
           toolCallCount: 0,
           toolCalls: [],
           checkpointedTools: [],
-          changedFiles: [],
+          changedFiles: delegatedBeforeFailure?.changedFiles ?? [],
+          ...(delegatedBeforeFailure ? { delegation: delegatedBeforeFailure } : {}),
         },
       };
     }
@@ -3982,7 +4026,7 @@ export class Orchestrator {
       // and a model with no declared control is sent nothing.
       const reasoningPlan = context.reasoningLevel ? planReasoningRequest(loopModelInfo, context.reasoningLevel) : undefined;
       const reasoningDirective = reasoningPlan?.kind === 'applied' ? reasoningPlan.directive : undefined;
-      completion = await this.completeUntilStop(provider, {
+      const roundRequest: ProviderCompletionRequest = {
         requestId: `${context.taskId}:tool-round:${i}`,
         model,
         messages,
@@ -3995,7 +4039,16 @@ export class Orchestrator {
         ...(reasoningDirective ? { reasoning: reasoningDirective } : {}),
         ...(context.cacheStablePrefix ? { cacheStablePrefix: true } : {}),
         ...(context.allowDelegatedToolExecution ? { allowDelegatedToolExecution: true } : {}),
-      }, forceWorkspaceToolBackedInvestigation && workspaceRepromptCount === 0 ? undefined : onTextChunk);
+      };
+      const roundTextChunk = forceWorkspaceToolBackedInvestigation && workspaceRepromptCount === 0 ? undefined : onTextChunk;
+      // A delegated turn is handed over whole rather than sent as a completion:
+      // the agent acts with its own tools, and AtlasMind keeps the rollback
+      // point and its own record of what changed (`acpDelegation.ts`). Every
+      // gate around this call — taint, dry run, budget, completion integrity —
+      // applies exactly as before.
+      completion = context.allowDelegatedToolExecution && provider.runDelegatedTurn
+        ? await this.runDelegatedRound(provider, roundRequest, context, i, toolArtifacts, checkpointedTools, roundTextChunk, onProgress)
+        : await this.completeUntilStop(provider, roundRequest, roundTextChunk);
 
       totalInputTokens += completion.inputTokens;
       totalOutputTokens += completion.outputTokens;
@@ -5133,6 +5186,8 @@ export class Orchestrator {
     provider: ProviderAdapter,
     request: ProviderCompletionRequest,
     onTextChunk?: (chunk: string) => void,
+    /** Sends the cleared request instead of the provider's completion; see `GuardedCompletionInput.dispatch`. */
+    dispatch?: (request: CompletionRequest, onTextChunk?: (chunk: string) => void) => Promise<CompletionResponse>,
   ): Promise<CompletionResponse> {
     const timeout = this.resolveAttemptTimeout(provider.providerId, request);
     // An ACP prompt is stateful and can continue running after a transport
@@ -5155,6 +5210,7 @@ export class Orchestrator {
           request: scoped.request,
           ...(onTextChunk ? { onTextChunk } : {}),
           ...(this.egressSecretConfirmer ? { confirmSecret: this.egressSecretConfirmer } : {}),
+          ...(dispatch ? { dispatch } : {}),
         });
         const completion = await withTimeout(
           execute,
@@ -5265,6 +5321,139 @@ export class Orchestrator {
       ...(loopResult.suggestedIterationLimit !== undefined ? { suggestedIterationLimit: loopResult.suggestedIterationLimit } : {}),
       ...(loopResult.suggestedToolCallsPerTurnLimit !== undefined ? { suggestedToolCallsPerTurnLimit: loopResult.suggestedToolCallsPerTurnLimit } : {}),
     };
+  }
+
+  /**
+   * One round handed whole to an ACP agent — see `src/core/acpDelegation.ts`.
+   *
+   * The agent acts with its own tools; AtlasMind takes the working tree's state
+   * before and after, checkpoints the files each approved edit names before the
+   * agent may write them, and keeps the agent's tool calls and plan as its
+   * account. The send itself goes through the same guarded path as every other
+   * model call (`completeWithRetry` → `dispatchGuardedCompletion`), so redaction,
+   * the secret confirmation and the attempt timeout apply unchanged.
+   */
+  private async runDelegatedRound(
+    provider: ProviderAdapter,
+    request: ProviderCompletionRequest,
+    context: TaskAttemptContext,
+    round: number,
+    toolArtifacts: ToolExecutionArtifact[],
+    checkpointedTools: Set<string>,
+    onTextChunk: ((chunk: string) => void) | undefined,
+    onProgress: ((message: string) => void) | undefined,
+  ): Promise<CompletionResponse> {
+    const runDelegatedTurn = provider.runDelegatedTurn?.bind(provider);
+    const root = context.worktreePath ?? this.skillContext.workspaceRootPath;
+    if (!runDelegatedTurn || !root) {
+      throw new Error('This turn would be handed to an ACP agent, but there is no workspace folder to give it.');
+    }
+    const rules = { platform: process.platform };
+    return this.withDelegationLock(root, async () => {
+      const before = await captureGitWorkingState(root, this.runGitHook);
+      const calls = new Map<string, DelegatedToolCall>();
+      const firstSeen = new Map<string, number>();
+      const durations = new Map<string, number>();
+      const checkpointedPaths: string[] = [];
+      const checkpointedIds = new Set<string>();
+      let lastPlanLine = '';
+      const observer: DelegatedTurnObserver = {
+        onToolCall: call => {
+          const now = Date.now();
+          if (!firstSeen.has(call.toolCallId)) {
+            firstSeen.set(call.toolCallId, now);
+          }
+          calls.set(call.toolCallId, call);
+          if (call.status === 'completed' || call.status === 'failed') {
+            durations.set(call.toolCallId, now - (firstSeen.get(call.toolCallId) ?? now));
+          }
+          onProgress?.(formatDelegatedToolRound([...calls.values()], round + 1));
+        },
+        onPlan: steps => {
+          const line = describeDelegatedPlan(steps);
+          if (line !== lastPlanLine) {
+            lastPlanLine = line;
+            onProgress?.(line);
+          }
+        },
+        beforeApprove: async call => {
+          const plan = planDelegatedCheckpoint(call, root, rules);
+          if (plan.action === 'refuse') {
+            onProgress?.(`Refused a delegated ${call.kind}: ${plan.reason}.`);
+            throw new Error(plan.reason);
+          }
+          if (plan.action === 'checkpoint' && this.writeCheckpointHook) {
+            // Throws when the snapshot cannot be taken, which refuses the edit.
+            await this.writeCheckpointHook(context.taskId, ACP_DELEGATED_EDIT_CHECKPOINT_TOOL, { paths: plan.absolutePaths });
+            checkpointedPaths.push(...plan.relativePaths);
+            checkpointedIds.add(call.toolCallId);
+            checkpointedTools.add(ACP_DELEGATED_EDIT_CHECKPOINT_TOOL);
+          }
+        },
+      };
+      let delegated: Awaited<ReturnType<NonNullable<ProviderAdapter['runDelegatedTurn']>>> | undefined;
+      let failure: unknown;
+      let completion: CompletionResponse | undefined;
+      try {
+        completion = await this.completeWithRetry(provider, request, onTextChunk, async (cleared, chunk) => {
+          delegated = await runDelegatedTurn(cleared, { observer, cwd: root, ...(chunk ? { onTextChunk: chunk } : {}) });
+          return delegated.response;
+        });
+      } catch (error) {
+        failure = error;
+      }
+      // Recorded whether the turn succeeded or not: a failed turn may still
+      // have changed files, and that is when the record matters most.
+      const after = await captureGitWorkingState(root, this.runGitHook);
+      const finalCalls = delegated?.toolCalls.length ? delegated.toolCalls : [...calls.values()];
+      toolArtifacts.push(...delegatedToolArtifacts(finalCalls, durations, checkpointedIds));
+      const record = buildDelegatedExecutionRecord({
+        model: request.model,
+        root,
+        rules,
+        before,
+        after,
+        toolCalls: finalCalls,
+        checkpointedPaths,
+        ...(checkpointedIds.size > 0 ? { checkpointTaskId: context.taskId } : {}),
+        ...(delegated?.plan ? { plan: delegated.plan } : {}),
+      });
+      const previous = this.delegatedExecutions.get(context.taskId);
+      this.delegatedExecutions.set(context.taskId, previous ? mergeDelegatedExecutionRecords(previous, record) : record);
+      onProgress?.(describeDelegatedExecution(record));
+      if (failure !== undefined || !completion) {
+        throw failure ?? new Error('The delegated turn returned nothing.');
+      }
+      return completion;
+    });
+  }
+
+  /** Run `work` once no other delegated agent is working in `root`. */
+  private async withDelegationLock<T>(root: string, work: () => Promise<T>): Promise<T> {
+    const key = process.platform === 'win32' ? root.toLowerCase() : root;
+    const previous = this.delegationLocks.get(key) ?? Promise.resolve();
+    const run = previous.catch(() => undefined).then(work);
+    const settled = run.catch(() => undefined);
+    this.delegationLocks.set(key, settled);
+    try {
+      return await run;
+    } finally {
+      if (this.delegationLocks.get(key) === settled) {
+        this.delegationLocks.delete(key);
+      }
+    }
+  }
+
+  /** The delegated record for a task, taken out once its result is assembled. */
+  private takeDelegatedExecution(taskId: string): DelegatedExecutionRecord | undefined {
+    const records = [this.delegatedExecutions.get(taskId), this.delegatedExecutions.get(`${taskId}-recovery`)]
+      .filter((record): record is DelegatedExecutionRecord => record !== undefined);
+    this.delegatedExecutions.delete(taskId);
+    this.delegatedExecutions.delete(`${taskId}-recovery`);
+    return records.reduce<DelegatedExecutionRecord | undefined>(
+      (merged, record) => (merged ? mergeDelegatedExecutionRecords(merged, record) : record),
+      undefined,
+    );
   }
 
   private async completeUntilStop(

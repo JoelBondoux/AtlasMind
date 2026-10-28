@@ -14,6 +14,19 @@ is cancelled if the agent changes mode. Verified on 2026-10-27: claude-agent-acp
 and codex-acp 1.1.7 (`read-only`) each asked before a write, and Codex before a command, in both
 the approve and refuse directions.
 
+A turn routed to an ACP model with delegated execution is **handed over whole** rather than sent as a
+completion (`runDelegatedRound` in the Orchestrator, `src/core/acpDelegation.ts`). The agent works with
+its own tools in the subtask's worktree when it has one; the send still goes through
+`completeWithRetry` → `dispatchGuardedCompletion`, whose new `dispatch` input lets the delegated call
+send only what the egress guard cleared. AtlasMind reads the working tree with `git status --porcelain`
+and `git hash-object` before and after (constant commands, paths on stdin), checkpoints the files each
+approved edit names *before* the approval is sent (`AcpTurnObserver.beforeApprove` →
+`writeCheckpointHook` with `acp-delegated-edit`), and refuses an edit that names no file or a file
+outside the turn's folder. The result carries a `DelegatedExecutionRecord` on its artifacts: changed
+files from git (or `unverified` with the reason), changes the agent did not report, changes with no
+rollback point, the checkpoint id and the agent's last plan. Delegated turns in one working tree are
+serialised, and a subtask an agent has acted on is never retried automatically.
+
 **Ask / Auto / Bypass** are session approval modes, selected from Workflow, chat, the status bar or
 **AtlasMind: Set Approval Mode**. Ask uses the configured policy; Auto reviews eligible requests in
 a separate tool-free model call; Bypass retains the eligible grant previously called Autopilot.

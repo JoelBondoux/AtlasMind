@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.510.0] - 2026-10-28
+
+### Added
+
+- **ACP subtask handover.** A turn routed to an ACP agent with delegated execution is handed over
+  whole: the agent works with its own tools in the subtask's worktree when it has one, and AtlasMind
+  keeps the rollback point and its own record of what changed (`src/core/acpDelegation.ts`).
+  - Each approved edit's files are checkpointed **before the approval is sent**. An edit that names no
+    file, names a file outside the turn's folder, or whose snapshot cannot be taken is refused.
+  - What changed is read from git before and after (`status --porcelain`, `hash-object`; constant
+    commands, paths on stdin), not from the agent's account. Changes the agent did not report, and
+    changes with no rollback point, are listed. Outside a git repository the record says it was not
+    checked, and why.
+  - The result carries a `DelegatedExecutionRecord`. Subtask artifacts take their changed files from
+    it, and the Project Run Center prefers it over its own between-subtasks snapshot, which
+    misattributes parallel subtasks. It also shows the agent's last plan.
+  - The agent's tool calls appear in the chat's tool-round view as they happen, and in the run record.
+- `ProviderAdapter.runDelegatedTurn`, an optional capability with an observer (`onToolCall`,
+  `onPlan`, `beforeApprove`) and a working directory. The ACP adapter runs it on a fresh single-use
+  session that is never coalesced with a retry.
+- ACP `plan` session updates are parsed. Edit paths are read from `diff` content blocks as well as
+  `locations`, because codex-acp reports only the former.
+
+### Changed
+
+- A codex-acp permission request, which carries only the call id and kind, is read together with what
+  that call already announced, so the approval prompt names the files.
+- A subtask an ACP agent has acted on is never retried automatically, including after a transient
+  error. The failed result keeps the record of what the agent changed.
+- `dispatchGuardedCompletion` takes an optional `dispatch`, so a delegated call sends only the request
+  the egress guard cleared.
+
 ## [0.509.3] - 2026-10-28
 
 ### Security

@@ -75,6 +75,7 @@ import {
   type AcpInitializeResult,
   type AcpMcpServer,
   type AcpPermissionRequest,
+  type AcpPlanEntry,
   type AcpPromptBlock,
   type AcpToolCall,
 } from './acpProtocol.js';
@@ -160,6 +161,34 @@ const ACP_MAX_LIVE_SESSIONS = 4;
 const ACP_PROBE_TTL_MS = 5 * 60_000;
 /** Bound on one reported agent notice; it is agent text bound for an output channel. */
 const ACP_NOTICE_MAX_CHARS = 500;
+/** At most this many distinct tool calls are recorded for one turn. */
+const MAX_TURN_TOOL_CALLS = 200;
+
+/**
+ * Watches one turn in particular, as opposed to the adapter-wide listeners.
+ * A handed-over subtask needs *its* agent's tool calls and plan, not every
+ * turn's, so these travel with the prompt rather than the adapter.
+ */
+/** What a handed-over subtask came back with. */
+export interface AcpDelegatedTurn {
+  response: CompletionResponse;
+  /** The agent's account of its tool calls — a claim, reconciled by the caller. */
+  toolCalls: AcpToolCall[];
+  plan?: AcpPlanEntry[];
+}
+
+export interface AcpTurnObserver {
+  /** A tool call as it now stands, with its earlier updates folded in. */
+  onToolCall?: (call: AcpToolCall) => void;
+  /** The agent's whole plan, which replaces any earlier one. */
+  onPlan?: (entries: AcpPlanEntry[]) => void;
+  /**
+   * AtlasMind's policy approved this operation and the approval has not been
+   * sent. Throwing refuses it instead — the hook a handed-over subtask uses to
+   * checkpoint the files an edit names before the agent may write them.
+   */
+  beforeApprove?: (call: AcpToolCall) => Promise<void>;
+}
 
 /**
  * Agents verified to put a `messageId` on every message chunk of a reply, by
@@ -610,6 +639,10 @@ interface AcpTurnResult {
   notices?: string[];
   /** The agent named at least one message this turn, so later sessions may assume it does. */
   identifiesMessages?: boolean;
+  /** Every tool call the agent announced this turn, each with its updates folded in. */
+  toolCalls: AcpToolCall[];
+  /** The agent's last published plan for the turn, when it published one. */
+  plan?: AcpPlanEntry[];
   /**
    * Tool calls the agent announced over `session/update` during this turn.
    *
@@ -1900,7 +1933,58 @@ export class AcpAdapter implements ProviderAdapter {
     void this.shutdown();
   }
 
-  private async runSingleUse(request: CompletionRequest, onTextChunk: ((chunk: string) => void) | undefined): Promise<CompletionResponse> {
+  /**
+   * Hand one subtask to the agent and come back with what it did.
+   *
+   * The Orchestrator's own loop stands down for this: the agent runs the
+   * subtask with its own tools, every edit and command still asks
+   * (`ACP_ASKING_MODES`) and is answered by AtlasMind's policy, and what comes
+   * back is the answer plus the agent's account of its tool calls and plan —
+   * which the caller reconciles against the workspace, since an account is a
+   * claim and the filesystem is the record.
+   *
+   * Always a fresh, single-use session, and never coalesced with a "retry" of
+   * the same request: a turn that may have changed files must not be run a
+   * second time because something upstream asked twice. Refused outright,
+   * rather than quietly downgraded to a completion, when delegated execution is
+   * not authorized — a subtask handed over with no authority to act would come
+   * back as prose describing work nobody did.
+   */
+  async runDelegatedTurn(
+    request: CompletionRequest,
+    options: {
+      observer?: AcpTurnObserver;
+      onTextChunk?: (chunk: string) => void;
+      /**
+       * Where the agent works. A subtask isolated in a worktree must have its
+       * agent act *there* — the adapter's own working directory is the main
+       * tree, and an agent left in it would write around the isolation.
+       */
+      cwd?: string;
+    } = {},
+  ): Promise<AcpDelegatedTurn> {
+    if (!this.delegatedExecutionEnabled(request, this.mcpServers())) {
+      throw new Error(
+        'This subtask needs an ACP agent that may act, and delegated execution is not authorized for it: '
+        + 'atlasmind.acp.toolsEnabled must be on and the request must carry delegated-execution authority.',
+      );
+    }
+    let turn: AcpTurnResult | undefined;
+    const response = await this.runSingleUse(request, options.onTextChunk, {
+      ...(options.observer ? { observer: options.observer } : {}),
+      ...(options.cwd ? { cwd: options.cwd } : {}),
+      onTurn: captured => { turn = captured; },
+    });
+    return { response, toolCalls: turn?.toolCalls ?? [], ...(turn?.plan ? { plan: turn.plan } : {}) };
+  }
+
+  private async runSingleUse(
+    request: CompletionRequest,
+    onTextChunk: ((chunk: string) => void) | undefined,
+    extras: { observer?: AcpTurnObserver; onTurn?: (turn: AcpTurnResult) => void; cwd?: string } = {},
+  ): Promise<CompletionResponse> {
+    const { observer, onTurn } = extras;
+    const cwd = extras.cwd ?? this.options?.cwd;
     throwIfAcpAborted(request.signal);
     const resolved = this.resolveAgent(request.model);
     if (!resolved) {
@@ -1931,7 +2015,7 @@ export class AcpAdapter implements ProviderAdapter {
     const session = new AcpSession(
       launch.agent,
       this.spawnFactory(),
-      this.options?.cwd,
+      cwd,
       this.clientVersion(),
       this.options?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       delegatedExecution ? this.options?.permissionPolicy : undefined,
@@ -2006,11 +2090,12 @@ export class AcpAdapter implements ProviderAdapter {
       request.signal?.removeEventListener('abort', abortBeforePrompt);
       let turn: AcpTurnResult;
       try {
-        turn = await session.prompt(buildPromptBlocks(request, initialized), onTextChunk, request.signal);
+        turn = await session.prompt(buildPromptBlocks(request, initialized), onTextChunk, request.signal, observer);
       } catch (error) {
         throw this.explainModelRefusal(agent, sessionModel, session.getConfigOptions(), error);
       }
       this.afterTurn(agent, turn);
+      onTurn?.(turn);
       return {
         content: turn.text,
         model: request.model,
@@ -2335,6 +2420,12 @@ class AcpSession {
   /** A mode the agent switched itself to during the current turn. */
   private modeDrift: string | undefined;
   private prompting = false;
+  /** Who is watching this turn in particular — a handed-over subtask. */
+  private turnObserver: AcpTurnObserver | undefined;
+  /** Each tool call announced this turn, with its updates folded in. */
+  private turnToolCalls = new Map<string, AcpToolCall>();
+  /** The agent's latest plan this turn; each `plan` update replaces the last. */
+  private turnPlan: AcpPlanEntry[] | undefined;
   /** Tool calls announced this turn. Reset with the text at each prompt. */
   private delegatedToolCalls = 0;
   /** Latest reported context occupancy. Diagnostic; never billed. */
@@ -2532,8 +2623,12 @@ class AcpSession {
     blocks: AcpPromptBlock[],
     onTextChunk: ((chunk: string) => void) | undefined,
     signal: AbortSignal | undefined,
+    observer?: AcpTurnObserver,
   ): Promise<AcpTurnResult> {
     this.onText = onTextChunk;
+    this.turnObserver = observer;
+    this.turnToolCalls = new Map();
+    this.turnPlan = undefined;
     this.text = '';
     this.arrivalText = '';
     this.notices = [];
@@ -2590,12 +2685,39 @@ class AcpSession {
         delegatedToolCallCount: this.delegatedToolCalls,
         ...(this.notices.length > 0 ? { notices: this.notices.map(notice => notice.trim()).filter(Boolean) } : {}),
         ...(this.sawIdentifiedMessage ? { identifiesMessages: true } : {}),
+        toolCalls: [...this.turnToolCalls.values()],
+        ...(this.turnPlan ? { plan: this.turnPlan } : {}),
       };
     } finally {
       signal?.removeEventListener('abort', abort);
       this.onText = undefined;
+      this.turnObserver = undefined;
       this.prompting = false;
     }
+  }
+
+  /**
+   * Fold one tool-call announcement or update into the turn's record of that
+   * call. A later update wins on what it actually reports; an omitted status
+   * keeps the last one reported, and paths accumulate, because agents send a
+   * call's file path in a later update than the one that announced it.
+   */
+  private foldToolCall(update: AcpToolCall): AcpToolCall {
+    const previous = this.turnToolCalls.get(update.toolCallId);
+    const folded: AcpToolCall = previous
+      ? {
+        toolCallId: update.toolCallId,
+        title: update.title || previous.title,
+        kind: update.kind !== 'other' ? update.kind : previous.kind,
+        status: update.statusOmitted ? previous.status : update.status,
+        locations: [...new Set([...previous.locations, ...update.locations])].slice(0, 20),
+        isUpdate: true,
+      }
+      : { toolCallId: update.toolCallId, title: update.title, kind: update.kind, status: update.status, locations: update.locations, isUpdate: false };
+    if (previous || this.turnToolCalls.size < MAX_TURN_TOOL_CALLS) {
+      this.turnToolCalls.set(update.toolCallId, folded);
+    }
+    return folded;
   }
 
   /**
@@ -2884,6 +3006,24 @@ class AcpSession {
       return;
     }
 
+    // codex-acp's permission request carries only the call's id and kind — no
+    // title, no path — while the `tool_call` it announced just before carried
+    // both (observed 2026-10-27). Asking someone to approve "edit:" with
+    // nothing after it is asking them to approve blind, so the request is read
+    // together with what that call already announced. Same agent, same trust.
+    const announced = this.turnToolCalls.get(request.toolCall.toolCallId);
+    if (announced) {
+      request = {
+        ...request,
+        toolCall: {
+          ...request.toolCall,
+          title: request.toolCall.title || announced.title,
+          kind: request.toolCall.kind !== 'other' ? request.toolCall.kind : announced.kind,
+          locations: [...new Set([...request.toolCall.locations, ...announced.locations])].slice(0, 20),
+        },
+      };
+    }
+
     // Announce the pending call before deciding so the run log already shows
     // what was requested even if the policy fails closed.
     this.emitToolEvent(request.toolCall);
@@ -2902,6 +3042,18 @@ class AcpSession {
     } catch {
       // A gate that failed is a gate that did not approve.
       approved = false;
+    }
+
+    // Approved, but not yet sent. A handed-over subtask takes its rollback
+    // point here — the files are still as they were — and a rollback point
+    // that cannot be made turns the approval into a refusal, because an edit
+    // AtlasMind could not undo is not one it agreed to under those terms.
+    if (approved && this.turnObserver?.beforeApprove) {
+      try {
+        await this.turnObserver.beforeApprove(request.toolCall);
+      } catch {
+        approved = false;
+      }
     }
 
     if (this.disposed) {
@@ -2980,6 +3132,21 @@ class AcpSession {
         this.delegatedToolCalls += 1;
       }
       this.emitToolEvent(update.toolCall);
+      const folded = this.foldToolCall(update.toolCall);
+      try {
+        this.turnObserver?.onToolCall?.(folded);
+      } catch {
+        // An observer that throws must not take the turn down with it.
+      }
+      return;
+    }
+    if (update.kind === 'plan') {
+      this.turnPlan = update.entries;
+      try {
+        this.turnObserver?.onPlan?.(update.entries);
+      } catch {
+        // As above.
+      }
       return;
     }
     if (update.kind === 'mode') {

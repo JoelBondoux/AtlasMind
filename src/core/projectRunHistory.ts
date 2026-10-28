@@ -4,6 +4,7 @@ import type * as vscode from 'vscode';
 import { deriveProjectRunTitle } from '../chat/sessionConversation.js';
 import type { ProjectRunExecutionOptions, ProjectRunRecord, ProjectRunSubTaskArtifact, TurnProvenance } from '../types.js';
 import { readRecordedProvenance } from './contextProvenance.js';
+import { sanitizeDelegatedExecutionRecord } from './acpDelegation.js';
 
 const STORAGE_KEY = 'atlasmind.projectRunHistory';
 import { MAX_PROJECT_RUNS } from '../constants.js';
@@ -243,7 +244,8 @@ function sanitizeRecordedProvenance(value: unknown): { provenance?: TurnProvenan
 }
 
 function sanitizeArtifact(artifact: ProjectRunSubTaskArtifact): ProjectRunSubTaskArtifact {
-  const { provenance, ...rest } = artifact;
+  const { provenance, delegation, ...rest } = artifact;
+  const delegated = sanitizeDelegatedExecutionRecord(delegation);
   return {
     ...rest,
     dependsOn: [...artifact.dependsOn],
@@ -251,6 +253,7 @@ function sanitizeArtifact(artifact: ProjectRunSubTaskArtifact): ProjectRunSubTas
     checkpointedTools: [...artifact.checkpointedTools],
     changedFiles: artifact.changedFiles.map(file => ({ ...file })),
     ...sanitizeRecordedProvenance(provenance),
+    ...(delegated ? { delegation: delegated } : {}),
   };
 }
 
