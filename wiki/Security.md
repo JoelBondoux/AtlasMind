@@ -1,5 +1,9 @@
 # Security
 
+Document-maintenance intent selects tools within the existing eligibility ceiling; it grants no
+additional permission. Read-only limits and dry runs suppress edit enforcement, approvals still
+govern writes, and recovery to another model is withheld once side effects have started.
+
 ACP does not fall through from an unknown agent id to a different subscription. Failed agent
 probes are excluded individually. Runtime pins are local User configuration, and AtlasMind does
 not extract or copy desktop login tokens. The observed legacy Codex warning-plus-HTTP-error

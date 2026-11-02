@@ -37,8 +37,7 @@ describe('ModelRouter', () => {
     //
     // The exercised paths are the two the failover actually uses: an allow-list
     // narrowed to what has not been tried yet, and an explicitly named model.
-    // Both return the guard model when it declares capabilities, which is what
-    // makes these tests non-vacuous.
+    // Neither may trust a stale capability declaration over a known non-chat role.
     function registerWithLocalModel(router: ModelRouter, capabilities: string[]): void {
       router.registerProvider({
         id: 'openai',
@@ -76,14 +75,36 @@ describe('ModelRouter', () => {
       });
     }
 
-    it('would select it if it declared chat capabilities (the defect)', () => {
+    it('refuses a known non-chat model even when stale metadata declares chat capabilities', () => {
       const router = new ModelRouter();
       registerWithLocalModel(router, ['chat', 'code', 'function_calling']);
 
       expect(router.selectModel(
         { budget: 'balanced', speed: 'balanced' },
         ['local/endpoint-a@@llama-guard-3-1b'],
-      )).toBe('local/endpoint-a@@llama-guard-3-1b');
+      )).toBe('local/echo-1');
+    });
+
+    it.each([
+      'mistral/voxtral-mini-transcribe-3',
+      'mistral/voxtral-mini-transcribe-3-0',
+      'mistral/voxtral-mini-transcribe-realtime-3',
+      'mistral/voxtral-mini-transcribe-realtime-3-0',
+      'copilot/copilot-dictation-cleanup-nano',
+    ])('excludes %s from ordinary and explicitly pinned routing despite stale capabilities', id => {
+      const router = new ModelRouter();
+      const provider = id.split('/')[0]!;
+      router.registerProvider({
+        id: provider, displayName: provider, apiKeySettingKey: '', enabled: true, pricingModel: 'pay-per-token',
+        models: [{
+          id, provider, name: id, contextWindow: 128000,
+          inputPricePer1k: 0, outputPricePer1k: 0,
+          capabilities: ['chat', 'code', 'function_calling'], enabled: true,
+        }],
+      });
+      const constraints = { budget: 'balanced' as const, speed: 'balanced' as const };
+      expect(router.listCandidateModelIds(constraints)).toEqual([]);
+      expect(router.selectBestModel({ ...constraints, preferredModel: id }, [id])).toBeUndefined();
     });
 
     it('excludes it once discovery withholds chat', () => {
@@ -109,16 +130,15 @@ describe('ModelRouter', () => {
       })).toBe('openai/gpt-4o-mini');
     });
 
-    it('still routes to a model that declares chat and nothing else', () => {
-      // The gate asks one question. A minimal chat model must stay eligible, or
-      // the fix would quietly remove capacity it was never aimed at.
+    it('does not let a chat-only declaration override a known non-chat role', () => {
+      // Even a minimal capability declaration cannot make a classifier conversational.
       const router = new ModelRouter();
       registerWithLocalModel(router, ['chat']);
 
       expect(router.selectModel(
         { budget: 'balanced', speed: 'balanced' },
         ['local/endpoint-a@@llama-guard-3-1b'],
-      )).toBe('local/endpoint-a@@llama-guard-3-1b');
+      )).toBe('local/echo-1');
     });
   });
 

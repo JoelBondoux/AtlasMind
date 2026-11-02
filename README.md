@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.516.3</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.516.4</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,13 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.516.4
+
+**Requested roadmap and document edits follow through.** “Tidy up the roadmap” and “review and
+reconcile the document” receive editing tools. Investigation leads into applying the change, with
+bounded recovery and an explicit incomplete result if it cannot be applied. Transcription and
+dictation cleanup models are excluded from coding requests, including stale metadata and agent pins.
+
 ## What's new in 0.516.3
 
 The last Marketplace publication is now **v0.516.2**, which carries everything since v0.509.0: Buzz
@@ -190,12 +197,6 @@ in full in [CHANGELOG.md](CHANGELOG.md).
 **Buzz harness registration finds the right folder on every platform.** The folder AtlasMind writes a
 persona's harness into is now worked out with that platform's own path rules, so the answer no longer
 depends on which operating system runs it.
-
-## What's new in 0.516.1
-
-**Project Memory protections, tightened.** Open contradictions are checked for credentials before Atlas
-quotes them in chat. Pages you list as maintained are now protected on every import write, including the
-freshness report and agent pages. Aligning instruction sets keeps your configured memory folder.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.516.2**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in

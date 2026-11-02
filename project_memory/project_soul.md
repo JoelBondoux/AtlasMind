@@ -39,6 +39,10 @@ AtlasMind is built for indie developers, freelancers, and small teams who want t
 - `develop` is the routine integration branch and `main` is the protected release-ready branch.
 - See `decisions/development-guardrails.md`, `operations/security-and-safety.md`, and `architecture/runtime-and-surfaces.md` for supporting detail.
 
+## Maintained Pages
+
+- domain/product-facts.md — verified chat execution and model-routing behavior.
+
 ## Imported References
 - architecture/project-overview.md
 - architecture/runtime-and-surfaces.md

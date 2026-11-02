@@ -1,5 +1,6 @@
 import type { BudgetMode, ModelCapability, ModelInfo, ModelStruggleKind, ModelStruggleState, ProviderConfig, ReasoningLevel, RoutingConstraints, SpeedMode, SubscriptionQuota, TaskProfile } from '../types.js';
 import { reasoningOutputMultiplier, resolveReasoningLevel, scoreReasoningFit } from './reasoningBudget.js';
+import { isConversationalModel } from '../providers/modelRole.js';
 import {
   BUDGET_TIER_CHEAP_THRESHOLD_USD,
   BUDGET_TIER_BALANCED_THRESHOLD_USD,
@@ -1562,7 +1563,8 @@ function isBuiltinLocalEchoModel(model: ModelInfo): boolean {
  * those are; this decides what follows from it.
  */
 export function isRoutableChatModel(model: ModelInfo): boolean {
-  return model.capabilities.includes('chat');
+  // Discovery metadata may have been cached before a role rule was added.
+  return model.capabilities.includes('chat') && isConversationalModel(model.id);
 }
 
 /**
