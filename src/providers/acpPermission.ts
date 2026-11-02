@@ -32,18 +32,89 @@
  *    that should be reported at the highest severity in the audit log, so it
  *    maps to the same category as running a command.
  *
+ * 4. **An agent is only ever run in a mode verified to ask.** Everything above
+ *    governs how a `session/request_permission` is *answered* — and an agent
+ *    that never sends one is never governed at all. codex-acp starts every
+ *    session in `agent` mode, which edits files and runs commands without
+ *    asking; observed on 2026-10-27, it wrote a file in a turn where AtlasMind
+ *    believed it was a completion source with every permission refused. So
+ *    {@link ACP_ASKING_MODES} declares, per agent, the mode in which edits and
+ *    commands do go through `session/request_permission`, and the adapter puts
+ *    every session into it before any prompt.
+ *
  * Pure and `vscode`-free: the live settings gate and audit output live at the
  * call site, so every wire-resolution branch below is unit-tested.
  */
 
 import type { McpServerConfig, ToolRiskCategory } from '../types.js';
 import {
+  type AcpConfigOption,
   type AcpMcpServer,
   type AcpPermissionOption,
   type AcpPermissionRequest,
   type AcpToolCall,
   type AcpToolKind,
 } from './acpProtocol.js';
+
+/** The `configOptions` category carrying an agent's permission mode. */
+export const ACP_MODE_CATEGORY = 'mode';
+
+/**
+ * The permission mode, per agent, in which file edits and commands are sent
+ * to the client as `session/request_permission` before they happen — keyed
+ * by the name the agent reports at `initialize`.
+ *
+ * Only a value verified against the live agent belongs here. Each was found by
+ * asking the agent to write a file (and, for Codex, to run a shell command)
+ * and checking that the request reached AtlasMind and that refusing it left
+ * nothing behind. The mode *names* are no guide: Codex's asking mode is called
+ * `read-only` and its default, `agent`, does not ask at all.
+ *
+ * Setting one of these is the only time AtlasMind touches the `mode` category,
+ * which `isSettableAcpConfigCategory` otherwise refuses — and it only ever sets
+ * a value from this table, never one a caller supplies, so it can tighten a
+ * session and never loosen one.
+ */
+export const ACP_ASKING_MODES: Readonly<Record<string, { value: string; verifiedWith: string }>> = {
+  '@agentclientprotocol/claude-agent-acp': {
+    value: 'default',
+    verifiedWith: 'claude-agent-acp 0.63.0, 2026-10-27: a Write asked and, refused, wrote nothing',
+  },
+  '@agentclientprotocol/codex-acp': {
+    value: 'read-only',
+    verifiedWith: 'codex-acp 1.1.7 with Codex 0.157.0, 2026-10-27: an edit and a shell command each asked and, refused, did nothing',
+  },
+};
+
+export type AcpAskingModePlan =
+  /** Put the session in this mode, and confirm the agent reports it. */
+  | { status: 'enforce'; optionId: string; value: string }
+  /** The agent is not one whose asking mode has been verified. */
+  | { status: 'unverified'; reason: string }
+  /** A verified agent whose session does not offer the verified mode: refuse. */
+  | { status: 'unavailable'; reason: string };
+
+/** How to make this session one that asks before it acts. */
+export function planAcpAskingMode(
+  agentName: string | undefined,
+  configOptions: readonly AcpConfigOption[],
+): AcpAskingModePlan {
+  const declared = agentName ? ACP_ASKING_MODES[agentName] : undefined;
+  if (!declared) {
+    return {
+      status: 'unverified',
+      reason: `AtlasMind has not verified that ${agentName ?? 'this agent'} asks before it edits files or runs commands.`,
+    };
+  }
+  const option = configOptions.find(entry => entry.category === ACP_MODE_CATEGORY);
+  if (!option || !option.options.some(entry => entry.value === declared.value)) {
+    return {
+      status: 'unavailable',
+      reason: `${agentName} did not offer its "${declared.value}" mode on this session, which is the mode in which it asks before it acts — so AtlasMind will not use it.`,
+    };
+  }
+  return { status: 'enforce', optionId: option.id, value: declared.value };
+}
 
 /** How an ACP tool kind maps onto AtlasMind's existing approval taxonomy. */
 export interface AcpToolRisk {

@@ -3,8 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
+/** Settings a test sets; anything absent reads as its default. */
+const configValues = vi.hoisted(() => ({} as Record<string, unknown>));
 vi.mock('vscode', () => ({
-  workspace: { getConfiguration: () => ({ get: (_k: string, d: unknown) => d }), workspaceFolders: [] },
+  workspace: {
+    getConfiguration: () => ({ get: (k: string, d: unknown) => (k in configValues ? configValues[k] : d) }),
+    workspaceFolders: [],
+  },
 }));
 
 const {
@@ -146,5 +151,56 @@ describe('where inbound follow-ups are recorded', () => {
     const service = new BuzzInboundService({ secrets: { get: async () => undefined }, log: message => log.push(message) });
     await (service as unknown as RecordingHarness).handleWorkItems([derived('c')], { autoCreateFollowUps: true });
     expect(log).toEqual([]);
+  });
+});
+
+describe('revoked Buzz identities never become work', () => {
+  type Harness = {
+    handleWorkItems(items: DerivedWorkItem[], settings: { autoCreateFollowUps: boolean }): Promise<void>;
+    observe(event: import('../../src/core/buzzProtocol.ts').NostrEvent, channelIds: string[]): void;
+  };
+  // The signed example from NIP-OA: an agent key attested by its owner.
+  const OWNER = '79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798';
+  const AGENT = 'c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5';
+  const ATTESTED_EVENT = {
+    id: 'd892a65e7677e0554ebb70ee16deeb6a0727dba46450fb4bc001291d7bff971b',
+    pubkey: AGENT,
+    created_at: 1713956400,
+    kind: 1,
+    tags: [['auth', OWNER, 'kind=1&created_at<1713957000', '8b7df2575caf0a108374f8471722b233c53f9ff827a8b0f91861966c3b9dd5cb2e189eae9f49d72187674c2f5bd244145e10ff86c9f257ffe65a1ee5f108b369']],
+    content: 'owner-attested agent event',
+    sig: '7fd38992b70b5e9e113644e51b4c8ee2227f3bdd402b1855f8786c0600394ab3ec2621742a7bad0b0000b93d4d1ae6e39525f286a3c1029f43f46c3359a6c76f',
+  };
+
+  it('drops a revoked author\'s item and keeps everyone else\'s', async () => {
+    configValues['buzz.revokedIdentities'] = [{ pubkey: 'b'.repeat(64), reason: 'compromised' }];
+    try {
+      const log: string[] = [];
+      const service = new BuzzInboundService({ secrets: { get: async () => undefined }, log: message => log.push(message) });
+      const kept = { ...derived('ok'), pointer: { eventId: 'ok-event', authorPubkey: 'c'.repeat(64) } };
+      await (service as unknown as Harness).handleWorkItems([derived('bad'), kept], { autoCreateFollowUps: false });
+      expect(log.join('\n')).toMatch(/ignored a message from bbbbbbbbbbbb… — it is revoked in AtlasMind \(compromised\)/);
+      expect(log.join('\n')).toMatch(/Buzz: 1 new item\(s\)/);
+    } finally {
+      delete configValues['buzz.revokedIdentities'];
+    }
+  });
+
+  it('drops an agent\'s item when the owner who authorised it is revoked — even on its first message', async () => {
+    configValues['buzz.revokedIdentities'] = [{ pubkey: OWNER, reason: 'left-organization' }];
+    try {
+      const log: string[] = [];
+      const service = new BuzzInboundService({ secrets: { get: async () => undefined }, log: message => log.push(message) });
+      const harness = service as unknown as Harness;
+      // The work item arrives straight after the event; the attestation check
+      // is still in flight, and the revocation check must wait for it.
+      harness.observe(ATTESTED_EVENT, []);
+      await harness.handleWorkItems([{ ...derived('agent'), pointer: { eventId: ATTESTED_EVENT.id, authorPubkey: AGENT } }], { autoCreateFollowUps: false });
+      expect(log.join('\n')).toMatch(/the owner who authorised it is revoked in AtlasMind \(left-organization\)/);
+      expect(log.join('\n')).not.toMatch(/new item/);
+      expect(service.attestedOwnerOfIdentity(AGENT)).toBe(OWNER);
+    } finally {
+      delete configValues['buzz.revokedIdentities'];
+    }
   });
 });

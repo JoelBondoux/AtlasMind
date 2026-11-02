@@ -1076,8 +1076,15 @@ export class ProjectRunCenterPanel {
         const impact = await collectWorkspaceChangesSince(previousSnapshot);
         const diffPreview = buildChangedFilesDiffPreview(previousSnapshot, impact.snapshot, impact.changedFiles);
         setLastImpactSnapshot(impact.snapshot);
-        addFileAttribution(fileAttribution, update.result.title, impact.changedFiles);
-        const artifact = buildArtifactFromResult(update.result, impact.changedFiles, diffPreview);
+        // A subtask handed to an ACP agent carries its own before/after record,
+        // taken around that agent's turn alone. This panel's snapshot spans
+        // everything since the previous subtask finished, which attributes a
+        // parallel subtask's files to whichever finished first — so the
+        // agent's record wins when it was checked against git.
+        const delegated = update.result.artifacts?.delegation;
+        const subtaskChanges = delegated?.verification === 'git' ? delegated.changedFiles : impact.changedFiles;
+        addFileAttribution(fileAttribution, update.result.title, subtaskChanges);
+        const artifact = buildArtifactFromResult(update.result, subtaskChanges, diffPreview);
         await updateRun(run => ({
           ...run,
           completedSubtaskCount: update.completed,
@@ -3356,6 +3363,20 @@ function buildScript(): string {
       const tools = artifact.toolCallCount > 0
         ? '<p>Tools: ' + escapeHtml(String(artifact.toolCallCount)) + ' (' + escapeHtml((artifact.toolCalls || []).map(tool => tool.toolName).join(', ')) + ')<' + '/p>'
         : '<p>Tools: none<' + '/p>';
+      // A subtask an ACP agent carried out: how its files were checked, what it
+      // changed without saying so, what a rollback will not restore, and the
+      // agent's own plan for the work.
+      const handover = artifact.delegation;
+      const delegation = handover
+        ? '<p>Handed to ' + escapeHtml(handover.model) + ' — ' +
+            escapeHtml(handover.verification === 'git' ? 'changed files checked against git' : 'changed files as the agent reported them (not checked)') +
+            (Array.isArray(handover.unreportedChanges) && handover.unreportedChanges.length > 0 ? '; not reported by the agent: ' + escapeHtml(handover.unreportedChanges.join(', ')) : '') +
+            (Array.isArray(handover.notCheckpointed) && handover.notCheckpointed.length > 0 ? '; no rollback point for: ' + escapeHtml(handover.notCheckpointed.join(', ')) : '') +
+          '<' + '/p>' +
+          (Array.isArray(handover.plan) && handover.plan.length > 0
+            ? '<ul class="delegated-plan">' + handover.plan.map(step => '<li>' + escapeHtml(step.status.replace('_', ' ')) + ': ' + escapeHtml(step.content) + '<' + '/li>').join('') + '<' + '/ul>'
+            : '')
+        : '';
       return '<article class="artifact-card">' +
         '<div class="artifact-header">' +
           '<h3>' + escapeHtml(artifact.title) + '<' + '/h3>' +
@@ -3368,6 +3389,7 @@ function buildScript(): string {
           '<div><span class="metric-label">Changed files<' + '/span><strong>' + escapeHtml((artifact.changedFiles || []).map(file => file.relativePath).join(', ') || 'none') + '<' + '/strong><' + '/div>' +
         '<' + '/div>' +
         tools +
+        delegation +
         tdd +
         verification +
         diff +
@@ -3908,6 +3930,7 @@ function buildArtifactFromResult(
     changedFiles: changedFiles.map(file => ({ ...file })),
     diffPreview,
     ...(result.provenance ? { provenance: result.provenance } : {}),
+    ...(result.artifacts?.delegation ? { delegation: result.artifacts.delegation } : {}),
   };
 }
 

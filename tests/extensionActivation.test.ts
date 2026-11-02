@@ -108,6 +108,49 @@ describe('runActivationStep', () => {
     expect(prompt).toContain('Prefer explicit approvals');
   });
 
+  it('gives AtlasMind its own turns the contradiction rule, with the open entries from the log', () => {
+    const prompt = buildWorkspaceIdentityPrompt({ get: vi.fn().mockReturnValue(undefined) } as never, {
+      workspaceFolders: [{ uri: { fsPath: '/workspace' } } as never],
+      ssotPath: 'project_memory',
+      readTextFile: filePath => {
+        const normalized = filePath.replace(/\\/g, '/');
+        if (normalized.endsWith('project_soul.md')) {
+          return '# Project Soul\n\n## Vision\nShip it.\n\n## Principles\n- Keep memory current\n';
+        }
+        if (normalized.endsWith('project_memory/operations/contradictions.md')) {
+          return '## Open\n- [ ] Docs say 3 worlds; code allows 5\n\n## Resolved\n- [x] old one\n';
+        }
+        return undefined;
+      },
+    });
+
+    expect(prompt).toContain('Project memory contradictions:');
+    expect(prompt).toContain('operations/contradictions.md');
+    expect(prompt).toContain('Open (1): Docs say 3 worlds; code allows 5');
+    expect(prompt).not.toContain('old one');
+  });
+
+  it('redacts a credential quoted in a contradiction before it reaches the system prompt', () => {
+    const secret = 'sk-ant-api03-' + 'a'.repeat(40);
+    const prompt = buildWorkspaceIdentityPrompt({ get: vi.fn().mockReturnValue(undefined) } as never, {
+      workspaceFolders: [{ uri: { fsPath: '/workspace' } } as never],
+      ssotPath: 'project_memory',
+      readTextFile: filePath => {
+        const normalized = filePath.replace(/\\/g, '/');
+        if (normalized.endsWith('project_soul.md')) {
+          return '# Project Soul\n\n## Vision\nShip it.\n\n## Principles\n- Keep memory current\n';
+        }
+        if (normalized.endsWith('operations/contradictions.md')) {
+          return `## Open\n- [ ] docs use key ${secret} but code reads another\n`;
+        }
+        return undefined;
+      },
+    });
+
+    expect(prompt).toContain('[REDACTED]');
+    expect(prompt).not.toContain(secret);
+  });
+
   it('builds follow-up policy snapshots from identity and safety sources', () => {
     const policies = buildWorkspacePolicySnapshots({
       get: vi.fn().mockReturnValue({

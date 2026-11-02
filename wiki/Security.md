@@ -5,6 +5,31 @@ probes are excluded individually. Runtime pins are local User configuration, and
 not extract or copy desktop login tokens. The observed legacy Codex warning-plus-HTTP-error
 envelope is rejected despite an `end_turn` result; it cannot enter the successful-response cache.
 
+**ACP agents run only in a mode verified to ask.** Answering `session/request_permission` correctly
+protects nothing if the agent never sends one: codex-acp's default `agent` mode edited a file
+without asking, in a turn AtlasMind treated as completion-only (found by live test, 2026-10-27).
+`ACP_ASKING_MODES` declares the asking mode per agent, each verified by a refused write (and, for
+Codex, a refused command); the adapter sets and confirms it before every prompt, re-checks it on a
+reused session, and cancels a turn on a mode change. AtlasMind sets a `mode` value only from that
+table, so it can tighten a session and never loosen one. Residual risk: an agent not in the table
+(Gemini, Copilot, Qwen, or a custom command) is refused delegated execution but still runs as a
+completion source, with a one-time warning — if such an agent acts without asking, the gate does
+not see it.
+
+**A handed-over subtask cannot widen what it may touch.** Each approved edit must name its files, all
+inside the turn's folder, and is snapshotted before the approval is sent; the record of what changed
+comes from git, not from the agent, and an unmentioned change is listed as such. The prompt still
+passes the egress guard: the delegated call receives only the cleared request (`dispatch` on
+`dispatchGuardedCompletion`). A turn that may have changed files is never retried automatically.
+
+**A Buzz agent is answerable to a named person, and can be cut off.** An agent's event that carries a
+NIP-OA owner attestation is checked — the event's own id and signature, then the owner's signature —
+before AtlasMind shows it as *authorised by* anyone, and never as sent by the owner. Revoking an identity
+in AtlasMind drops its messages, and those of every agent it authorised, before they become work; the
+list is a union of every settings scope, so a repository cannot lift a revocation. AtlasMind holds no
+owner key and revokes nothing in Buzz: an archived identity can un-archive itself, so the relay owner
+removing it from the relay's members is what locks it out.
+
 Auto approvals use a separate no-tool reviewer. `approvalModes.ts` owns eligibility, payload/reply
 bounds, strict JSON validation and timeout fallback. A model may waive an eligible prompt, never a
 denial; missing intent and withheld evidence ask. Bypass is an explicit session grant. Fresh
@@ -651,6 +676,33 @@ become a suggestion.**
 An empty overlap **refuses** rather than running a tool-less delegate, because a model that can't check
 anything still produces confident prose. Chains are capped at three deep, cycles are refused, and the
 answer comes back fenced as another agent's opinion rather than a verified result.
+
+**A Buzz persona is a boundary, not a label.** A persona's worker is chosen only from its members, may
+hand off only to them, and keeps only its own skills. Adding an agent to a team never widens what another
+member may do, and AM Oversight's ceiling lets every member only read. The team's definitions reach the
+Buzz-launched process in a manifest AtlasMind writes to its own storage. That process refuses a manifest
+someone edited, one inside your repository, or one written by a newer build, and stops rather than
+answering as a different agent. Nothing in the manifest or the persona file can hold a key: a file that
+tries is refused whole.
+
+A persona's manifest can name your ACP subscription agents so the persona has models to answer with. It
+copies how to *start* them, never how they sign in. A launch variable whose name looks like a credential,
+or whose value looks like a secret, stops the manifest being written; the message names the variable and
+never shows its value. In the persona those agents only answer: they get no permission to act, and every
+credential-shaped variable, including the Buzz key the persona was started with, is withheld from them.
+
+**AtlasMind writes one kind of file into Buzz, and only after you confirm.** Preparing a persona
+registers its harness, the command and arguments that start AtlasMind, in Buzz Desktop's own
+custom-harness folder, which Buzz documents for exactly this. The file carries no credential, and nothing
+touches Buzz's agent database. A harness AtlasMind did not register, or one Buzz cannot read, is never
+overwritten.
+
+**A persona's identity is proven, not assumed.** Copying a launch recipe records nothing. An identity is
+recorded as running a persona only after it answers a one-time check. AtlasMind verifies that answer's
+signature itself and requires the owner's signed authorisation of the key, so a person who types the answer
+line with their own key is refused. You confirm the owner key before anything is recorded. The record keeps
+public keys only, on your machine, and an answer from an older manifest, a late answer or a revoked identity
+is refused and named.
 
 ---
 

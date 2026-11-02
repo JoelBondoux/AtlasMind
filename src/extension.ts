@@ -1,4 +1,5 @@
 import { EnvironmentManager } from './core/environmentManager.js';
+import { ACP_DELEGATED_EDIT_CHECKPOINT_TOOL } from './core/acpDelegation.js';
 import { resolveWithinWorkspace } from './core/workspaceBoundary.js';
 import { egressFetch, toSkillHttpResult } from './core/egressFetch.js';
 import { DryRunLedger, formatDryRunLedgerLine, readDryRunSetting } from './core/dryRun.js';
@@ -57,7 +58,9 @@ import {
   LOCAL_GPU_EVICTION_COOLDOWN_MS,
 } from './constants.js';
 import { BUZZ_AGENT_KEY_SECRET } from './core/buzzSigner.js';
-import { BuzzInboundService } from './core/buzzInboundService.js';
+import { BuzzInboundService, readBuzzInboundSettings, readBuzzRevocationSettings } from './core/buzzInboundService.js';
+import { registerBuzzRevocationCommands } from './views/buzzRevocationCommands.js';
+import { registerBuzzPersonaCommands } from './views/buzzPersonaCommands.js';
 import { BUZZ_SETUP_COMMANDS } from './core/buzzSetupPlan.js';
 import {
   clampTestResourceShare,
@@ -79,6 +82,8 @@ const BUZZ_GUIDE_SESSION_TITLE = 'Buzz setup';
  */
 const SETUP_TERMINAL_NAME = 'AtlasMind setup';
 import type { ProjectMemoryFreshnessStatus } from './bootstrap/bootstrapper.js';
+import { CONTRADICTIONS_PATH, parseOpenContradictions } from './bootstrap/maintainedPages.js';
+import { redactSecrets } from './utils/secretRedactor.js';
 import type { SessionConversation, SessionPolicySnapshot } from './chat/sessionConversation.js';
 import type { VoiceManager } from './voice/voiceManager.js';
 import type { Orchestrator } from './core/orchestrator.js';
@@ -107,7 +112,10 @@ import type { ResearchRegisterManager } from './core/researchRegister.js';
 import type { MissionRegistry } from './core/missionRegistry.js';
 import { ACP_PROBE_TIMEOUT_MS, ACP_PROVIDER_ID, getConfiguredLocalEndpoints, type ProviderRegistry } from './providers/index.js';
 import { getModelInfoUrl, getProviderInfoUrl, lookupCatalog, lookupReasoningControl } from './providers/modelCatalog.js';
-import { inferContextWindow, inferCapabilities, inferSpecialistDomains, inferPricing } from './providers/modelMetadataInference.js';
+import { inferModelMetadata, mergeSpecialistDomains, normalizeModelId } from './providers/modelMetadataInference.js';
+// Re-exported: discovery metadata moved beside the heuristics it uses, so the
+// headless runtime can register discovered models without the editor.
+export { inferModelMetadata } from './providers/modelMetadataInference.js';
 import {
   fetchCopilotMultipliers,
   isSyncStale,
@@ -128,7 +136,7 @@ import { configureCurrencyFormatter, syncExchangeRates } from './core/currencyFo
 import { syncLocalModels, isLocalSyncStale, LOCAL_MODEL_SYNC_CACHE_KEY, type LocalModelSyncResult } from './providers/localModelSync.js';
 import { shouldSyncDownloadableCatalogue, syncLocalModelCatalog } from './providers/localModelCatalogSync.js';
 import type { DiscoveredModel } from './providers/adapter.js';
-import type { AgentDefinition, MemoryEntry, ModelInfo, ModelStruggleState, ProviderConfig, ProviderId, SandboxSessionHandle, SkillDefinition, SkillExecutionContext, SkillScanResult, SpecialistDomain, ToolApprovalGateMeta } from './types.js';
+import type { AgentDefinition, MemoryEntry, ModelInfo, ModelStruggleState, ProviderConfig, ProviderId, SandboxSessionHandle, SkillDefinition, SkillExecutionContext, SkillScanResult, ToolApprovalGateMeta } from './types.js';
 import { ToolApprovalManager } from './core/toolApprovalManager.js';
 import { RemoteControlServer } from './remote/remoteControlServer.js';
 
@@ -521,9 +529,36 @@ export function buildWorkspaceIdentityPrompt(
   const projectSoul = buildProjectSoulPrompt(options);
   if (projectSoul) {
     sections.push(`Project soul:\n${projectSoul}`);
+    // The same contradiction rule every other agent's instruction file carries,
+    // so AtlasMind's own turns follow it too, plus what is still open.
+    sections.push(buildProjectMemoryContradictionPrompt(options));
   }
 
   return sections.length > 0 ? sections.join('\n\n') : undefined;
+}
+
+/** Most open entries quoted into a chat turn; the log itself holds the rest. */
+const MAX_PROMPTED_CONTRADICTIONS = 5;
+
+function buildProjectMemoryContradictionPrompt(options?: WorkspaceIdentityPromptOptions): string {
+  const lines = [
+    'Project memory contradictions:',
+    '- When project memory, docs and code disagree, code is what the product does today and a recorded ruling or decision is what it should do. Fix the wrong side in the same change when that is in scope and clear; otherwise do not guess: add a `- [ ]` line under `## Open` in `operations/contradictions.md` naming both sides and why it was not settled, and tell the user.',
+  ];
+  const soulPath = resolveProjectSoulFilePath(options);
+  const logPath = soulPath ? path.join(path.dirname(soulPath), ...CONTRADICTIONS_PATH.split('/')) : undefined;
+  const readTextFile = options?.readTextFile ?? readTextFileIfExists;
+  const open = logPath ? parseOpenContradictions(readTextFile(logPath)) : [];
+  if (open.length > 0) {
+    // The identity prompt travels as `system-prompt`, which the egress policy
+    // does not redact, so a log entry that quotes a credential is redacted here
+    // rather than trusted to have been written carefully.
+    const quoted = open
+      .slice(0, MAX_PROMPTED_CONTRADICTIONS)
+      .map(item => summarizeForPolicy(redactSecrets(item).text, 200));
+    lines.push(`- Open (${open.length}): ${quoted.join(' | ')}${open.length > MAX_PROMPTED_CONTRADICTIONS ? ' | …' : ''}`);
+  }
+  return lines.join('\n');
 }
 
 export function buildWorkspacePolicySnapshots(
@@ -1468,6 +1503,41 @@ function getConfiguredFeedbackRoutingWeight(): number {
   return Math.max(0, Math.min(2, configured));
 }
 
+/**
+ * Say, at start-up, that the contradictions log has open entries.
+ *
+ * Separate from the stale-memory warning on purpose: a re-import cannot settle
+ * a contradiction, so offering "Update Memory" for one would be a button that
+ * changes nothing. The action opens the log instead. Not modal, and only on
+ * the notifying start-up pass, so a project with open entries is told once per
+ * window rather than on every save.
+ */
+async function reportOpenContradictions(
+  workspaceFolder: vscode.WorkspaceFolder,
+  openContradictions: readonly string[],
+  outputChannel?: Pick<vscode.OutputChannel, 'appendLine'>,
+  options?: { notify?: boolean },
+): Promise<void> {
+  if (openContradictions.length === 0) {
+    return;
+  }
+  const count = `${openContradictions.length} open contradiction${openContradictions.length === 1 ? '' : 's'}`;
+  outputChannel?.appendLine(`[activate] memoryFreshness: ${count} recorded in ${CONTRADICTIONS_PATH}`);
+  if (!options?.notify) {
+    return;
+  }
+  const selection = await vscode.window.showInformationMessage(
+    `AtlasMind project memory has ${count} between memory, docs and code waiting to be resolved.`,
+    'Open Log',
+  );
+  if (selection === 'Open Log') {
+    const ssotPath = normalizeSsotPath(
+      vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', DEFAULT_SSOT_PATH),
+    ) ?? DEFAULT_SSOT_PATH;
+    await vscode.window.showTextDocument(vscode.Uri.joinPath(workspaceFolder.uri, ssotPath, CONTRADICTIONS_PATH));
+  }
+}
+
 async function refreshWorkspaceMemoryFreshness(
   workspaceFolder: vscode.WorkspaceFolder,
   outputChannel?: Pick<vscode.OutputChannel, 'appendLine'>,
@@ -1488,6 +1558,7 @@ async function refreshWorkspaceMemoryFreshness(
   const status = await getProjectMemoryFreshness(workspaceFolder.uri);
   await setSsotPresentContext(true);
   await setMemoryNeedsUpdateContext(status.isStale);
+  await reportOpenContradictions(workspaceFolder, status.openContradictions, outputChannel, options);
 
   if (!status.hasImportedEntries) {
     outputChannel?.appendLine('[activate] memoryFreshness skipped: no imported SSOT entries found');
@@ -2501,10 +2572,16 @@ async function bootstrapAtlasMind(
             + 'The turn ran at the agent\'s own default.',
           );
         },
+        // Agent text outside any identified message — kept out of the answer,
+        // but shown here, because a warning nobody sees is a warning wasted.
+        onAgentNotice: event => {
+          outputChannel.appendLine(`[acp] ${event.agentId} notice: ${event.text.replace(/\s+/g, ' ')}`);
+        },
         onProcessLaunch: event => {
           outputChannel.appendLine(
             `[acp] launch boundary: ${event.agentId} started in ${event.mode} mode`
-            + `${event.requestedPrivateDesktop ? ' (private desktop requested)' : ''}.`,
+            + `${event.requestedPrivateDesktop ? ' (private desktop requested)' : ''}`
+            + `${event.adjustedEnvironment ? `; passed ${event.adjustedEnvironment.join(', ')} with forward slashes, which this agent needs on Windows` : ''}.`,
           );
         },
         onLiveSessionChange: updateAcpPrivateDesktopStatusBar,
@@ -2859,12 +2936,23 @@ async function bootstrapAtlasMind(
       invocations: Array<{ toolName: string; args: Record<string, unknown>; result: string }>,
     ) => runPostToolVerification(skillContext, invocations);
     const writeCheckpointHook = async (taskId: string, toolName: string, args: Record<string, unknown>) => {
+      // A delegated ACP edit is allowed *because* its rollback point was taken,
+      // so for it a missing store or an unresolvable path is a refusal rather
+      // than a quiet skip — the run record would otherwise claim a checkpoint
+      // that does not exist. See `src/core/acpDelegation.ts`.
+      const delegated = toolName === ACP_DELEGATED_EDIT_CHECKPOINT_TOOL;
       if (!checkpointManager) {
+        if (delegated) {
+          throw new Error('No checkpoint store is available in this window.');
+        }
         return;
       }
 
       const paths = await resolveCheckpointPaths(skillContext, toolName, args);
       if (paths.length === 0) {
+        if (delegated) {
+          throw new Error('The delegated edit named no file inside the workspace.');
+        }
         return;
       }
 
@@ -4166,6 +4254,22 @@ async function bootstrapAtlasMind(
         void buzzInbound.sync();
       }
     }),
+    // Revoke and restore a Buzz identity in AtlasMind (Buzz Tier 4).
+    ...registerBuzzRevocationCommands({ listIdentities: () => buzzInbound.listIdentities() }),
+    // Suggest, accept and prepare Buzz persona teams (Buzz Tier 5).
+    ...registerBuzzPersonaCommands({
+      getAgentRegistry: () => atlasContext?.agentRegistry,
+      workspaceState: context.workspaceState,
+      globalStorageUri: context.globalStorageUri,
+      prepareLauncher: () => ensureAtlasMindCliOnTerminalPath(context, undefined, { force: true }),
+      // A persona check is answered in Buzz and seen through this subscription.
+      getBuzzInbound: () => buzzInbound,
+      readInboundGates: () => {
+        const settings = readBuzzInboundSettings();
+        return { enabled: settings.enabled, inboundEnabled: settings.inboundEnabled, channelIds: settings.channelIds };
+      },
+      isRevoked: pubkey => readBuzzRevocationSettings().revoked.has(pubkey),
+    }),
   );
   /**
    * Resolve what a research scan could look with, right now.
@@ -4283,17 +4387,17 @@ async function bootstrapAtlasMind(
       }
 
       try {
-        const { buildBuzzAcpRuntimeSetup } = await import('./acp/buzzAcpSetup.js');
+        const { buildBuzzAcpRuntimeSetup, describeBuzzHarnessSteps } = await import('./acp/buzzAcpSetup.js');
         const setup = buildBuzzAcpRuntimeSetup({
           workspaceRoot: workspaceFolder.uri.fsPath,
           runtimeExecutable: process.execPath,
           agentEntrypoint: path.join(launcherDirectory, 'atlasmind-acp-runner.js'),
         });
-        await fs.stat(setup.buzzFields.agentCommand);
-        await fs.stat(setup.buzzFields.agentArguments[0]);
+        await fs.stat(setup.buzzHarness.command);
+        await fs.stat(setup.buzzHarness.arguments[0]!);
         await vscode.env.clipboard.writeText(JSON.stringify(setup, null, 2));
         void vscode.window.showInformationMessage(
-          'Copied the Buzz custom-agent fields. In Buzz, choose Provider → Custom command, paste the command and comma-separated arguments, and add ELECTRON_RUN_AS_NODE=1 plus one AtlasMind provider environment variable. Leave Buzz provider/model blank so AtlasMind routes them.',
+          `Copied the Buzz custom-harness fields. ${describeBuzzHarnessSteps(setup)} Give the harness one AtlasMind provider environment variable too — AtlasMind never copies a key out of VS Code.`,
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -5631,15 +5735,6 @@ async function refreshCopilotMultiplierSync(
   return cached;
 }
 
-function normalizeModelId(providerId: ProviderId, modelId: string): string {
-  const trimmed = modelId.trim();
-  const withoutModelsPrefix = trimmed.startsWith('models/') ? trimmed.slice('models/'.length) : trimmed;
-  if (withoutModelsPrefix.startsWith(`${providerId}/`)) {
-    return withoutModelsPrefix;
-  }
-  return `${providerId}/${withoutModelsPrefix}`;
-}
-
 function stripProviderPrefix(modelId: string): string {
   const slash = modelId.indexOf('/');
   return slash >= 0 ? modelId.slice(slash + 1) : modelId;
@@ -5773,104 +5868,6 @@ function resolvePremiumMultiplier(
 
   // 3. Static catalog / hint / existing value.
   return fallback;
-}
-
-/**
- * Infer model metadata for a newly-discovered model ID.
- *
- * Resolution order:
- * 1. Values from the `DiscoveredModel` hint (runtime API data).
- * 2. Well-known model catalog lookup.
- * 3. Substring-based heuristic fallback.
- */
-export function inferModelMetadata(
-  providerId: ProviderId,
-  modelId: string,
-  hint?: DiscoveredModel,
-  liveMeta?: import('./providers/localModelSync.js').LocalModelMeta,
-  dynamicPricing?: ProviderPricingEntry,
-): ModelInfo {
-  const shortId = modelId.includes('/') ? modelId.split('/').slice(1).join('/') : modelId;
-  const catalogEntry = lookupCatalog(providerId, modelId);
-  const isLocalProvider = providerId === 'local';
-
-  // Merge sources: liveMeta > hint > dynamicPricing (live scrape) > catalog > heuristic
-  const name = liveMeta?.name ?? hint?.name ?? catalogEntry?.name ?? toDisplayModelName(shortId);
-  const contextWindow = liveMeta?.contextWindow ?? hint?.contextWindow ?? dynamicPricing?.contextWindow ?? catalogEntry?.contextWindow ?? inferContextWindow(shortId);
-  const capabilities = liveMeta?.capabilities ?? hint?.capabilities ?? catalogEntry?.capabilities ?? inferCapabilities(shortId, isLocalProvider);
-  const delegatedToolExecution = hint?.delegatedToolExecution;
-  const specialistDomains = mergeSpecialistDomains(
-    catalogEntry?.specialistDomains,
-    hint?.specialistDomains,
-    inferSpecialistDomains(shortId, capabilities),
-  );
-  const inputPricePer1k = isLocalProvider ? 0 : (hint?.inputPricePer1k ?? dynamicPricing?.inputPer1k ?? catalogEntry?.inputPricePer1k ?? inferPricing(shortId).input);
-  const outputPricePer1k = isLocalProvider ? 0 : (hint?.outputPricePer1k ?? dynamicPricing?.outputPer1k ?? catalogEntry?.outputPricePer1k ?? inferPricing(shortId).output);
-  const premiumRequestMultiplier = hint?.premiumRequestMultiplier ?? catalogEntry?.premiumRequestMultiplier;
-  // Carry the catalog's authoritative routing annotations through the merge.
-  // Without these, every model populated via discovery loses its reasoning depth
-  // and latency class, so the router falls back to heuristics — collapsing genuine
-  // depth-3 reasoners (Opus, DeepSeek R1, Nemotron Ultra) to depth 2 and under-
-  // ranking them for high-reasoning tasks.
-  // Catalog first, because it is the curated answer for every model that has
-  // one. The hint is the fallback for models the catalog cannot know about —
-  // an ACP effort variant's depth is a property of the tier the agent offered
-  // on this session, not of a model name anybody could enumerate in advance.
-  const reasoningDepth = catalogEntry?.reasoningDepth ?? hint?.reasoningDepth;
-  const latencyClass = catalogEntry?.latencyClass;
-  // Which thinking-depth parameter this model accepts on *this* provider. A
-  // provider-scoped declared table, never the cross-provider catalog fallback:
-  // Claude through another vendor's endpoint is not a model that accepts
-  // Anthropic's request field there.
-  const reasoningControl = lookupReasoningControl(providerId, modelId);
-  // Cache capability is dynamic — providers change model capabilities over time.
-  // Prefer the runtime discovery hint and live pricing scrape over the static
-  // catalog so the router tracks those changes; an explicit hint `false`
-  // overrides the catalog. The router still applies a provider-set bootstrap
-  // fallback when no source has annotated the model yet.
-  const supportsPromptCaching = hint?.supportsPromptCaching ?? catalogEntry?.supportsPromptCaching;
-  const cachedInputPricePer1k = isLocalProvider
-    ? undefined
-    : (hint?.cachedInputPricePer1k ?? dynamicPricing?.cachedInputPer1k ?? catalogEntry?.cachedInputPricePer1k);
-
-  return {
-    id: modelId,
-    provider: providerId,
-    name,
-    contextWindow,
-    inputPricePer1k,
-    outputPricePer1k,
-    capabilities,
-    ...(delegatedToolExecution !== undefined ? { delegatedToolExecution } : {}),
-    ...(specialistDomains.length > 0 ? { specialistDomains } : {}),
-    enabled: true,
-    ...(premiumRequestMultiplier !== undefined && premiumRequestMultiplier !== 1
-      ? { premiumRequestMultiplier }
-      : {}),
-    ...(reasoningDepth !== undefined ? { reasoningDepth } : {}),
-    ...(latencyClass !== undefined ? { latencyClass } : {}),
-    ...(reasoningControl !== undefined ? { reasoningControl } : {}),
-    ...(supportsPromptCaching !== undefined ? { supportsPromptCaching } : {}),
-    ...(cachedInputPricePer1k !== undefined ? { cachedInputPricePer1k } : {}),
-  };
-}
-
-function mergeSpecialistDomains(...sources: Array<readonly SpecialistDomain[] | undefined>): SpecialistDomain[] {
-  const merged = new Set<SpecialistDomain>();
-  for (const source of sources) {
-    for (const domain of source ?? []) {
-      merged.add(domain);
-    }
-  }
-  return [...merged];
-}
-
-function toDisplayModelName(modelId: string): string {
-  return modelId
-    .split(/[-._]/g)
-    .filter(Boolean)
-    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
 }
 
 const WORKTREE_ADVICE_SUPPRESSED_KEY = 'atlasmind.worktreeIsolation.adviceSuppressed';
@@ -6779,6 +6776,24 @@ async function resolveCheckpointPaths(
   toolName: string,
   args: Record<string, unknown>,
 ): Promise<string[]> {
+  if (toolName === ACP_DELEGATED_EDIT_CHECKPOINT_TOOL) {
+    // Absolute paths the orchestrator already confined to the turn's folder;
+    // re-checked here against the workspace, because `captureFiles` is the
+    // last thing before a write and a path outside the workspace must not
+    // reach it.
+    const root = skillContext.workspaceRootPath;
+    const raw = Array.isArray(args['paths']) ? args['paths'] : [];
+    return raw
+      .filter((entry): entry is string => typeof entry === 'string' && path.isAbsolute(entry))
+      .filter(entry => {
+        if (!root) {
+          return false;
+        }
+        const relative = path.relative(root, entry);
+        return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+      })
+      .slice(0, 50);
+  }
   if (toolName === 'file-write' || toolName === 'file-edit') {
     const targetPath = typeof args['path'] === 'string' ? args['path'].trim() : '';
     if (!targetPath) {

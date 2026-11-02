@@ -2421,7 +2421,7 @@ export async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<imp
   ]);
   const hideConsoleWindows = cfg.get<boolean>('acp.hideConsoleWindows', false);
 
-  let probe: { installed: boolean; authenticated: boolean; protocolVersion?: number; message?: string } | undefined;
+  let probe: { installed: boolean; authenticated: boolean; protocolVersion?: number; message?: string; misconfigured?: { variable: string } } | undefined;
   // On Windows the setup guide must explain the launch choices *before* a probe
   // starts the process tree whose windows are in question.
   if (agents.length > 0 && (process.platform !== 'win32' || consoleModeChosen)) {
@@ -2447,6 +2447,7 @@ export async function collectAcpSetupSteps(atlas: AtlasMindContext): Promise<imp
     ...(probe ? { installed: probe.installed, authenticated: probe.authenticated } : {}),
     ...(probe?.protocolVersion !== undefined ? { protocolVersion: probe.protocolVersion } : {}),
     ...(probe?.message ? { probeMessage: probe.message } : {}),
+    ...(probe?.misconfigured ? { misconfigured: true } : {}),
     clientProtocolVersion: ACP_PROTOCOL_VERSION,
     providerEnabled,
     // "Has it ever answered here" is read from cost records, which is the only
@@ -4140,7 +4141,12 @@ async function performInstructionWriteback(
 ): Promise<void> {
   const targetTools = detectedWritebackTools(workspaceRoot);
   const rendered = await runInstructionRender(unified, targetTools, complete);
-  const writeResult = await applyManagedInstructionBlock(workspaceRoot, rendered, unified);
+  const writeResult = await applyManagedInstructionBlock(
+    workspaceRoot,
+    rendered,
+    unified,
+    vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
+  );
   const isoDate = new Date().toISOString().slice(0, 10);
   const ssotWritten = await writeUnifiedToSsot(workspaceRoot, unified, isoDate);
 

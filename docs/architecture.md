@@ -311,6 +311,21 @@ Two properties now bound it. The undeclared-failure heuristic only judges result
 
 Each occurrence is still logged with the tools involved and which predicate fired, distinguishing a tool that declared its own failure from a bare substring or keyword match. Trigger tokens only are recorded, never tool output, which can carry secrets.
 
+### Delegated ACP turns (`src/core/acpDelegation.ts`)
+
+A turn routed to an ACP model with delegated execution is **handed over whole** rather than sent as a
+completion (`runDelegatedRound` in the Orchestrator, `src/core/acpDelegation.ts`). The agent works with
+its own tools in the subtask's worktree when it has one; the send still goes through
+`completeWithRetry` → `dispatchGuardedCompletion`, whose new `dispatch` input lets the delegated call
+send only what the egress guard cleared. AtlasMind reads the working tree with `git status --porcelain`
+and `git hash-object` before and after (constant commands, paths on stdin), checkpoints the files each
+approved edit names *before* the approval is sent (`AcpTurnObserver.beforeApprove` →
+`writeCheckpointHook` with `acp-delegated-edit`), and refuses an edit that names no file or a file
+outside the turn's folder. The result carries a `DelegatedExecutionRecord` on its artifacts: changed
+files from git (or `unverified` with the reason), changes the agent did not report, changes with no
+rollback point, the checkpoint id and the agent's last plan. Delegated turns in one working tree are
+serialised, and a subtask an agent has acted on is never retried automatically.
+
 ### AgentRegistry (`src/core/agentRegistry.ts`)
 
 In-memory map of `AgentDefinition` objects. Supports `register()`, `unregister()`, `get()`, `listAgents()`, `listEnabledAgents()`, and persisted enable/disable state for operator toggles.
@@ -3040,11 +3055,19 @@ The outbound counterpart to `aiInstructionSync.ts`. `syncTestingProtocols(worksp
 
 Two-way instruction-set sync, driving the `/sync-instructions` chat command and the Settings → AI Instructions "Align all instruction sets" action. Where `aiInstructionSync.ts` only imports other tools' instructions *into* AtlasMind, this module reconciles them *across* tools:
 
-- `gatherInstructionSources(workspaceRoot)` reads the full authored content of every detected tool file plus AtlasMind's own canonical instructions (`project_memory/agents/atlas-personality-profile.md`, `project_soul.md`), stripping AtlasMind-managed shared, testing, and roadmap blocks so the merge never re-ingests its own mirror.
+- `gatherInstructionSources(workspaceRoot)` reads the full authored content of every detected tool file plus AtlasMind's own canonical instructions (`project_memory/agents/atlas-personality-profile.md`, `project_soul.md`), stripping AtlasMind-managed shared, testing, roadmap and Project Memory blocks so the merge never re-ingests its own mirror.
 - `runInstructionMerge` / `parseMergeResult` run one LLM reconciliation (via the injected `complete()` — wired to `Orchestrator.completeBootstrap`) returning a unified directive set, auto-resolved minor differences, and only *genuinely contradictory* `conflicts`. Parsing is defensive: malformed/empty output throws before anything is written.
-- `runInstructionRender` / `renderUnifiedMarkdown` re-express the unified set in each tool's native format (deterministic fallback when the model omits a tool); `applyManagedInstructionBlock` upserts the result into each detected file's `<!-- atlasmind:shared-instructions:start -->` block and refreshes the separate roadmap block on every seeded target; `writeUnifiedToSsot` mirrors the set to `project_memory/domain/ai-instructions-sync.md`.
+- `runInstructionRender` / `renderUnifiedMarkdown` re-express the unified set in each tool's native format (deterministic fallback when the model omits a tool); `applyManagedInstructionBlock` upserts the result into each detected file's `<!-- atlasmind:shared-instructions:start -->` block and refreshes the separate Project Memory SSOT and roadmap blocks on every seeded target (both deterministic, so every tool reads identical wording); `writeUnifiedToSsot` mirrors the set to `project_memory/domain/ai-instructions-sync.md`.
 
 Significant conflicts are surfaced in chat and the writeback is gated on user resolution (recommended pick, per-option override, then apply); in-flight state lives in `workspaceState` (`atlasmind.pendingInstructionSync`).
+
+### Project Memory SSOT rule and maintained pages (`src/utils/testingProtocolSync.ts`, `src/bootstrap/maintainedPages.ts`)
+
+AtlasMind's memory agent only runs on AtlasMind chat turns, so work done in another tool reaches Project Memory only if that tool's agent writes it. `buildMemorySsotMarkdown(ssotPath)` renders the rule every agent is given — read memory before code for a simple check, update the page in the same change as the fact, write back what had to be looked up, prefer maintained pages to imported ones — and `syncMemorySsotInstructions` installs it in its own `<!-- atlasmind:memory-ssot:start -->` block (seeding `AGENTS.md`, dry-run held) at the end of every `importProject`. `syncTestingProtocols` and `applyManagedInstructionBlock` write the same block. The memory root is sanitised as for the roadmap rule, and the text is pinned by `tests/baselines/__approvals__/memory-ssot.approved.md`.
+
+`maintainedPages.ts` holds the pure rules import obeys: `parseMaintainedPages` reads the soul's `## Maintained Pages` list (traversal ignored), `buildMaintainedPagesSection` carries a project's list over when a starter soul is rewritten, `buildProductFactsStarter` is the `domain/product-facts.md` scaffolded next to a new soul, and `describeVersionDrift` words the freshness report's version note. In `bootstrapper.ts`, import skips a listed page or any footer-less, non-legacy page at an import path (`preserved-maintained`), does not count it stale, records the manifest `version` as `source-version:` in new footers, and lists edited imports whose sources moved on under **Needs Attention** in `index/import-freshness.md`.
+
+**Contradictions.** The rule's contradiction bullet (code is what ships today, a recorded ruling is what should ship; fix in the same change when in scope and clear, otherwise record and tell the user) has one durable home, `operations/contradictions.md`, scaffolded by `buildContradictionsStarter` beside a new soul. `parseOpenContradictions` returns its unticked entries; `ImportBuildSnapshot.openContradictions` carries them to `ProjectMemoryFreshnessStatus.openContradictions` (kept apart from `isStale`, since a re-import cannot resolve one), to the **Open Contradictions** section of the freshness report (and its fingerprint), to `reportOpenContradictions` in `extension.ts` (log line, plus a non-modal **Open Log** notice on the notifying start-up pass), and to `buildWorkspaceIdentityPrompt`, which gives AtlasMind's own turns the same rule and quotes up to five open entries.
 
 ### TerminalOutput (`src/utils/terminalOutput.ts`)
 
@@ -3274,6 +3297,116 @@ The wiring that turns the Tier-3 modules into a running feature, plus the mappin
 
 **Deny-by-default, two gates deep.** `BuzzInboundService` connects nothing unless both `atlasmind.buzz.enabled` and `atlasmind.buzz.inboundEnabled` are on, so upgrading never starts a network subscription. Persistence is a *third* gate: `autoCreateFollowUps` defaults off, because `project_memory/` is git-tracked and writing to it from a network event is something to opt into rather than inherit. While off, inbound activity is reported without being written.
 
+### BuzzOwnerAttestation + BuzzRevocation (`src/core/buzzOwnerAttestation.ts`, `src/core/buzzRevocation.ts`)
+
+**Buzz Tier 4, verified rather than custodied.** The plan once had AtlasMind mint a keypair per agent and
+record the human's grant. Buzz 0.5 ships both halves: Buzz Desktop mints a managed agent's key after the
+owner reviews it, and the owner's grant is a NIP-OA `auth` tag on the agent's events — an owner signature
+over `nostr:agent-auth:<agent pubkey>:<conditions>`. AtlasMind therefore holds no agent secret and checks the
+claim: `verifyOwnerAttestation` validates the event's own id and signature first (the inbound pipeline does
+not verify event signatures, so it must happen here before provenance is claimed), then exactly one
+four-element tag, the exact conditions grammar (never normalised, since it is signed byte for byte), and the
+owner signature; an owner attesting itself is invalid. It is tested against the spec's published vectors and
+was checked against the grants Buzz Desktop 0.5.28 actually issued. `BuzzInboundService` verifies attestations
+as events arrive and records the owner on the directory entry as *authorised by* — never as the sender.
+
+**Revocation is AtlasMind's own list**, because Buzz has no lever AtlasMind can rely on: a relay archive
+(NIP-IA) can be undone by the archived identity itself, and Desktop issues grants with no conditions, which
+never expire. `atlasmind.buzz.revokedIdentities` is read from every scope as a union (a repository can revoke
+and cannot un-revoke), keys are validated through the checksummed decoder and an `nsec` is refused by name, and
+it is re-read for every batch of work items so a revocation takes effect on the next message. A revoked author's
+items are dropped, and so are items from an agent whose verified owner is revoked; a work item waits for its
+event's attestation verdict, so an agent cannot slip through on its first message. **AtlasMind: Revoke a Buzz
+Identity** writes the user scope and shows the `buzz agents archive` command for the owner to run with their own
+key; AtlasMind signs nothing.
+
+### Buzz persona teams (`src/core/buzzPersonaProfiles.ts`, `src/core/buzzAgentRecommendations.ts`, `src/core/personaScope.ts`, `src/core/buzzPersonaManifest.ts`)
+
+**Buzz Tier 5.** A persona is one Buzz identity — *AM Engineer*, *AM Oversight* — backed by a team of
+AtlasMind agents, so a channel sees a few comprehensible authors rather than every internal agent. Four
+records with four owners. The *project intent* is `.atlasmind/buzz-agents.json` (committed, schema kind
+`buzz-agents`). The *local deployment* is workspace state: manifest fingerprint and preparation time.
+The *runtime manifest* lives in extension storage. The *Buzz identity* is Buzz's own managed-agent
+store, and AtlasMind never holds its key.
+
+**The persona file** (`buzzPersonaProfiles.ts`) names members, one preferred member that must be among
+them, an independence class (`execution` / `advisory` / `oversight`) and a skill ceiling (`member` /
+`read-only` / `allowlist`). One agent may serve several personas. An invalid profile is reported and
+left out, never repaired. Fields this build does not know survive a save. A secret-shaped key or value,
+or an absolute path anywhere in the file, refuses the whole document, and a newer file is preserved and
+never written over. `validateBuzzPersonaProfiles` reports a missing or disabled member and an
+unrunnable lead. It reports an oversight agent inside an executing persona as having lost its
+independence. It deletes and substitutes nothing. Nothing seeds the file.
+
+**Suggestions** (`buzzAgentRecommendations.ts`) come from `PERSONA_FAMILY_RULES`, never a model:
+declared routing needs first, then testing duties, and role words only for an agent that declares no
+needs (the orchestrator's own rule). An advisor whose pinned skills only read (`isReviewOnlyAgent`) is
+kept out of every team but AM Oversight, which carries a `read-only` ceiling. AM Research needs two
+researchers, and AM Coordinator is offered, optional, once three teams are suggested. Every member
+names its rule. Every suggestion carries `BUZZ_RECOMMENDATION_RULESET_VERSION` and a registry
+fingerprint, so a dismissal (kept in workspace state) lasts until the registry changes. An accepted
+profile is never rewritten from here.
+
+**Scoped orchestration** is `Orchestrator.processTaskInScope(request, scope)`. The `PersonaScope` type
+is in `types.ts` and is host data, never prompt text. Classification and scoring run as in
+`processTask`, but the pool is the members only:
+
+- A request no member matches goes to the lead.
+- A disabled lead degrades to another member, with a notice.
+- No usable member refuses the turn without calling a model.
+- Nothing is synthesised, and the global registry is never consulted.
+
+The scope rides on `request.context.__personaScope`, so a handoff from a persona worker is refused
+outside the members before the general handoff policy runs (`personaHandoffRefusal`). The delegate
+carries the same scope. Each worker's skills are the ordinary intersection, narrowed again by the
+ceiling. `allowlist` intersects. `read-only` adds the same capability envelope a read-only turn uses,
+so only reads survive. When `hostDelivery` is `buzz-acp`, Buzz send tools are withheld and every worker
+receives the trusted host-delivery note, so one turn produces one message. A subscription agent may run
+its own tools (ACP delegated execution) inside a persona only under the `member` ceiling, because an
+allowlist cannot be intersected with tools the agent brings itself.
+
+**The manifest** (`buzzPersonaManifest.ts`) carries the member definitions into `atlasmind-acp`, whose
+fresh headless runtime has only the built-ins. The members include agents created in the editor. It is
+a sanitised snapshot of exactly the members, and a member that carries a secret refuses the export. The
+fingerprint is a full SHA-256 over the canonical contents, recomputed on load. `--buzz-persona-manifest`
+refuses a manifest that was edited, is newer, is empty, is malformed, sits inside the workspace (where
+another contributor could edit the prompts it runs), is a link, or is over 1 MB. A refusal stops the
+process rather than answering as the default agent. With a manifest, `AtlasMindAcpAgent` routes every
+turn through `processTaskInScope`; without one, the legacy fixed-default path is unchanged.
+`manifestIsStale` lets the prepare command say when definitions changed under a running identity.
+
+**Model access** (`src/cli/manifestModelAccess.ts`). The headless process has no settings and no
+SecretStorage, so a manifest may also carry `modelAccess`: the user's `atlasmind.acp.agents`, read through
+the editor's own `parseAcpAgentSettings`, plus the Windows console choice. These are launch settings,
+never a sign-in. A credential-shaped launch-variable name (`classifyEnvironmentName`) or a secret-shaped
+value refuses the build, and model access is inside the fingerprint. The process builds the same
+`AcpAdapter` the editor routes through, with no permission policy, so the agents answer and never act.
+On the first prompt it discovers and registers their models with the shared `inferModelMetadata`, now in
+`src/providers/modelMetadataInference.ts`. Discovery waits for the first prompt because Buzz starts
+*Parallelism* copies of the command; a timeout or failure keeps the seeded catalogue and is logged.
+
+**Harness registration** (`src/acp/buzzAcpSetup.ts`). Buzz Desktop 0.5 loads custom harnesses from
+JSON files in `<app-data>/xyz.block.buzz.app/custom_harnesses/` and re-reads them on every discovery, and
+some 0.5 builds have no editor for adding one. So the prepare command writes `atlasmind-<persona>.json`
+there after its confirmation. `buildBuzzHarnessDefinition` applies Buzz's own validation: the id alphabet,
+no comma inside an argument, no reserved environment name. `planBuzzHarnessWrite` creates a new file,
+leaves an identical one, replaces only a file carrying `ATLASMIND_HARNESS_HINT`, and refuses a foreign or
+unreadable one. Nothing is written when Buzz's app-data folder is absent.
+
+**Verification** (`buzzPersonaVerification.ts`, `buzzPersonaDeployments.ts`). An identity counts as running
+a persona only after it answers a check. **AtlasMind: Verify Buzz Persona Deployment** issues a 32-hex nonce
+for one prepared persona and copies `@<name> atlasmind-verify <persona> <nonce>`. The persona process reads a
+check only from the newest `[Event]` content, never from history. It answers its own check with
+`atlasmind-verified <persona> <nonce> manifest=<16 hex>` and calls no model; a check naming another persona
+gets a refusal. The extension hears the answer through `BuzzInboundService.onDidObserveEvent`.
+`verifyPersonaAnswer` requires a channel message whose recomputed id and Schnorr signature verify and which
+carries a valid NIP-OA owner attestation (`verifyOwnerAttestation`). It must also be signed within the
+15-minute window, from a key and owner AtlasMind has not revoked, naming the prepared manifest. The person
+confirms the owner key, and `recordVerifiedIdentity` stores public keys in workspace state, one identity per
+persona. The Director's *Buzz agents* card reads `describeBuzzPersonaCard`. It shows every persona as
+mention-only, because exclusive default dispatch is unverified for the Buzz build in use
+(`PERSONA_DEFAULT_ROUTING_UNAVAILABLE`).
+
 ### BuzzDirectory (`src/core/buzzDirectory.ts`)
 
 The identities AtlasMind has *observed*, so a Buzz handle can be picked rather than typed.
@@ -3347,6 +3480,7 @@ The services are constructed in `activate()` and bundled into `AtlasMindContext`
 
 ```
 User message → Chat Participant → Orchestrator.processTask()
+  (Buzz persona turn → Orchestrator.processTaskInScope(): the same flow, selection over the members only)
   → AgentRegistry.selectAgent()
   → MemoryManager.queryRelevant()
   → TaskProfiler.profileTask()
@@ -3534,10 +3668,11 @@ extension.ts
   │     │     └── core/websiteGenerationRunner.ts
   │     ├── views/missionControlPanel.ts
   │     │     └── core/missionRunner.ts (→ core/goalEvaluator.ts, core/missionRegistry.ts)
-  │     └── bootstrap/bootstrapper.ts (→ bootstrap/projectBriefOnboarding.ts)
+  │     └── bootstrap/bootstrapper.ts (→ bootstrap/projectBriefOnboarding.ts, bootstrap/maintainedPages.ts, utils/testingProtocolSync.ts)
   ├── views/treeViews.ts
   ├── views/modelSidebarVisibility.ts (user-level Models tree filtering + exact-entry restore)
   └── core/orchestrator.ts
+        ├── core/acpDelegation.ts   (subtask handover: git before/after record, approval-time checkpoint, pure)
         ├── core/agentRegistry.ts
         ├── core/skillsRegistry.ts
         ├── core/modelRouter.ts
@@ -3579,7 +3714,8 @@ extension.ts
               │     ├── providers/acpProtocol.ts     (wire framing, pure)
               │     ├── providers/acpLaunch.ts       (command → spawnable invocation, pure)
               │     ├── providers/acpWindowsLauncher.ts (private-desktop selection + binary integrity)
-              │     ├── providers/acpPermission.ts   (authorization policy, pure)
+              │     ├── providers/acpPermission.ts   (authorization policy + verified asking modes, pure)
+              │     ├── providers/acpAgentEnvironment.ts (declared launch path variables: stale path, Windows spelling; pure)
               │     ├── providers/acpInstaller.ts    (install planning, pure)
               │     ├── providers/acpEffort.ts       (effort tiers + settable-config allowlist, pure)
               │     ├── providers/acpHostPolicy.ts   (long-lived host: reuse, auth, lifetime; pure)

@@ -6,6 +6,360 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.516.2] - 2026-11-02
+
+### Fixed
+
+- **Buzz's custom-harness folder is resolved with the target platform's path rules.**
+  `buzzCustomHarnessDirectory` used the host's `path` module for whichever platform it was asked about,
+  so on Linux and macOS it called a Windows `APPDATA` path relative and returned nothing. It now uses
+  `path.win32` for Windows and `path.posix` otherwise. The test compares literal paths, so it no longer
+  passes on Windows only; the Linux and macOS CI jobs were failing on it.
+
+## [0.516.1] - 2026-11-02
+
+### Fixed
+
+- **Open contradictions are redacted before Atlas quotes them.** The workspace identity prompt travels as
+  `system-prompt`, which the egress policy does not redact, so an entry in `operations/contradictions.md`
+  that quoted a credential would have reached the model verbatim. Each quoted entry now passes through
+  `redactSecrets` first.
+- **The maintained-page promise covers every import write.** The freshness report, the import catalog and
+  generated agent pages were still written without consulting `## Maintained Pages`; they now honour it.
+- **Align all instruction sets keeps a configured memory root.** It rewrote the memory and roadmap rules
+  with `project_memory/` even when `atlasmind.ssotPath` named another folder, pointing every agent at the
+  wrong directory. The configured path is now passed through `applyManagedInstructionBlock`.
+- **The contradictions parser strips HTML comments completely** (repeated until none remain, and an
+  unterminated opener is dropped), so a nested comment cannot revive a hidden entry (CodeQL).
+
+## [0.516.0] - 2026-11-02
+
+### Added
+
+- **Every agent keeps Project Memory current, from any tool.** AtlasMind's memory agent only runs on
+  AtlasMind chat turns, so work done in Claude Code, Codex, Copilot, Cursor or Gemini reached Project
+  Memory only if that agent happened to write it, and agents read code even for simple fact checks. A new
+  managed block, `<!-- atlasmind:memory-ssot:start -->`, tells every agent that Project Memory is the
+  single source of truth for simple facts (what the product does, limits, defaults, tiers, decisions): read
+  it before code, starting with the soul's *Maintained Pages*; update the page in the same change as the
+  fact; write back anything that had to be settled in code; and prefer maintained pages to imported ones.
+  - Written at the end of every import (`syncMemorySsotInstructions`, seeding `AGENTS.md`, held by a dry
+    run), and by the testing-protocol sync and **Align all instruction sets**. Deterministic rather than
+    part of the model-rendered shared block, so every tool reads the same words; pinned by an approved
+    baseline (`buildMemorySsotMarkdown` in `src/utils/testingProtocolSync.ts`).
+- **A defined way to handle contradictions between memory, docs and code.** The same rule tells every
+  agent, and AtlasMind's own chat turns, that the code is what the product does today and a recorded ruling
+  is what it should do. A contradiction is fixed in the same change when that is in scope and clear;
+  otherwise it is recorded as a `- [ ]` line in `operations/contradictions.md` and the user is told, never
+  guessed. AtlasMind keeps the open entries visible until they are ticked: an **Open Log** notice at
+  start-up, an *Open Contradictions* section in `index/import-freshness.md`, and a line in Atlas's chat
+  context (`parseOpenContradictions`, `buildContradictionsStarter`; `openContradictions` on the freshness
+  status).
+- **A maintained product-facts page for new projects.** A new `project_soul.md` starts with a
+  `## Maintained Pages` section listing `domain/product-facts.md` and `operations/contradictions.md`, both
+  scaffolded beside it. An
+  existing project gains no file (`src/bootstrap/maintainedPages.ts`).
+
+### Fixed
+
+- **Import no longer overwrites a page you maintain.** A page at an import path with no import footer, such
+  as a hand-written `domain/product-capabilities.md`, was overwritten by the next import, including the
+  automatic one that runs after saves, so the SSOT looked current and was wrong. Import now skips it, and
+  any page listed under *Maintained Pages*, as `preserved-maintained`, and does not count it stale. Pages
+  that look like pre-footer imports are still refreshed.
+- **Stale imported pages are visible.** An imported page edited by hand stopped refreshing silently. When
+  its sources have changed since, `index/import-freshness.md` now lists it under **Needs Attention** with
+  the date and manifest version it was generated at; new import footers record that version as
+  `source-version:`.
+
+## [0.515.0] - 2026-10-28
+
+### Added
+
+- **AtlasMind: Prepare Buzz Persona Deployment registers the persona's harness in Buzz itself.** Buzz
+  Desktop 0.5 loads custom harness definitions from JSON files in its app-data `custom_harnesses` folder
+  and re-reads the folder on every discovery. Not every 0.5 build has an editor for adding one: the build
+  this was tested on shows only *Agent harness*, *ACP command*, *LLM provider* and *Model*, with no
+  command or arguments anywhere. Preparing now writes `atlasmind-<persona>.json` into that folder, after
+  the same confirmation, which names the folder.
+  - The person picks the harness under **Agent harness**, types any Model and sets Parallelism to 1.
+  - The file holds the launch command and arguments, never a credential. It goes into the folder
+    Buzz documents for exactly this, never into Buzz's agent database.
+  - It is written only when Buzz's app-data folder exists. A file AtlasMind did not register, or one Buzz
+    cannot read, is never overwritten; the notice names it instead. An identical file is left untouched.
+  - The definition passes Buzz's own validation before it is written (id alphabet, no comma inside an
+    argument, no Buzz-reserved environment name), so Buzz never silently skips a file AtlasMind wrote
+    (`buildBuzzHarnessDefinition`, `planBuzzHarnessWrite`, `buzzCustomHarnessDirectory` in
+    `src/acp/buzzAcpSetup.ts`).
+
+### Fixed
+
+- **0.514.1 sent people to *Add custom harness…*, which not every Buzz 0.5 build shows.** The recipe,
+  the `/buzz` walkthrough and the notices now say to pick the harness AtlasMind registered. The
+  hand-entry route is named only as an alternative where a build offers it.
+- Checked in Buzz's source: with **ACP command** left at *Buzz ACP (default)*, Desktop gives the harness
+  process the agent's key and owner attestation, and starts AtlasMind with the harness's command and
+  arguments. A persona's replies therefore publish as that identity.
+
+## [0.514.1] - 2026-10-28
+
+### Fixed
+
+- **The Buzz recipe and setup guide now match Buzz Desktop 0.5's agent editor.** 0.513.0 claimed its
+  field names were verified against 0.5.28; they came from 0.4.x source. They sent people looking for a
+  *Provider → Custom command* choice and a comma-separated *Agent runtime args* field that 0.5 does not
+  have. The names are now read from Buzz's own `desktop-v0.5.28` source (`CustomHarnessForm`,
+  `AgentDefinitionDialog`), and the recipe is schema version 2:
+  - **Edit agent → AI configuration: Customize for this agent → Agent harness → Add custom harness…**,
+    with a Name, a Command, one Argument per row, and the harness's Env vars.
+  - Each persona gets a harness of its own, named after it, because its manifest is in the arguments
+    and every agent that picks a harness shares it.
+  - Buzz still requires a **Model** once a custom harness is selected, so the recipe says to type any
+    value. buzz-acp sends a model only to an agent whose `session/new` offers model choices, and
+    AtlasMind offers none, so the value never reaches it.
+  - **AtlasMind: Copy Buzz ACP Agent Setup**, **AtlasMind: Prepare Buzz Persona Deployment**, the `/buzz`
+    walkthrough and the *Buzz agents* card all take their wording from one `describeBuzzHarnessSteps`
+    (`src/acp/buzzAcpSetup.ts`).
+- Checked against Buzz's harness source while fixing this: buzz-acp passes the agent's key, relay
+  address and owner attestation to the process it starts, so a persona's reply publishes as that
+  identity. The `ws://` relay address it passes is accepted by AtlasMind's Buzz bridge.
+
+## [0.514.0] - 2026-10-28
+
+### Added
+
+- **AtlasMind: Verify Buzz Persona Deployment proves which Buzz identity runs a persona** (Buzz Tier 5,
+  Phase 5). Copying a launch recipe proves nothing about what Buzz did with it: the agent may never have
+  been created, may run Buzz's own runtime, or may run an older manifest. So AtlasMind records only an
+  identity that answered a check.
+  - The command copies a one-time check to post in a channel AtlasMind watches. The persona process
+    answers its own check with a fixed line naming the nonce and its manifest, without calling a model.
+  - AtlasMind sees the answer through its inbound subscription. It recomputes the event id and verifies the
+    Schnorr signature itself, rather than trusting the relay. It requires a valid NIP-OA owner attestation,
+    so a channel member who types the answer line with their own key is refused.
+  - You confirm in a dialog that names the authorising owner key. AtlasMind can check the attestation; it
+    cannot know whose key the owner is.
+  - The check is read only from the triggering message, never from the channel history Buzz includes, so
+    an old check cannot fire again. A persona answers only a check naming itself.
+  - An answer from an older manifest is reported, not accepted. A check expires after 15 minutes, measured
+    on the signed timestamp. A revoked identity or owner is refused.
+  - The record lives in workspace state on this machine, never in the repository. One identity runs one
+    persona; recording a key moves it off any persona that held it, and says so
+    (`src/core/buzzPersonaVerification.ts`, `src/core/buzzPersonaDeployments.ts`).
+- **A *Buzz agents* card on the Project Dashboard's Director page.** It lists each persona with its lead,
+  team size, ceiling and state (not prepared, prepared, verified, definitions changed, or verify again),
+  plus the authorising owner when verified, the suggested teams not yet accepted, and buttons for the
+  three persona commands. The card is absent when Buzz is off and the project has no persona file. It
+  posts only allowlisted command ids and carries no prompt, path, key or message.
+
+### Changed
+
+- **Default routing is shown as unavailable, with the reason** (Buzz Tier 5, Phase 6 gate). Every persona
+  is mention-only. A channel default needs Buzz to give one persona every unaddressed message and none
+  addressed to another persona, and that is not verified for the Buzz build in use. Offering it could
+  produce two answers to one message.
+- `BuzzInboundService.onDidObserveEvent` lets a session-scoped observer hear each event. An observer that
+  throws is dropped for that event only and never interrupts the subscription.
+
+## [0.513.0] - 2026-10-28
+
+### Added
+
+- **A Buzz persona answers from your subscriptions.** The process Buzz launches for a persona has no
+  settings and no SecretStorage, so until now its only models were the `ATLASMIND_PROVIDER_*` variables,
+  which a subscription-only user does not have. The persona started, connected and had nothing to answer
+  with. The manifest written by **AtlasMind: Prepare Buzz Persona Deployment** now carries your
+  `atlasmind.acp.agents` launch settings: the command, its arguments, declared launch variables and the
+  Windows console choice. It never carries a sign-in; each agent keeps its own login on this machine.
+  - The persona process starts those agents with the same `AcpAdapter` the editor routes through, as
+    completion sources only. No permission policy is passed, so the agents answer and never run their own
+    tools. Every credential-shaped variable is withheld from them, including the Buzz key the persona
+    process was handed.
+  - It registers what they report through the same `inferModelMetadata` the editor uses, so the persona
+    and the chat panel agree about what `acp/codex@…` is.
+  - Models are discovered on the first prompt, not at start-up. Buzz starts several copies of an agent,
+    and each copy would otherwise launch every subscription agent before anybody asked anything. A slow
+    or failed discovery keeps the seeded catalogue and says why.
+  - A launch variable with a credential-shaped name (the same rule `hostCommandEnvironment` applies) or a
+    secret-shaped value refuses the manifest, naming the agent and the variable, never the value. The
+    model access is inside the fingerprint, so editing a command in the manifest by hand is refused. So is
+    one the settings parser would have had to clean.
+  - A changed ACP agent or console setting makes the manifest stale, like a changed prompt
+    (`src/cli/manifestModelAccess.ts`, `src/core/buzzPersonaManifest.ts`).
+
+### Changed
+
+- **The Buzz recipe matches Buzz Desktop 0.5.28's agent editor and asks for one copy.** Buzz starts
+  *Parallelism* copies of a custom command, ten by default. AtlasMind schedules its own work, so the
+  recipe now asks for `parallelism: 1`. When the manifest names ACP agents, the recipe says no model
+  variable is needed, and which agents must be signed in. The notification names the editor's real
+  fields: Provider → Custom command, Agent command, and under Advanced, Agent runtime args and
+  Parallelism.
+- **`inferModelMetadata` and `normalizeModelId` moved to `src/providers/modelMetadataInference.ts`**,
+  beside the heuristics they use, so the headless runtime registers discovered models with the editor's
+  own rules rather than a second copy. `extension.ts` re-exports `inferModelMetadata`, so existing
+  imports still resolve.
+
+### Fixed
+
+- **Found while live-testing two persona identities on a local relay:** an agent created in Buzz Desktop
+  with an LLM provider named after AtlasMind runs Buzz's own `buzz-agent`, which rejects it
+  (`BUZZ_AGENT_PROVIDER=… not supported`) and exits. AtlasMind is a *custom command* there, not an LLM
+  provider. The prepare command's guidance now says so in Buzz's own words.
+
+## [0.512.0] - 2026-10-28
+
+### Added
+
+- **Buzz persona teams (Buzz Tier 5, Phases 1–4).** A persona is one Buzz identity backed by a team of
+  AtlasMind agents. `.atlasmind/buzz-agents.json` records the project's intent: members, the member
+  that leads, an independence class and a skill ceiling. One agent may serve several personas. The
+  file is versioned through `schemaMigration` (kind `buzz-agents`). A file from a newer AtlasMind is
+  refused and left untouched. An invalid profile is reported and left out, not repaired. Unknown fields
+  survive. A secret, a key-shaped field or a local path refuses the whole file. Nothing writes the file
+  until you accept a team (`src/core/buzzPersonaProfiles.ts`, `schemas/buzz-agents.schema.json`).
+- **Suggested teams from a declared rule table** (`src/core/buzzAgentRecommendations.ts`). Each enabled
+  agent is placed by its declared routing needs first, then its testing duties. Role words count only
+  for an agent that declares no needs. The families are AM Engineer, AM Business, AM Marketing,
+  AM Research (two researchers or more), AM Oversight (read-only), and an optional AM Coordinator once
+  three teams are suggested. Advisors whose skills only read are kept out of every team but Oversight,
+  and the suggestion says so. Each suggestion names the rule behind every member and carries a ruleset
+  version and a registry fingerprint. "Not now" lasts until the registry changes. No model chooses a
+  team.
+- **Scoped orchestration.** `Orchestrator.processTaskInScope(request, scope)` classifies and scores as
+  usual, but only over the persona's members:
+  - A request no member matches goes to the lead.
+  - A missing lead degrades to another member, with a notice.
+  - No usable member refuses the turn without calling a model.
+  - Nothing is synthesised, and no agent is borrowed from the registry.
+  - A worker's handoff outside the members is refused, and the delegate carries the same scope.
+  - Each worker's skills are narrowed by the ceiling: `member` keeps its own, `allowlist` intersects,
+    and `read-only` applies the read-only turn envelope.
+  - When the ACP host publishes the reply, Buzz send tools are withheld, and every worker is told that
+    the host delivers it.
+  - A subscription agent may run its own tools inside a persona only under the `member` ceiling. An
+    allowlist cannot reach tools the agent brings itself.
+
+  See `src/core/personaScope.ts` and `PersonaScope` in `types.ts`.
+- **Persona manifest and `--buzz-persona-manifest`** (`src/core/buzzPersonaManifest.ts`). The manifest
+  is a sanitised snapshot of exactly the member definitions. That includes agents created in the editor,
+  which the headless ACP runtime cannot otherwise see. A member that carries a secret refuses the export.
+  The fingerprint is a full SHA-256, recomputed on load. `atlasmind-acp` refuses a manifest that was
+  edited by hand, is newer, is empty, sits inside the workspace, is a link, or is over 1 MB. A refusal
+  stops the process; it never answers as the default agent instead.
+- **AtlasMind: Recommend Buzz Personas** shows a suggestion and why each agent is in it, and saves it
+  after a modal. **AtlasMind: Prepare Buzz Persona Deployment** writes a persona's manifest to
+  AtlasMind's own storage and copies a credential-free Custom-command recipe. It says when definitions
+  changed since the last preparation, and creates nothing in Buzz.
+
+### Changed
+
+- The ACP facade answers as a persona when it is started with a manifest. Without one, it keeps the
+  legacy fixed-default agent, unchanged.
+
+## [0.511.0] - 2026-10-28
+
+### Added
+
+- **Buzz owner attestation (NIP-OA).** When a Buzz agent's event carries an owner's `auth` tag, AtlasMind
+  verifies it: the event's own id and signature first, then exactly one four-element tag, the exact
+  conditions grammar, and the owner's signature. An owner attesting itself is rejected. A verified
+  owner is recorded on the identity as *authorised by*, never as the sender
+  (`src/core/buzzOwnerAttestation.ts`). Tested against the spec's published vectors, and checked against
+  the grants Buzz Desktop 0.5.28 issued.
+- **Buzz revocation.** `atlasmind.buzz.revokedIdentities`, read from every settings scope as a union, so
+  a revocation anywhere wins. Messages from a revoked identity, and from any agent whose verified
+  owner is revoked, are dropped before they become work. A work item waits for its event's attestation
+  check, so an agent of a revoked owner cannot slip through on its first message. Bindings to a revoked
+  identity are reported. Keys are validated through the checksummed decoder, and an `nsec` is refused
+  by name and never echoed (`src/core/buzzRevocation.ts`).
+- **AtlasMind: Revoke a Buzz Identity** and **AtlasMind: Trust a Revoked Buzz Identity Again**. Both
+  write your user settings. Revoking shows the `buzz agents archive` command for the identity's owner
+  to run with their own key: AtlasMind holds no owner key and cannot revoke anything in Buzz.
+
+### Changed
+
+- Buzz Tier 4 follows the identity model Buzz ships. Buzz Desktop mints agent keys after the owner
+  reviews them, and the owner's grant is a NIP-OA tag. AtlasMind holds no agent secret, and verifies
+  instead of custodying.
+
+## [0.510.0] - 2026-10-28
+
+### Added
+
+- **ACP subtask handover.** A turn routed to an ACP agent with delegated execution is handed over
+  whole: the agent works with its own tools in the subtask's worktree when it has one, and AtlasMind
+  keeps the rollback point and its own record of what changed (`src/core/acpDelegation.ts`).
+  - Each approved edit's files are checkpointed **before the approval is sent**. An edit that names no
+    file, names a file outside the turn's folder, or whose snapshot cannot be taken is refused.
+  - What changed is read from git before and after (`status --porcelain`, `hash-object`; constant
+    commands, paths on stdin), not from the agent's account. Changes the agent did not report, and
+    changes with no rollback point, are listed. Outside a git repository the record says it was not
+    checked, and why.
+  - The result carries a `DelegatedExecutionRecord`. Subtask artifacts take their changed files from
+    it, and the Project Run Center prefers it over its own between-subtasks snapshot, which
+    misattributes parallel subtasks. It also shows the agent's last plan.
+  - The agent's tool calls appear in the chat's tool-round view as they happen, and in the run record.
+- `ProviderAdapter.runDelegatedTurn`, an optional capability with an observer (`onToolCall`,
+  `onPlan`, `beforeApprove`) and a working directory. The ACP adapter runs it on a fresh single-use
+  session that is never coalesced with a retry.
+- ACP `plan` session updates are parsed. Edit paths are read from `diff` content blocks as well as
+  `locations`, because codex-acp reports only the former.
+
+### Changed
+
+- A codex-acp permission request, which carries only the call id and kind, is read together with what
+  that call already announced, so the approval prompt names the files.
+- A subtask an ACP agent has acted on is never retried automatically, including after a transient
+  error. The failed result keeps the record of what the agent changed.
+- `dispatchGuardedCompletion` takes an optional `dispatch`, so a delegated call sends only the request
+  the egress guard cleared.
+
+## [0.509.3] - 2026-10-28
+
+### Security
+
+- **ACP agents now run only in a mode that asks before it acts.** codex-acp starts every session in
+  its `agent` mode, which edits files and runs commands without sending `session/request_permission`.
+  In a live test it wrote a file during a turn AtlasMind treated as completion-only, with
+  `atlasmind.acp.toolsEnabled` off, and with tools on it acted without the approval gate ever running.
+  Every Claude and Codex session is now put into its verified asking mode (`default` and `read-only`)
+  before any prompt, confirmed, re-checked before each turn on a reused session, and the turn is
+  cancelled if the agent switches itself out of it. An agent whose asking mode has not been verified
+  (Gemini, Copilot, Qwen, custom commands) is refused delegated execution, and runs as a completion
+  source with a one-time warning in the output channel.
+
+### Fixed
+
+- A turn routed to `acp/<agent>@<model>` ran on the agent's default model once the shared probe cache
+  expired, because a probe served from that cache was never recorded on the routed adapter. The model
+  is now also resolved against the session's own options, and a model the session does not offer is
+  reported rather than silently replaced.
+- A model the signed-in plan refuses (codex-acp: "not supported when using Codex with a ChatGPT
+  account") is explained, remembered for the session, refused immediately the next time instead of
+  after a minute of retries, and withdrawn from discovery, including the bare `acp/<agent>` id when it
+  is the agent's default.
+- Codex's startup warnings ("Skill descriptions were shortened…") no longer appear at the start of
+  answers. They are written to the output channel.
+- A `CODEX_PATH` naming a file that no longer exists (Codex Desktop moves its binary on update) is
+  reported as a settings problem instead of "not signed in" or "not on PATH". On Windows the path is
+  passed with forward slashes, because codex-acp drops backslashes.
+
+### Verified
+
+- Against the real claude-agent-acp 0.63.0 and codex-acp 1.1.7: completions, streaming, a 38,449-character
+  prompt returned intact, and the delegated-execution permission path in both directions (refused writes
+  leave nothing behind; approved writes land).
+- The Buzz outbound smoke test (channel post, threaded reply, thread read, DM) and inbound subscription,
+  through AtlasMind's own bridge and client, with both buzz CLI 0.4.26 and the CLI shipped with Buzz
+  Desktop 0.5.28, against a local relay.
+
+## [0.509.1] - 2026-10-23
+
+### Documentation
+
+- The README's published baseline now names v0.509.0, the release just published to the Marketplace.
+
 ## [0.509.0] - 2026-10-23
 
 ### Added

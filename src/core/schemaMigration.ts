@@ -52,6 +52,7 @@ export type SchemaDocumentKind =
   | 'roadmap-graph'
   | 'compliance-evidence'
   | 'compliance-regime'
+  | 'buzz-agents'
   | 'website';
 
 /**
@@ -79,6 +80,7 @@ export const CURRENT_SCHEMA_VERSIONS: Readonly<Record<SchemaDocumentKind, number
   'roadmap-graph': 1,
   'compliance-evidence': 1,
   'compliance-regime': 1,
+  'buzz-agents': 1,
   website: 14,
 };
 

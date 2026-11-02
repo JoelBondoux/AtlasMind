@@ -423,6 +423,16 @@ skipped and you get honest counts rather than a false "8/8 completed".
 If a tool-capable model refuses mid-run, AtlasMind hands the step to a different tool-capable model
 before it accepts a reasoning-only answer.
 
+### A step handed to Codex or Claude
+
+When a step is routed to an ACP agent with tools enabled, the agent does the whole step itself, in the
+step's worktree if it has one. Every file it edits asks first, and AtlasMind snapshots that file before
+saying yes, so the step can be rolled back. When the step finishes, the files it changed are read from
+git rather than taken from the agent's description, and the run record says which changes the agent
+did not mention (a command it ran, usually) and which have no rollback point. The agent's own plan for
+the step is kept beside it. A step an agent has already acted on is never retried automatically, even
+after a timeout — doing it twice is worse than asking you.
+
 ### A step inherits what its dependencies read
 
 A step's prompt includes the output of the steps it depends on, so it also inherits what they **read**.

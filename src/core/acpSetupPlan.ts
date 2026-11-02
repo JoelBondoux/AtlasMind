@@ -49,6 +49,12 @@ export interface AcpSetupState {
   clientProtocolVersion: number;
   /** Whatever the probe said, when it failed. */
   probeMessage?: string;
+  /**
+   * The probe never started the agent because its launch settings are wrong
+   * (a path variable naming a file that is not there). Not a sign-in problem,
+   * and the guide must not present it as one.
+   */
+  misconfigured?: boolean;
   /** Is the `acp` provider enabled in the router? */
   providerEnabled: boolean;
   /** Has an ACP model actually returned a completion in this workspace? */
@@ -210,6 +216,7 @@ export function buildAcpSetupPlan(state: AcpSetupState): SetupStep[] {
   const versionMismatch = typeof state.protocolVersion === 'number'
     && state.protocolVersion > 0
     && state.protocolVersion !== state.clientProtocolVersion;
+  const misconfigured = installed && !authenticated && state.misconfigured === true;
   steps.push({
     id: 'authenticated',
     title: 'Sign in to the agent',
@@ -220,8 +227,14 @@ export function buildAcpSetupPlan(state: AcpSetupState): SetupStep[] {
         ? `\`${first?.command}\` speaks ACP version ${state.protocolVersion}; AtlasMind speaks ${state.clientProtocolVersion}. Update the agent to a version that matches.`
         : authenticated
           ? 'The agent reports itself signed in.'
-          : `\`${first?.command}\` is installed but not signed in.${state.probeMessage ? ` ${state.probeMessage}` : ''}`,
-    guidance: !installed || authenticated || versionMismatch ? undefined : [
+          : misconfigured
+            ? `\`${first?.command}\` was not started: its launch settings need fixing first.${state.probeMessage ? ` ${state.probeMessage}` : ''}`
+            : `\`${first?.command}\` is installed but not signed in.${state.probeMessage ? ` ${state.probeMessage}` : ''}`,
+    guidance: !installed || authenticated || versionMismatch ? undefined : misconfigured ? [
+      {
+        text: 'Fix the agent\'s entry in `atlasmind.acp.agents` — signing in again will not help, because the agent was never started.',
+      },
+    ] : [
       {
         text: 'Sign in with the agent\'s own login — AtlasMind never handles that credential, and never stores it.',
       },
@@ -249,7 +262,7 @@ export function buildAcpSetupPlan(state: AcpSetupState): SetupStep[] {
     // Offered only while signing in is actually the next thing to do. A version
     // mismatch is not fixed by logging in again, and a step already done does
     // not need a terminal opening for it.
-    ...(state.signIn && installed && !authenticated && !versionMismatch
+    ...(state.signIn && installed && !authenticated && !versionMismatch && !misconfigured
       ? {
         action: {
           command: 'atlasmind.setup.prepareCommand',

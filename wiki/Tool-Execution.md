@@ -5,6 +5,18 @@ another subscription. A failed per-agent probe excludes that agent's discovered 
 Codex warning-plus-JSON HTTP-error compatibility case rejects the turn instead of recording a
 success; permission and delegated-execution gates still apply independently.
 
+An ACP agent's approval gate only runs when the agent asks, so AtlasMind puts every session into
+the agent's verified asking mode before any prompt — `read-only` for codex-acp, `default` for
+claude-agent-acp — confirms it, re-checks it before each turn, and cancels a turn if the agent
+switches itself out of it. Without this, codex-acp's default `agent` mode edited files without
+asking even with `atlasmind.acp.toolsEnabled` off. An agent whose asking mode has not been verified
+cannot be given delegated execution.
+
+A delegated agent's edit is checkpointed **when it is approved and before the approval is sent**, so
+the file is captured while it is still as it was. An edit that names no file, or a file outside the
+folder the turn was given, is refused, and so is one whose snapshot cannot be taken. Changes a command
+made are found by comparing the working tree before and after, and listed as having no rollback point.
+
 ## Session approval modes
 
 Select a mode in Workflow, chat, the status bar or **AtlasMind: Set Approval Mode**. The selector
@@ -831,6 +843,13 @@ cannot detect that, so start Studio with `--disable-tools`. See [Security](Secur
 
 Managing Studio's models is held to the same rules as any other effect: downloading and loading, unloading
 and deleting each pass the dry-run guard, and downloading and deleting ask first.
+
+### A Buzz persona narrows every tool its team uses
+
+A turn answered as a Buzz persona uses the same approval gate as any other turn, with less to approve.
+Each worker keeps only its own skills, intersected with the persona's allowlist if it has one. A
+read-only persona such as AM Oversight lets every member only read. When AtlasMind's ACP host publishes
+the reply to Buzz, the Buzz send tools are not offered to the model at all, so a turn cannot post twice.
 
 ---
 

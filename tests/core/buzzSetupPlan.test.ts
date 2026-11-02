@@ -313,9 +313,10 @@ describe('running AtlasMind behind Buzz ACP', () => {
   it('keeps Buzz as the harness and AtlasMind as the custom ACP agent', () => {
     const managed = step(WALKTHROUGH_DONE, 'managedAgent');
     const text = (managed?.guidance ?? []).map(line => line.text).join(' ');
-    expect(text).toMatch(/Provider → Custom command/i);
+    expect(text).toMatch(/pick the AtlasMind harness under \*\*Agent harness\*\*/i);
+    expect(text).toMatch(/registers that harness in Buzz’s custom-harness folder/i);
     expect(text).toMatch(/Buzz keeps `buzz-acp` as the harness/i);
-    expect(text).toMatch(/leave Buzz’s .*provider.*Model.*blank/i);
+    expect(text).toMatch(/Model.*type any value.*AtlasMind owns model routing/i);
   });
 });
 

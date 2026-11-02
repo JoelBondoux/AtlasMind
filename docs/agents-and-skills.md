@@ -6,6 +6,27 @@ while a successful session-open probe still requires a real reply check to estab
 Local CLI runtime pins and sign-in checks are described in
 [Model Routing](model-routing.md#acp-runtime-and-sign-in-checks).
 
+Delegated ACP execution is only offered by an agent with a verified asking mode
+(`ACP_ASKING_MODES` in `src/providers/acpPermission.ts`). Every session is put into that mode
+before any prompt, so the agent's edits and commands arrive as `session/request_permission` and
+reach AtlasMind's approval policy; a session that cannot be confirmed in it is refused, and a turn
+is cancelled if the agent changes mode. Verified on 2026-10-27: claude-agent-acp 0.63.0 (`default`)
+and codex-acp 1.1.7 (`read-only`) each asked before a write, and Codex before a command, in both
+the approve and refuse directions.
+
+A turn routed to an ACP model with delegated execution is **handed over whole** rather than sent as a
+completion (`runDelegatedRound` in the Orchestrator, `src/core/acpDelegation.ts`). The agent works with
+its own tools in the subtask's worktree when it has one; the send still goes through
+`completeWithRetry` → `dispatchGuardedCompletion`, whose new `dispatch` input lets the delegated call
+send only what the egress guard cleared. AtlasMind reads the working tree with `git status --porcelain`
+and `git hash-object` before and after (constant commands, paths on stdin), checkpoints the files each
+approved edit names *before* the approval is sent (`AcpTurnObserver.beforeApprove` →
+`writeCheckpointHook` with `acp-delegated-edit`), and refuses an edit that names no file or a file
+outside the turn's folder. The result carries a `DelegatedExecutionRecord` on its artifacts: changed
+files from git (or `unverified` with the reason), changes the agent did not report, changes with no
+rollback point, the checkpoint id and the agent's last plan. Delegated turns in one working tree are
+serialised, and a subtask an agent has acted on is never retried automatically.
+
 **Ask / Auto / Bypass** are session approval modes, selected from Workflow, chat, the status bar or
 **AtlasMind: Set Approval Mode**. Ask uses the configured policy; Auto reviews eligible requests in
 a separate tool-free model call; Bypass retains the eligible grant previously called Autopilot.
@@ -959,6 +980,25 @@ the agent, gathers SSOT memory, routes the model, resolves skills, and applies
 its tool policy. The client does not choose an AtlasMind specialist merely by
 naming a Buzz identity or Director contact.
 
+Inbound Buzz work reaches a bound agent only if its author is still trusted: an item from an identity
+revoked in `atlasmind.buzz.revokedIdentities`, or from an agent whose verified NIP-OA owner is revoked,
+is dropped before any binding is consulted, and a binding to a revoked identity is reported as having
+no effect (`src/core/buzzRevocation.ts`).
+
+**Buzz personas.** Started with `--buzz-persona-manifest`, the ACP endpoint answers as one persona and
+selects with `Orchestrator.processTaskInScope` instead of the fixed default. The persona's members are
+the only agents it may select, and the scoring is otherwise unchanged. A request no member matches goes
+to the persona's lead, nobody is synthesised, and no member at all refuses the turn. Handoffs follow the
+same rule: a worker may hand off only to another member, and the delegate inherits the scope. Skills
+are the member's own, never the union of the team's. An `allowlist` ceiling intersects them, and a
+`read-only` ceiling applies the read-only turn envelope to every member. When the host publishes the
+Buzz reply, Buzz send tools are withheld from every worker. Which agents form which team is suggested
+from a declared rule table (`src/core/buzzAgentRecommendations.ts`). Read-only advisors stay in
+AM Oversight alone, so oversight keeps its independence. The persona's models come from the ACP agents its
+manifest names (answer-only, discovered on the first prompt), or from `ATLASMIND_PROVIDER_*` variables
+when none are configured. A persona's identity is recorded only after it answers a signed, owner-attested
+check (**AtlasMind: Verify Buzz Persona Deployment**); the check is answered without a model.
+
 The endpoint is local stdio only. It accepts text and text-bearing embedded
 resources, retains at most 80,000 characters of session history, streams
 `agent_message_chunk` updates, and propagates `session/cancel` through the task's
@@ -972,8 +1012,8 @@ options. A client response naming `allow_always`, a missing prompt context, or
 a failed permission request denies. Client-declared MCP commands are ignored
 rather than spawned.
 
-Buzz uses this endpoint as a **Custom command** behind its own `buzz-acp`
-harness. The Director's Person/channel record remains contact and inbound-work
+Buzz uses this endpoint as a **custom harness** (Buzz Desktop 0.5: *Agent harness → Add custom
+harness…*) behind its own `buzz-acp`. The Director's Person/channel record remains contact and inbound-work
 routing metadata; it neither creates nor starts that managed agent. The
 workspace-specific recipe from **AtlasMind: Copy Buzz ACP Agent Setup** supplies
 the executable and arguments, while AtlasMind continues to own model selection.

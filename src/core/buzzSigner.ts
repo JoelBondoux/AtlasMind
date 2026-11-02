@@ -278,6 +278,23 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 /**
+ * Verify a BIP-340 Schnorr signature. Here rather than in the caller so the
+ * crypto backend stays loaded in one place, lazily. Never throws: anything
+ * malformed — a short key, a non-hex signature — is simply not valid.
+ */
+export async function verifyBuzzSchnorr(signatureHex: string, message: Uint8Array, pubkeyHex: string): Promise<boolean> {
+  if (!/^[0-9a-f]{128}$/.test(signatureHex) || !/^[0-9a-f]{64}$/.test(pubkeyHex)) {
+    return false;
+  }
+  try {
+    const secp = await loadSecp();
+    return secp.schnorr.verify(secp.etc.hexToBytes(signatureHex), message, secp.etc.hexToBytes(pubkeyHex));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * A signer backed by a Buzz agent secret key.
  *
  * Construct with `createBuzzEventSigner`, which validates the key up front so a

@@ -131,6 +131,10 @@ When Atlas detects explicit operator frustration during chat, it updates the sav
 
 It no longer changes settings to do it. Until v0.310.4 the same signal raised `chatSessionTurnLimit` and `chatSessionContextChars` at `ConfigurationTarget.Workspace` — into `.vscode/settings.json`, which most repositories commit — and named neither key in anything the operator read. The detector also fired on ordinary polite requests ("can you do this for me when you have a moment"), so the write happened on turns where nothing had gone wrong, and a settings change nobody is told about cannot be reviewed, reverted, or attributed. A tuning *suggestion* is the right shape for this and already exists elsewhere: the tool-iteration ceiling names a value and offers a button. `restoreSettingsWrittenWithoutAsking` puts the earlier values back once, on the next turn, and only where the current value still equals what was written.
 
+#### Maintained Pages
+
+A `## Maintained Pages` section in the soul lists the pages the project keeps current by hand, or by an agent in any tool, one per bullet (`- path — note`, `` - `path` ``, or `- [title](path)`, relative to the memory root; a path that escapes it is ignored). Import **never writes over a listed page**, even one that still carries an import footer, and never counts it as stale. A new soul starts with the section and one entry, `domain/product-facts.md`. When import or bootstrap rewrites a starter soul, a section the project already wrote is carried over verbatim (`src/bootstrap/maintainedPages.ts`).
+
 ### `architecture/`
 System design docs: component diagrams, data flow diagrams, API contracts, database schemas.
 
@@ -163,6 +167,8 @@ Unstructured space for brainstorming. No format requirements.
 
 ### `domain/`
 Domain-specific knowledge: glossary, business rules, entity relationships, external system documentation.
+
+`domain/product-facts.md` is scaffolded, alongside a new `project_soul.md` only, as a **maintained** page: what the product does, its limits, defaults, tiers and the decisions behind them. It has no import footer, so import never touches it. An existing project gains no file it did not ask for. Contrast `domain/product-capabilities.md`, which import generates from the README and manifest and which can therefore lag the code.
 
 `domain/ai-instructions-sync.md` holds the unified AI instruction set produced by the two-way sync (`/sync-instructions`, `src/utils/aiInstructionMerge.ts`): the reconciled superset of every detected tool's instructions plus AtlasMind's own, which AtlasMind also mirrors back into each tool's instruction file. It is loaded as `domain` context like any other entry.
 
@@ -334,7 +340,23 @@ If `project_soul.md` still contains the bootstrap placeholders, import also upgr
 Generated import artifacts now carry a trailing metadata block containing generator version, source paths, and source/body fingerprints. On later `/import` runs AtlasMind compares that metadata so it can:
 - refresh entries whose upstream sources changed
 - skip entries whose inputs are unchanged
-- preserve generated files that were manually edited after import
+- preserve generated files that were manually edited after import — and, when their sources have changed since, list them under **Needs Attention** at the top of `index/import-freshness.md` with the date and manifest version they were generated at (the footer's optional `source-version:` line, read from a JSON manifest's `version`)
+- never write over a **maintained page**, on any import write (entries, the import catalog and freshness report, and agent pages): one listed under `## Maintained Pages` in the soul, or any file at an import path that has no import footer and does not look like a pre-footer import. These are reported as `preserved-maintained` and are not counted as stale, so they cannot keep the in-session auto-refresh firing
+
+### Keeping memory current from every tool
+
+AtlasMind's memory agent only runs on AtlasMind chat turns, so work done in Claude Code, Codex, Copilot, Cursor, Gemini or any other tool reaches Project Memory only if that agent writes it. Every import therefore finishes by writing the **Project Memory SSOT rule** (`buildMemorySsotMarkdown`, `syncMemorySsotInstructions` in `src/utils/testingProtocolSync.ts`) into each agent instruction file, in its own `<!-- atlasmind:memory-ssot:start -->` managed block. The rule says: Project Memory is the SSOT for simple facts; read it (Maintained Pages first, then `domain/product-facts.md`) before code; a change that alters a fact updates its page in the same change; an answer that had to be looked up in code is written back; imported pages can lag, so check `index/import-freshness.md`. Every writer uses the configured `atlasmind.ssotPath`, alignment included. Like the roadmap rule it seeds `AGENTS.md` when absent, preserves everything outside its block, and is held by a dry run. The testing-protocol sync and **Align all instruction sets** write the same block, deterministically rather than through the model-rendered shared block, so every tool reads identical wording; the published text is pinned by an approved baseline.
+
+### Contradictions between memory, docs and code
+
+The same rule gives every agent a defined way to handle a contradiction it notices. The code is what the product does today, and a recorded ruling or decision is what it should do, so code that contradicts one is a bug to raise, not a fact to copy. When the fix is in scope and it is clear which side is right, the agent corrects the wrong side in the same change and says so. Otherwise it does not guess: it adds a `- [ ]` line under `## Open` in `operations/contradictions.md`, naming what disagrees, the paths on each side and why it was not settled, and tells the user. AtlasMind's own chat turns carry the same rule in the workspace identity prompt (`buildWorkspaceIdentityPrompt`), so it applies there too.
+
+`operations/contradictions.md` is a maintained page: scaffolded beside a new soul and listed under its Maintained Pages, created by an agent on first use in an existing project, never written by import. Its **open entries** are the unticked `- [ ]` lines outside `## Resolved`, fenced code and HTML comments (`parseOpenContradictions` in `src/bootstrap/maintainedPages.ts`); a ticked box counts as resolved wherever it sits. AtlasMind surfaces them until they are ticked:
+
+- `getProjectMemoryFreshness` returns them as `openContradictions`, separately from staleness, because a re-import cannot settle one;
+- the start-up freshness check logs the count and, on its notifying pass, shows a non-modal notice whose **Open Log** action opens the page (offering "Update Memory" would be a button that changes nothing);
+- `index/import-freshness.md` lists them under **Open Contradictions**, and they are part of the report's fingerprint, so a new entry refreshes it;
+- each AtlasMind chat turn quotes up to five of them, so Atlas raises them when relevant.
 
 Those metadata trailers are also loaded into the in-memory `MemoryEntry` objects. Imported notes therefore retain explicit evidence pointers back to their upstream files, which lets AtlasMind use SSOT as a fast summary layer without losing the ability to read live evidence when a prompt requires exactness.
 

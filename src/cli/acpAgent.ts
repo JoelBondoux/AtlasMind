@@ -18,6 +18,15 @@ import {
 } from '../acp/atlasMindAcpAgent.js';
 import { BuzzAcpReplyPublisher } from '../acp/buzzReplyPublisher.js';
 import { formatDryRunLedgerLine } from '../core/dryRun.js';
+import {
+  loadBuzzPersonaManifestFile,
+  manifestAgentDefinitions,
+  manifestToScope,
+  type BuzzPersonaManifest,
+} from '../core/buzzPersonaManifest.js';
+import { readCliPassEnvironment } from '../core/hostCommandEnvironment.js';
+import type { PersonaScope } from '../types.js';
+import { createManifestAcpAdapter, discoverManifestModels, once } from './manifestModelAccess.js';
 import { DryRunHost, installDryRunHost } from '../core/dryRunHost.js';
 import {
   BuzzCliBridge,
@@ -41,6 +50,8 @@ interface AcpAgentCliOptions {
    * setting and takes a flag instead. On for the life of the process.
    */
   dryRun: boolean;
+  /** A verified persona manifest the extension wrote; see `buzzPersonaManifest.ts`. */
+  buzzPersonaManifest?: string;
 }
 
 export function parseAcpAgentArgs(
@@ -52,6 +63,7 @@ export function parseAcpAgentArgs(
   let dailyLimitUsd = 0;
   let buzzAutoReply = false;
   let dryRun = false;
+  let buzzPersonaManifest: string | undefined;
   let help = false;
   let version = false;
   const errors: string[] = [];
@@ -92,6 +104,9 @@ export function parseAcpAgentArgs(
       case '--dry-run':
         dryRun = true;
         break;
+      case '--buzz-persona-manifest':
+        buzzPersonaManifest = value();
+        break;
       case '--help':
       case '-h':
         help = true;
@@ -113,6 +128,7 @@ export function parseAcpAgentArgs(
         dailyLimitUsd,
         buzzAutoReply,
         dryRun,
+        ...(buzzPersonaManifest ? { buzzPersonaManifest: path.resolve(buzzPersonaManifest) } : {}),
       }
       : undefined,
     help,
@@ -137,7 +153,35 @@ export async function runAcpAgent(
 
   const costTracker = new NodeCostTracker(options.dailyLimitUsd);
   const skillContext = createNodeSkillExecutionContext(options.workspaceRoot, memoryManager);
+  const log = (message: string): void => { process.stderr.write(`[atlasmind-acp] ${message}\n`); };
+
+  // A persona manifest is loaded and verified before anything can answer, and
+  // a refusal stops the process: answering as the legacy default instead would
+  // put a different team behind the persona's signed identity.
+  let manifest: BuzzPersonaManifest | undefined;
+  if (options.buzzPersonaManifest) {
+    const loaded = loadBuzzPersonaManifestFile(options.buzzPersonaManifest, options.workspaceRoot);
+    if (loaded.kind === 'refused') {
+      throw new Error(loaded.reason);
+    }
+    manifest = loaded.manifest;
+  }
+
   const adapters = createCliProviderAdapters();
+  // The manifest's ACP agents are the persona's subscription models. Without
+  // them a subscription-only user's persona has nothing to answer with.
+  const manifestAcpAdapter = manifest?.modelAccess
+    ? createManifestAcpAdapter({
+      access: manifest.modelAccess,
+      workspaceRoot: options.workspaceRoot,
+      clientVersion: version,
+      passEnvironment: readCliPassEnvironment(process.env).names,
+      log,
+    })
+    : undefined;
+  if (manifestAcpAdapter) {
+    adapters.push(manifestAcpAdapter);
+  }
   const permissionBroker = new AcpPermissionBroker();
   // Dry-run records go to stderr, which the ACP client shows as the agent's
   // log, never to stdout, which is the protocol stream.
@@ -165,6 +209,32 @@ export async function runAcpAgent(
   });
   syncProviderAvailability(runtime.modelRouter, adapters);
 
+  let personaScope: PersonaScope | undefined;
+  if (manifest) {
+    for (const agent of manifestAgentDefinitions(manifest)) {
+      runtime.agentRegistry.register(agent);
+      runtime.agentRegistry.enable(agent.id);
+    }
+    personaScope = manifestToScope(manifest, options.buzzAutoReply);
+    const models = manifest.modelAccess
+      ? `models from ACP agents ${manifest.modelAccess.acpAgents.map(agent => agent.id).join(', ')}`
+      : 'models from ATLASMIND_PROVIDER_* variables';
+    log(`Answering as persona ${manifest.persona.displayName} `
+      + `(${manifest.persona.agentIds.join(', ')}; ${models}; manifest ${manifest.fingerprint.slice(0, 12)}).`);
+  }
+  // Discovered on the first prompt, not at start-up: Buzz starts several copies
+  // of this process, and each would otherwise launch every agent before anybody
+  // asked anything.
+  const modelsReady = once(async () => {
+    if (!manifestAcpAdapter) {
+      return;
+    }
+    const discovery = await discoverManifestModels(runtime.modelRouter, manifestAcpAdapter);
+    log(discovery.kept
+      ? `ACP model discovery kept the seeded catalogue: ${discovery.kept}.`
+      : `ACP model discovery registered ${discovery.registered} model(s).`);
+  });
+
   let replyPublisher: BuzzAcpReplyPublisher | undefined;
   if (options.buzzAutoReply) {
     const bridge = new BuzzCliBridge(loadBuzzCliBridgeConfig({
@@ -181,7 +251,8 @@ export async function runAcpAgent(
     runtime,
     permissionBroker,
     replyPublisher,
-    log: message => process.stderr.write(`[atlasmind-acp] ${message}\n`),
+    ...(personaScope && manifest ? { personaScope, personaManifestFingerprint: manifest.fingerprint } : {}),
+    log,
   });
 
   // Keep the ESM-only official SDK behind a dynamic import so AtlasMind's
@@ -195,10 +266,18 @@ export async function runAcpAgent(
     .onRequest('initialize', ctx => implementation.initialize(ctx.params))
     .onRequest('authenticate', async () => ({}))
     .onRequest('session/new', ctx => implementation.newSession(ctx.params))
-    .onRequest('session/prompt', ctx => implementation.prompt(ctx.params, ctx.client))
+    .onRequest('session/prompt', async ctx => {
+      await modelsReady();
+      return implementation.prompt(ctx.params, ctx.client);
+    })
     .onNotification('session/cancel', ctx => implementation.cancel(ctx.params))
     .connect(stream);
-  await connection.closed;
+  try {
+    await connection.closed;
+  } finally {
+    // Live subscription sessions are child processes; they end with this one.
+    manifestAcpAdapter?.dispose();
+  }
 }
 
 export async function runAcpAgentCli(): Promise<number> {
@@ -236,6 +315,8 @@ function printHelp(output: NodeJS.WritableStream): void {
     '  --daily-limit-usd <n>    Stop model requests at this daily cost ceiling',
     '  --buzz-auto-reply        Publish final answers through Buzz’s communication-only CLI bridge',
     '  --dry-run                Describe every tool call and Buzz reply that would act, and run none of them',
+    '  --buzz-persona-manifest <path>',
+    '                           Answer as the Buzz persona in this AtlasMind-written manifest (outside the workspace)',
     '  --help                   Show this help',
     '  --version                Show the AtlasMind version',
     '',

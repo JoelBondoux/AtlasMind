@@ -28,6 +28,10 @@ import {
   DEBT_MARKER_BLOCK_START,
   ROADMAP_SYNC_BLOCK_START,
   syncRoadmapInstructions,
+  buildMemorySsotMarkdown,
+  MEMORY_SSOT_BLOCK_START,
+  MEMORY_SSOT_BLOCK_END,
+  syncMemorySsotInstructions,
 } from '../../src/utils/testingProtocolSync.ts';
 import { isSafeRelativePath } from '../../src/utils/aiInstructionSync.ts';
 import type { AgentDefinition, ProjectTestingConfig } from '../../src/types.ts';
@@ -194,6 +198,55 @@ describe('roadmap instruction sync', () => {
     const claude = readFileSync(path.join(workspace, 'CLAUDE.md'), 'utf8');
     expect(claude).toContain('# Existing Claude rules');
     expect(claude).toContain(ROADMAP_SYNC_BLOCK_START);
+  });
+});
+
+describe('Project Memory SSOT instruction sync', () => {
+  it('tells every agent to read memory first, keep it current in the same change, and write answers back', () => {
+    const markdown = buildMemorySsotMarkdown('workspace_memory');
+    expect(markdown).toContain('`workspace_memory/` is this project\'s single source of truth');
+    expect(markdown).toContain('Read Project Memory before code');
+    expect(markdown).toContain('`## Maintained Pages`');
+    expect(markdown).toContain('`workspace_memory/domain/product-facts.md`');
+    expect(markdown).toContain('in the same change');
+    expect(markdown).toContain('settle it in the code once and record the');
+    expect(markdown).toContain('`workspace_memory/index/import-freshness.md`');
+    // The fact that makes the rule necessary at all.
+    expect(markdown).toContain('AtlasMind\'s memory agent only runs on AtlasMind chat turns');
+    // Contradictions: a defined way to handle them, not a judgement call.
+    expect(markdown).toContain('Settle or record every contradiction');
+    expect(markdown).toContain('code is what the product does today');
+    expect(markdown).toContain('`workspace_memory/operations/contradictions.md`');
+    expect(markdown).toContain('do not guess');
+  });
+
+  it('falls back to the default path when a configured path is unsafe', () => {
+    const markdown = buildMemorySsotMarkdown('../outside`oops');
+    expect(markdown).toContain('`project_memory/project_soul.md`');
+    expect(markdown).not.toContain('outside');
+  });
+
+  it('is written alongside the testing block, in its own delimiters', async () => {
+    const claudePath = path.join(workspace, 'CLAUDE.md');
+    writeFileSync(claudePath, '# Rules\n');
+    await syncTestingProtocols(workspace, makeConfig(), agents);
+    await syncTestingProtocols(workspace, makeConfig(), agents);
+    const content = readFileSync(claudePath, 'utf8');
+    expect(content.split(MEMORY_SSOT_BLOCK_START)).toHaveLength(2);
+    expect(content).toContain(MEMORY_SSOT_BLOCK_END);
+    expect(MEMORY_SSOT_BLOCK_START).not.toBe(ROADMAP_SYNC_BLOCK_START);
+  });
+
+  it('seeds AGENTS.md on its own and preserves existing content', async () => {
+    writeFileSync(path.join(workspace, 'CLAUDE.md'), '# Existing Claude rules\n');
+    const result = await syncMemorySsotInstructions(workspace, 'project_memory');
+    expect(result.success).toBe(true);
+    expect(result.updated).toEqual(expect.arrayContaining(['AGENTS.md', 'CLAUDE.md']));
+    expect(readFileSync(path.join(workspace, 'AGENTS.md'), 'utf8')).toContain(MEMORY_SSOT_BLOCK_START);
+    const claude = readFileSync(path.join(workspace, 'CLAUDE.md'), 'utf8');
+    expect(claude).toContain('# Existing Claude rules');
+    expect(claude).toContain(MEMORY_SSOT_BLOCK_START);
+    expect(claude).not.toContain(ROADMAP_SYNC_BLOCK_START);
   });
 });
 

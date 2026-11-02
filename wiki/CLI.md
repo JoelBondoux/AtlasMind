@@ -201,7 +201,19 @@ atlasmind-acp --workspace /absolute/path/to/project
 ```
 
 It opens no network port. Options are `--workspace`, `--ssot`, `--daily-limit-usd`, `--buzz-auto-reply`,
-`--dry-run`, `--help` and `--version`.
+`--dry-run`, `--buzz-persona-manifest`, `--help` and `--version`.
+
+**`--buzz-persona-manifest <path>` answers as one Buzz persona.** The manifest is the one **AtlasMind: Prepare
+Buzz Persona Deployment** writes to its own storage. The agent registers exactly the agents it names, selects
+only among them, and checks the fingerprint first. It stops at start-up if the manifest was edited, is newer,
+is inside the workspace, or is not a plain file under 1 MB.
+
+**A persona answers from your subscriptions.** When your editor has ACP agents configured, the manifest
+also names them: their command, arguments and declared launch variables, never a sign-in. The persona
+starts them as answer-only sources and asks them what models they offer on the first message, not at
+start-up. With no ACP agent configured, it uses the `ATLASMIND_PROVIDER_*` variables as before. In Buzz,
+set **Parallelism** to 1: Buzz starts that many copies of the command, and AtlasMind schedules its own
+work.
 
 **`--dry-run` is the editor's dry run for the ACP agent.** It runs in its own process, launched by a client
 that is not VS Code, so it cannot read `atlasmind.dryRun.enabled` and takes a flag instead, on for the life
@@ -214,17 +226,21 @@ client's agent log — as `[atlasmind-acp] [dry run] …`, never to stdout, whic
 Run **AtlasMind: Copy Buzz ACP Agent Setup** from the Command Palette. What gets copied contains **no
 credentials** — just the exact values for your open workspace.
 
-In Buzz, create a managed agent:
+**AtlasMind: Prepare Buzz Persona Deployment** registers the harness in Buzz Desktop's custom-harness
+folder for you. In Buzz, edit the agent, choose **AI configuration → Customize for this agent**, pick that
+harness under **Agent harness**, type any **Model**, and set **Advanced → Parallelism** to **1**.
+
+Where your Buzz build offers **Agent harness → Add custom harness…**, the copied JSON can be entered by hand:
 
 | Buzz field | What to put |
 |---|---|
-| Provider | **Custom command** |
-| Agent command | The copied runtime executable |
-| Agent arguments | Paste the copied arguments |
-| LLM provider | Leave blank |
-| Model | Leave blank |
+| Name | The copied `name` (one harness per persona — the manifest is in the arguments) |
+| Command | The copied `command` |
+| Arguments | Each entry of the copied `arguments`, one row each |
+| Env vars | `ELECTRON_RUN_AS_NODE=1`, plus a provider variable if the persona has no ACP agents |
+| Model (on the agent) | Any value — Buzz requires one, and only sends it to an agent that offers model choices, which AtlasMind does not |
 
-Set Buzz's parallelism to **1** — AtlasMind runs one orchestrator loop at a time.
+Set **Advanced → Parallelism** to **1** — AtlasMind runs one orchestrator loop at a time.
 
 Then give the agent one model route through its environment variables (`ELECTRON_RUN_AS_NODE=1` plus one
 of the `ATLASMIND_PROVIDER_*` keys or `ATLASMIND_LOCAL_OPENAI_BASE_URL`). AtlasMind never exports

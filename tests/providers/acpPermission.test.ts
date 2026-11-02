@@ -207,3 +207,41 @@ describe('selectAcpMcpServers — the allowlist is the grant', () => {
     expect(selectAcpMcpServers([stdio({ name: 'other' })], ['docs']).skipped).toEqual([]);
   });
 });
+
+describe('planAcpAskingMode — an agent is only run in a mode verified to ask', () => {
+  const modeOption = (values: string[], current = values[0]!) => ({
+    id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: current,
+    options: values.map(value => ({ value, name: value })),
+  });
+
+  it('enforces the declared asking mode for each verified agent', async () => {
+    const { planAcpAskingMode, ACP_ASKING_MODES } = await import('../../src/providers/acpPermission.ts');
+    expect(planAcpAskingMode('@agentclientprotocol/codex-acp', [modeOption(['read-only', 'agent', 'agent-full-access'], 'agent')]))
+      .toEqual({ status: 'enforce', optionId: 'mode', value: 'read-only' });
+    expect(planAcpAskingMode('@agentclientprotocol/claude-agent-acp', [modeOption(['auto', 'default', 'acceptEdits', 'bypassPermissions'])]))
+      .toEqual({ status: 'enforce', optionId: 'mode', value: 'default' });
+    // Every row says what it was checked against, so a reader knows when to re-check.
+    for (const entry of Object.values(ACP_ASKING_MODES)) {
+      expect(entry.verifiedWith).toMatch(/\d{4}-\d{2}-\d{2}/);
+    }
+  });
+
+  it('never declares a mode that does not ask', async () => {
+    const { ACP_ASKING_MODES } = await import('../../src/providers/acpPermission.ts');
+    for (const entry of Object.values(ACP_ASKING_MODES)) {
+      expect(['agent', 'agent-full-access', 'bypassPermissions', 'acceptEdits', 'dontAsk', 'auto']).not.toContain(entry.value);
+    }
+  });
+
+  it('refuses a verified agent whose session does not offer its asking mode', async () => {
+    const { planAcpAskingMode } = await import('../../src/providers/acpPermission.ts');
+    expect(planAcpAskingMode('@agentclientprotocol/codex-acp', []).status).toBe('unavailable');
+    expect(planAcpAskingMode('@agentclientprotocol/codex-acp', [modeOption(['agent'])]).status).toBe('unavailable');
+  });
+
+  it('calls an undeclared agent unverified rather than guessing a mode for it', async () => {
+    const { planAcpAskingMode } = await import('../../src/providers/acpPermission.ts');
+    expect(planAcpAskingMode('gemini-cli', [modeOption(['default', 'yolo'])]).status).toBe('unverified');
+    expect(planAcpAskingMode(undefined, []).status).toBe('unverified');
+  });
+});

@@ -333,5 +333,48 @@ export function describeAcpModelStanding(standing: AcpModelStanding): string {
   }
 }
 
+/**
+ * How an agent says "this model exists, but not on your plan".
+ *
+ * A model can be *offered* in the session's options and still be refused when
+ * a prompt is sent: codex-acp 1.1.7 lists the model named in the user's own
+ * `~/.codex/config.toml` whether or not the signed-in account may use it, and
+ * the refusal arrives as a relayed HTTP 400 — only after Codex has retried for
+ * about a minute. Nothing structured carries it, so it is matched on the
+ * wording, here and only here, against text read from a live failure:
+ *
+ *   Codex HTTP 400: The 'gpt-6.1-sol' model is not supported when using Codex
+ *   with a ChatGPT account.
+ *
+ * One rule per verified wording. An agent that rephrases simply stops matching,
+ * which degrades to the old behaviour (the turn fails with the agent's own
+ * message) rather than to a wrong conclusion.
+ */
+export const ACP_MODEL_UNAVAILABLE_RULES: ReadonlyArray<{ id: string; pattern: RegExp; verifiedWith: string }> = [
+  {
+    id: 'codex-chatgpt-plan',
+    pattern: /The '([^'\r\n]{1,120})' model is not supported when using Codex with a ChatGPT account/,
+    verifiedWith: 'codex-acp 1.1.7 against a ChatGPT-account sign-in, 2026-10-27',
+  },
+];
+
+/** The model an agent refused for this plan, or undefined when the error is something else. */
+export function classifyAcpModelUnavailable(message: string): { model: string; rule: string } | undefined {
+  for (const rule of ACP_MODEL_UNAVAILABLE_RULES) {
+    const match = rule.pattern.exec(message);
+    if (match?.[1]) {
+      return { model: match[1], rule: rule.id };
+    }
+  }
+  return undefined;
+}
+
+/** The model a session runs when none is chosen, read from its own options. */
+export function acpDefaultModelValue(
+  configOptions: ReadonlyArray<{ category?: string; currentValue: string }>,
+): string | undefined {
+  return configOptions.find(entry => entry.category === ACP_MODEL_CATEGORY)?.currentValue;
+}
+
 /** Re-exported so a caller wiring rows needs one import, not two. */
 export { ACP_EFFORT_TIERS };

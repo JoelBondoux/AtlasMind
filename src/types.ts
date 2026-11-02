@@ -596,6 +596,34 @@ export type AgentAutoUpdateCadence = 'never' | 'every-use' | 'daily' | 'weekly' 
  */
 export type AgentSkillPolicy = 'task-scoped' | 'allowlist' | 'all';
 
+/**
+ * How far a selected member's authority reaches inside a Buzz persona.
+ * `member` keeps the selected agent's own skills and never unions the skills
+ * of every member. `read-only` narrows every member to safe reads. `allowlist`
+ * intersects the member with these skill ids.
+ */
+export type PersonaSkillCeiling =
+  | { mode: 'member' }
+  | { mode: 'read-only' }
+  | { mode: 'allowlist'; skillIds: string[] };
+
+/**
+ * The host-owned limit on one persona turn (`Orchestrator.processTaskInScope`).
+ * It comes from the host, never from prompt context: selection, handoff and
+ * skills are narrowed to these members, and nothing outside them is selected,
+ * delegated to or synthesised.
+ */
+export interface PersonaScope {
+  personaId: string;
+  /** The only agents this turn may select or hand off to. */
+  allowedAgentIds: string[];
+  /** Chosen when no member matches the request; must be one of `allowedAgentIds`. */
+  preferredAgentId: string;
+  skillCeiling: PersonaSkillCeiling;
+  /** Set when the ACP host, not the model, publishes the final Buzz reply. */
+  hostDelivery?: 'buzz-acp';
+}
+
 export interface AgentDefinition {
   id: string;
   name: string;
@@ -4882,6 +4910,34 @@ export interface SubTaskExecutionArtifacts {
   stoppedAtAnnouncement?: boolean;
   changedFiles: ChangedWorkspaceFile[];
   diffPreview?: string;
+  /**
+   * The turn was handed to an ACP agent that acted with its own tools, and
+   * this is AtlasMind's record of it — see `src/core/acpDelegation.ts`.
+   */
+  delegation?: DelegatedExecutionRecord;
+}
+
+/**
+ * AtlasMind's record of a turn an ACP agent carried out with its own tools.
+ * `changedFiles` is read from the workspace (git) before and after, not from
+ * the agent's account; the agent's account is the cross-check.
+ */
+export interface DelegatedExecutionRecord {
+  /** The routed model, e.g. `acp/codex@gpt-5.6-terra`. */
+  model: string;
+  /** `git`: compared against the working tree. `unverified`: the agent's report only, with the reason. */
+  verification: 'git' | 'unverified';
+  verificationNote?: string;
+  changedFiles: ChangedWorkspaceFile[];
+  /** Changed, but named by no tool call the agent reported — a command, usually. */
+  unreportedChanges: string[];
+  /** Changed with no rollback point AtlasMind took first, so a rollback will not restore them. */
+  notCheckpointed: string[];
+  /** The checkpoint the approved edits were captured under (`CheckpointManager`). */
+  checkpointTaskId?: string;
+  toolCallCount: number;
+  /** The agent's own last published plan for the turn. */
+  plan?: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed'; priority?: 'high' | 'medium' | 'low' }>;
 }
 
 export interface SubTaskResult {
@@ -5011,6 +5067,8 @@ export interface ProjectRunSubTaskArtifact {
    * third-party — unknown is not clear.
    */
   provenance?: TurnProvenance;
+  /** Present when the subtask was handed to an ACP agent; see `DelegatedExecutionRecord`. */
+  delegation?: DelegatedExecutionRecord;
 }
 
 export interface ProjectRunLogEntry {

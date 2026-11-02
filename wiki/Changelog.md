@@ -19,6 +19,123 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.516.2 -- Buzz harness folder on every platform
+
+The folder AtlasMind writes a Buzz persona's harness into is now worked out with the target platform's own
+path rules, so it is found the same way whichever operating system computes it.
+
+---
+
+## v0.516.1 -- Project Memory protections, tightened
+
+Open contradictions are checked for credentials before Atlas quotes them in its own chat context. Pages
+listed under *Maintained Pages* are now protected on every import write, including the freshness report
+and generated agent pages. **Align all instruction sets** keeps a custom `atlasmind.ssotPath` instead of
+pointing agents back at `project_memory/`.
+
+---
+
+## v0.516.0 -- Every agent keeps Project Memory current
+
+AtlasMind's memory agent only runs on AtlasMind chat turns, so work done in other tools never reached
+Project Memory unless that agent wrote it. After an import, AtlasMind now writes a **Project Memory is the
+source of truth** rule into every agent instruction file: read memory before code for a simple check,
+update the page in the same change as the fact, and write back anything you had to look up. Pages you
+maintain, listed under *Maintained Pages* in `project_soul.md` or written without an import footer, are
+never overwritten by import. New projects get a `domain/product-facts.md` page. A contradiction between
+memory, docs and code is fixed in the same change when that is clear and in scope; otherwise it goes in
+`operations/contradictions.md`, and AtlasMind shows the open ones at start-up, in the freshness report and
+in Atlas's chat context until they are ticked. The freshness report lists
+edited imports that have fallen behind their sources, with the version they were generated at.
+
+---
+
+## v0.515.0 -- AtlasMind registers the Buzz harness for you
+
+Some Buzz Desktop 0.5 builds have nowhere to type a command or arguments: the agent editor offers only
+*Agent harness*, *ACP command*, *LLM provider* and *Model*. Buzz does load harnesses from JSON files in
+its own `custom_harnesses` folder, so **AtlasMind: Prepare Buzz Persona Deployment** now writes the
+persona's harness there after you confirm. The harness holds the launch command and arguments, no
+credentials. You pick it under **Agent harness**, type any Model and set Parallelism to 1. A harness
+AtlasMind did not register is never overwritten.
+
+---
+
+## v0.514.1 -- Buzz setup steps that match Buzz
+
+The recipe AtlasMind copies for Buzz described fields from an older Buzz Desktop. It now follows 0.5's
+agent editor, read from Buzz's own source: **Agent harness → Add custom harness…**, a Name, a Command,
+one Argument per row, and Env vars. Each persona gets its own harness. Buzz still asks for a Model, so
+type any value: Buzz only sends a model to an agent that offers model choices, and AtlasMind picks its own.
+
+---
+
+## v0.514.0 -- Know which Buzz identity runs each persona
+
+**AtlasMind: Verify Buzz Persona Deployment** copies a one-time check to post in a Buzz channel AtlasMind
+watches. The persona answers it with a fixed line and no model. AtlasMind verifies the answer's signature
+itself and requires its owner's NIP-OA authorisation, so somebody typing the answer with their own key is
+refused. You then confirm the owner key before the identity is recorded, on this machine only. An answer
+from an older manifest, a late answer, and a revoked identity are each refused and named. The Director
+page gains a *Buzz agents* card: each persona's lead, team size, ceiling and state, the suggestions not yet
+accepted, and the three persona commands. Personas stay mention-only; the card says why channel default
+routing is not offered yet.
+
+---
+
+## v0.513.0 -- A Buzz persona answers from your subscriptions
+
+The process Buzz launches for a persona had no way to reach the Claude or Codex subscriptions you use in
+the editor, so a subscription-only persona started and had nothing to answer with. Its manifest now
+carries your ACP agents' launch settings (command, arguments, declared launch variables), never a sign-in.
+The persona answers through the same agents the editor routes to, as completion sources only. A launch
+variable that looks like a credential refuses the manifest and is named, and its value is never shown.
+Models are discovered on the first message, not at start-up. The Buzz recipe now uses Buzz Desktop's own
+field names (Provider → Custom command, Agent command, Agent runtime args, Parallelism) and asks for one
+copy instead of Buzz's default ten.
+
+---
+
+## v0.512.0 -- One Buzz identity, a team behind it
+
+**AtlasMind: Recommend Buzz Personas** suggests teams such as AM Engineer and AM Oversight from your
+enabled agents, using a published rule table, and shows why each agent is in each team. A saved
+persona answers in Buzz as one identity, but chooses its worker only from its members. It never hands
+off outside them and never gives a member more authority than its own; AM Oversight only reads.
+**AtlasMind: Prepare Buzz Persona Deployment** writes the launch recipe. Creating the identity in Buzz
+stays your step.
+
+## v0.511.0 -- Know who authorised a Buzz agent, and cut one off
+
+When a Buzz agent's message carries its owner's attestation, AtlasMind checks it, and shows the agent as
+*authorised by* that person. **AtlasMind: Revoke a Buzz Identity** stops a person's or an agent's
+messages from becoming work, including messages from any agent a revoked person authorised, and shows
+the owner the Buzz-side command to run. A repository can add a revocation and can never lift yours.
+
+## v0.510.0 -- Hand a step to Codex or Claude, and keep the record
+
+With ACP tools on, a step routed to a subscription agent is handed over whole: the agent works in the
+step's own folder, each file it edits is snapshotted before AtlasMind approves the edit, and the files
+it changed are read from git afterwards rather than taken from its description. The Project Run Center
+shows what changed, what the agent did not mention, what has no rollback point, and the agent's plan.
+Codex's approval prompts now name the files, and a step an agent has already acted on is never
+retried automatically.
+
+## v0.509.3 -- ACP agents ask before they act
+
+Codex's default ACP mode edited files and ran commands without asking, so AtlasMind's approval gate
+never saw them, even with ACP tools off. Every Claude and Codex session now runs in the agent's
+verified asking mode, re-checked before each turn; an agent that switches mode mid-turn has the turn
+cancelled, and an agent with no verified asking mode cannot be given tools. A named model
+(`acp/claude@haiku`) now runs as that model after the probe cache expires, a model your plan refuses
+is dropped after the first refusal, Codex's startup warnings stay out of answers, and a stale
+`CODEX_PATH` is reported as a settings problem. The Buzz outbound smoke test now passes against a
+real relay with both buzz CLI 0.4.26 and the CLI shipped with Buzz Desktop 0.5.28.
+
+## v0.509.1 -- Published baseline refreshed
+
+The README now names v0.509.0 as the last Marketplace publication.
+
 ## v0.509.0 -- CI runner switch and panels that stay open
 
 Workflows that opt in read the `ATLASMIND_CI_RUNNER` repository variable in `runs-on`. AtlasMind

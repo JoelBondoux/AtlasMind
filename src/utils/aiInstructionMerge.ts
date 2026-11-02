@@ -38,7 +38,9 @@ import {
 import {
   MANAGED_BLOCK_START,
   MANAGED_BLOCK_END,
+  MEMORY_SSOT_MARKERS,
   ROADMAP_SYNC_MARKERS,
+  buildMemorySsotMarkdown,
   buildRoadmapSyncMarkdown,
 } from './testingProtocolSync.js';
 import { stripManagedBlock, upsertManagedBlock, type ManagedBlockMarkers } from './managedBlock.js';
@@ -67,7 +69,7 @@ const ATLASMIND_SOURCE_PATHS = [
  * that the file exists, looks correct, and does nothing.
  */
 const CURSOR_RULE_FRONT_MATTER =
-  '---\ndescription: AtlasMind project rules — roadmap SSOT, testing policy, technical-debt markers, and GitHub workflow\nalwaysApply: true\n---\n\n';
+  '---\ndescription: AtlasMind project rules — Project Memory SSOT, roadmap SSOT, testing policy, technical-debt markers, and GitHub workflow\nalwaysApply: true\n---\n\n';
 
 /**
  * Markdown instruction files that can host the managed block, keyed by tool.
@@ -199,6 +201,7 @@ function readFullInstructionContent(workspaceRoot: string, relativePath: string)
     content = stripManagedBlock(content, SHARED_INSTRUCTIONS_MARKERS);
     content = stripManagedBlock(content, TESTING_PROTOCOL_MARKERS);
     content = stripManagedBlock(content, ROADMAP_SYNC_MARKERS);
+    content = stripManagedBlock(content, MEMORY_SSOT_MARKERS);
     return content;
   } catch {
     return undefined;
@@ -461,9 +464,14 @@ export async function applyManagedInstructionBlock(
   workspaceRoot: string,
   renderedByTool: Record<string, string>,
   unified: MergeDirective[],
+  // The configured memory root. Without it, alignment would rewrite the rules
+  // an import installed for a custom `atlasmind.ssotPath` back to the default,
+  // pointing every agent at a directory the project does not use.
+  ssotPath = 'project_memory',
 ): Promise<InstructionWritebackResult> {
   const fallback = renderUnifiedMarkdown(unified);
-  const roadmapBody = buildRoadmapSyncMarkdown();
+  const roadmapBody = buildRoadmapSyncMarkdown(ssotPath);
+  const memoryBody = buildMemorySsotMarkdown(ssotPath);
   const updated: string[] = [];
   const skipped: { path: string; reason: string }[] = [];
 
@@ -488,7 +496,11 @@ export async function applyManagedInstructionBlock(
     try {
       const existing = present ? readFileSync(resolved, { encoding: 'utf8' }) : (target.frontMatter ?? '');
       const withShared = upsertManagedBlock(existing, body, SHARED_INSTRUCTIONS_MARKERS);
-      const next = upsertManagedBlock(withShared, roadmapBody, ROADMAP_SYNC_MARKERS);
+      // The memory rule is deterministic rather than part of the rendered shared
+      // block, so every tool is told exactly the same thing about keeping
+      // Project Memory current.
+      const withMemory = upsertManagedBlock(withShared, memoryBody, MEMORY_SSOT_MARKERS);
+      const next = upsertManagedBlock(withMemory, roadmapBody, ROADMAP_SYNC_MARKERS);
       if (next !== existing || !present) {
         // Only when seeding: an existing file's directory is already there, and
         // calling this on every write would be a side effect on the common path

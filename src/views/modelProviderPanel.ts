@@ -1519,6 +1519,10 @@ export async function useSubscriptionForProvider(atlas: AtlasMindContext, provid
     return;
   }
 
+  if (probe.misconfigured) {
+    await reportAcpAgentMisconfigured(probe.message);
+    return;
+  }
   if (!probe.authenticated) {
     await offerAcpSignIn(bridge.command);
     return;
@@ -1690,6 +1694,22 @@ export async function chooseAcpConsoleMode(force = true): Promise<boolean> {
  * It is modal because it is the step the user has to act on, it leads with the
  * exact command to run, and it offers the walkthrough that checks each step.
  */
+/**
+ * The agent was never started because its launch settings name a file that is
+ * not there. Opens the setting rather than a login: signing in again cannot
+ * fix a path, and offering it is how this failure used to send people in a loop.
+ */
+async function reportAcpAgentMisconfigured(message: string | undefined): Promise<void> {
+  const choice = await vscode.window.showWarningMessage(
+    'This ACP agent\'s launch settings need fixing before it can start.',
+    { modal: true, detail: message ?? 'A path in the agent\'s launch settings could not be found.' },
+    'Open ACP agent settings',
+  );
+  if (choice === 'Open ACP agent settings') {
+    await vscode.commands.executeCommand('workbench.action.openSettings', 'atlasmind.acp.agents');
+  }
+}
+
 async function reportAcpAgentNotInstalled(command: string, agentId: string): Promise<void> {
   const [{ findAcpBridgeByAgent }, { planAcpAgentInstall }, { findCommandExecutable }] = await Promise.all([
     import('../providers/acp.js'),
@@ -1878,6 +1898,10 @@ async function configureAcpProvider(atlas: AtlasMindContext): Promise<void> {
 
   if (!probe?.installed) {
     await reportAcpAgentNotInstalled(command, id);
+    return;
+  }
+  if (probe.misconfigured) {
+    await reportAcpAgentMisconfigured(probe.message);
     return;
   }
   if (!probe.authenticated) {

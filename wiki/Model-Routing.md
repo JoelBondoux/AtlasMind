@@ -6,6 +6,18 @@ pins a known Codex executable, and `env.CLAUDE_CODE_EXECUTABLE` pins Claude. Rec
 paths after app updates. Claude's Windows app login does not prove its standalone CLI is signed
 in; use that CLI's official sign-in flow. Verify a real reply, not just discovery.
 
+Prefer Codex Desktop's stable `…\Programs\OpenAI\Codex\bin\codex.exe` over a versioned path: a
+`CODEX_PATH` that no longer exists is reported as a settings problem, and on Windows the path is
+passed with forward slashes because codex-acp drops backslashes. Every ACP session is put into the
+agent's verified asking mode before any prompt (`read-only` for Codex, `default` for Claude), so
+edits and commands always reach AtlasMind's approval gate. `acp/<agent>@<model>` is honoured even
+after the probe cache expires; a model the plan refuses is remembered, refused at once next time and
+withdrawn from discovery. Codex's startup warnings go to the output channel, not into the answer.
+
+With tools enabled, a step routed to Codex or Claude is handed over whole: the agent works in the
+step's folder, every edit asks and is snapshotted before AtlasMind says yes, and the files it changed
+are read from git afterwards. Codex's approval prompts now name the files, which its own request leaves out.
+
 A failed probe excludes that agent's rows even when a sibling keeps ACP healthy. Unknown agent
 ids are refused. The observed legacy Codex warning-plus-JSON HTTP error fails the turn despite
 `end_turn`; ordinary prose, quoted examples and bare JSON remain answers. This compatibility
@@ -97,6 +109,10 @@ install button that couldn't work. Any other ACP agent works too — just name t
 Switch on `atlasmind.acp.toolsEnabled` (**Let subscription agents act**) and the router may also send it
 tool-backed work, where it uses its *own* tools and each operation is logged. Ordinary completions stay
 isolated even with that on.
+
+**A Buzz persona uses the same agents.** The process Buzz starts for a persona can't read your settings,
+so the persona's manifest carries the agents' launch commands, never their sign-ins. There they only answer;
+they never act.
 
 **The agent list is read from a pinned copy of the official registry, not fetched live.** A launch
 command that arrived over the network and was then executed would be remote code execution with extra

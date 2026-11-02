@@ -1,13 +1,16 @@
 # Buzz (buzz.xyz) Integration — Phased Roadmap
 
-> **Status:** Tier 1b implementation complete; a real-relay smoke test remains before the live-send
-> gate is closed. Tier 2 guided connector shipped and ARD discovery still planned. Tier 3's
+> **Status:** Tier 1b complete — the real-relay smoke test passed on 2026-10-27 (v0.509.3) with buzz
+> CLI 0.4.26 and the CLI shipped with Buzz Desktop 0.5.28. Tier 2 guided connector shipped and ARD discovery still planned. Tier 3's
 > protocol/policy/derivation **foundation** shipped (v0.147.0) and its `BuzzClient` subscription
 > (v0.148.0), NIP-42 Schnorr signing (v0.149.0), **real-relay validation (v0.149.2 — which caught a
 > wrong message kind)**, and the wiring + agent bindings (v0.150.0). **Tier 3 is complete and
-> switchable-on.** Tier 4 reciprocal ACP transport shipped in v0.238.0; per-agent key generation,
-> authorization grants, signed A2A handoff, and revocation remain planned. Tier 5 — Director-
-> recommended, orchestration-backed Buzz persona teams — is specified below and remains planned.
+> switchable-on.** Tier 4 reciprocal ACP transport shipped in v0.238.0, and its grant and revocation
+> halves in v0.511.0 (verified NIP-OA attestations plus AtlasMind's own revocation list — Buzz mints the
+> keys). Tier 5 — Director-recommended, orchestration-backed Buzz persona teams — shipped Phases 1–4 in
+> v0.512.0 (persona file, rule-table suggestions, scoped orchestration, manifest + ACP flag) with a
+> command surface; Phase 0's two-identity check, the Director cards, nonce verification and default
+> routing remain.
 > **Owner:** AtlasMind core. **Created:** 2026-07-25.
 > This is the SSOT north star for integrating Buzz into AtlasMind. Build incrementally,
 > respecting the entry criteria between tiers. Nothing here overrides AtlasMind's
@@ -110,9 +113,19 @@ comms machinery, with zero speculative protocol code.
   to channel posts and 64-character public keys route to DMs; Slack or Teams cannot receive a Buzz
   recipient by capability-ranking accident.
 
-**Remaining completion check:** run one channel post, thread read, and DM against a disposable
-identity on a real Buzz v0.4.26 installation. The local development machine did not have `buzz` on
-PATH, so unit/contract/package verification is complete but the external relay smoke test is not.
+**Completion check — passed 2026-10-27 (v0.509.3).** One channel post, one threaded reply, a thread
+read and a DM, through AtlasMind's own `BuzzCliBridge`, with disposable identities (nothing sent as
+the owner), 11/11 checks with each of:
+
+| CLI | Relay | Result |
+|---|---|---|
+| buzz CLI 0.4.26 (cargo build, on PATH) | `ghcr.io/block/buzz:main` pinned by digest `sha256:289fc1d1…`, local compose, loopback only | pass |
+| buzz CLI shipped with Buzz Desktop 0.5.28 | same | pass |
+
+The pinned v0.4.26 contract probes still pass against the 0.5.28 CLI, so the pin holds across the
+0.5 line. The same run re-verified inbound: `BuzzClient` authenticates (NIP-42), subscribes, and
+receives the posted message as **kind 9** with the `h` channel tag, on a relay 176 commits ahead of
+the Desktop release. No sha tag is published for the Desktop release commit, hence `main` by digest.
 
 **Reuse map:** `handleDirectorSendComms` + the `{modal:true}` auth gate + the `outboundEnabled`
 project flag + `handleOpenContactDeepLink` + `ALLOWED_DEEPLINK_SCHEMES` +
@@ -369,17 +382,15 @@ Deliberate design choices:
 repeat sightings update nothing rather than duplicating, with a per-batch cap.
 
 **Remaining across the whole integration:**
-- Tier 1b's real-relay **smoke test for outbound** (Joel's, still open).
+- ~~Tier 1b's real-relay **smoke test for outbound**~~ — passed 2026-10-27 (v0.509.3).
 - Tier 2's **ARD Agent Finder** — still blocked on whether Buzz publishes a verifiable
-  `ai-catalog.json`.
+  `ai-catalog.json` (buzz.xyz published none as of 2026-10-28).
 - The **p-gate** remains confirmed only indirectly: auth intercepts a kind-less query before the gate
   can answer. Re-run `--discover` on a relay without auth to close it.
-- **Tier 4 identity half** (agent keypairs, signed A2A handoffs, revocation) — unstarted, and gated
-  on a threat model + security review. The reciprocal ACP transport shipped in v0.238.0: Buzz can
-  launch AtlasMind as a managed Custom-command agent and AtlasMind can reply through validated Buzz
-  context. The new agent bindings remain a *natural stepping stone*: they already express "this
-  AtlasMind agent corresponds to that Buzz identity", which the remaining work would extend from a
-  reference into a custodied keypair and revocable grant.
+- ~~**Tier 4 identity half**~~ — shipped v0.511.0 as *verify, don't custody* (see Tier 4). Still open
+  there: reading the relay's NIP-IA archive snapshot as an extra signal.
+- **Tier 5 Phases 0, 5 and 6** — the two-identity compatibility check on a real relay, the Director
+  *Buzz Agents* cards, nonce verification of a deployed identity, and default routing (see Tier 5).
 
 **Still owed for Tier 3:**
 1. ~~**Schnorr signing**~~ — **done in v0.149.0.** `buildAuthEventTemplate` returns an *unsigned*
@@ -486,7 +497,27 @@ read-thread / send-DM only).
 ## Tier 4 — Self-sovereign agent identities & A2A
 
 **Status:** reciprocal `buzz-acp` → `atlasmind-acp` execution and reply transport shipped v0.238.0.
-The identity/key-custody/grant/revocation work below remains planned.
+**The grant and revocation halves shipped v0.511.0, redesigned around what Buzz 0.5 actually ships**
+(see the decision below). Signed agent-to-agent handoff is folded into Tier 5's persona deployment.
+
+### Decided (2026-10-28): verify, don't custody
+
+The plan below had AtlasMind mint a keypair per agent and record the human's grant itself. By Buzz
+Desktop 0.5.28 Buzz does both: a managed agent's key is minted by Desktop after the owner reviews it
+(`buzz agents draft-create` opens the prefilled form), and the owner's grant is a **NIP-OA** `auth` tag
+the agent attaches to its events. Custodying keys AtlasMind does not need would add the secret material
+the MAJOR-version warning was about, for no capability Buzz lacks. So:
+
+- **Grant → verified.** `buzzOwnerAttestation.ts` checks NIP-OA against the published spec and test
+  vectors; checked against the four grants Desktop 0.5.28 issued on the owner's machine, all valid.
+  Desktop's grants carry **empty conditions** — they never expire.
+- **Revocation → AtlasMind's own list.** NIP-IA archiving hides an identity on a relay, but the archived
+  identity can un-archive itself (the spec's anti-shadowban rule), and an unconditioned grant cannot be
+  aged out. `atlasmind.buzz.revokedIdentities` (union of scopes) drops a revoked identity's work and that
+  of every agent it authorised; the revoke command shows the owner `buzz agents archive`, and says that
+  removing the key from the relay's members (NIP-43/NIP-AA) is what locks it out.
+- **Not done:** reading the relay's NIP-IA archive snapshot (kind 13535, signed by the NIP-11 `self`
+  key — the local relay publishes one) as an additional signal.
 
 **Goal:** AtlasMind's orchestrated agents get their own Buzz Nostr keypairs, sign their own work,
 and coordinate in channels with a full, human-attributable audit trail.
@@ -507,7 +538,18 @@ and revocation; explicit opt-in. This is a MAJOR-version-class change (new secre
 
 ## Tier 5 — Director-recommended Buzz persona teams
 
-**Status:** planned. This section is the implementation contract for future agents.
+**Status:** Phases 1–4 shipped in v0.512.0; Phases 0, 5 (Director cards) and 6 remain. This section is
+the implementation contract for future agents.
+
+**Shipped in v0.512.0.** `buzzPersonaProfiles.ts` (the persona file, schema kind `buzz-agents`,
+`schemas/buzz-agents.schema.json`), `buzzAgentRecommendations.ts` (the family rule table — role words
+count only for an agent that declares no routing needs, and read-only advisors stay in AM Oversight),
+`personaScope.ts` plus `Orchestrator.processTaskInScope` (members-only selection, handoff and skill
+ceilings, host-delivery envelope with Buzz sends withheld), and `buzzPersonaManifest.ts` plus
+`atlasmind-acp --buzz-persona-manifest`. In place of the Director cards for now: **AtlasMind: Recommend
+Buzz Personas** (accept / not now, dismissals in workspace state) and **AtlasMind: Prepare Buzz Persona
+Deployment** (manifest to extension storage, recipe to the clipboard, resynchronise when definitions
+change). Nothing reports an identity created or verified: that is Phase 5's nonce check.
 
 **Goal:** expose a small, comprehensible AtlasMind team in Buzz — for example **AM Engineer**,
 **AM Business**, **AM Marketing**, and **AM Oversight** — without publishing every internal
@@ -695,10 +737,29 @@ under a running signed identity without review is not a safe convenience.
 
 #### Phase 0 — compatibility contract
 
+**Progress (0.513.0, 2026-10-28).** Two AM identities exist on the local relay (Atlas Engineer
+`2d8927…`, Atlas Coordinator `88e215…`). Both failed to start because they were created with Buzz's own
+`buzz-agent` runtime and an LLM provider named "Atlas Mind" (`BUZZ_AGENT_PROVIDER=Atlas Mind not
+supported`). AtlasMind is a **custom harness** in Buzz, not an LLM provider. Buzz Desktop 0.5.28 (read from its
+`desktop-v0.5.28` source, corrected in 0.514.1) registers one at Edit agent → AI configuration: Customize
+for this agent → Agent harness → Add custom harness… (Name, Command, one Argument per row, Env vars), still
+requires a Model (never sent to AtlasMind, which offers no model options), and has Advanced →
+Parallelism (default 10). A persona process launched with a manifest now answers
+from the user's ACP subscriptions. Verified end to end over ACP: AM Engineer selected `docs-writer`,
+which answered through `acp/codex@gpt-6-luna` with no API key. Still owed for Phase 0: the two
+identities reconfigured as custom commands, one shared channel, and the mention/default/allowlist/replay
+checks below.
+
 - Verify Buzz Desktop persistence/exposure of per-channel mention rules and author allowlists.
 - Verify the ACP prompt carries authenticated destination/mention metadata sufficient for exclusive
   default dispatch.
 - Pin the two-agent real-relay scenario above, including Windows custom-command launch behavior.
+
+**Harness registration (0.515.0).** The owner's Buzz 0.5.28 build has no command/arguments editor at
+all (Agent harness, ACP command, LLM provider, Model only). Buzz loads custom harnesses from
+`<app-data>/custom_harnesses/*.json`, so the prepare command now registers `atlasmind-<persona>.json`
+there; the person only picks it. Registered by hand for the live test: `atlasmind-am-engineer`,
+`atlasmind-am-coordinator`.
 
 #### Phase 1 — project model
 
@@ -729,12 +790,25 @@ under a running signed identity without review is not a safe convenience.
 
 #### Phase 5 — Director and setup
 
+**Progress (0.514.0, 2026-10-28).** Nonce verification and a Director *Buzz agents* card shipped.
+**AtlasMind: Verify Buzz Persona Deployment** issues the check; the persona process answers it without
+a model; the extension verifies the signature and the NIP-OA owner attestation itself and records the
+identity after the person confirms the owner key (`buzzPersonaVerification.ts`, `buzzPersonaDeployments.ts`).
+The card shows each persona's state and the pending suggestions and opens the three commands. Still owed:
+an in-card profile editor (customising is the file today), per-channel response modes, and the owner /
+colleague allowlist step of the deployment walkthrough.
+
 - Build Recommended / Active cards, profile editor, channel/default constraints, diagnostics, manifest
   resync, setup copy, and nonce verification.
 - Do not place secret values, raw messages, full agent prompts, or local workspace paths in the
   dashboard snapshot.
 
 #### Phase 6 — default routing and operational proof
+
+**Gate in place (0.514.0).** Every persona is shown as mention-only, with the reason
+(`PERSONA_DEFAULT_ROUTING_UNAVAILABLE`). buzz-acp 0.5.28 offers `--subscribe all` and per-channel config
+but no rule that keeps a default quiet when another persona is mentioned; whether its `[Event]` context
+names who was mentioned is what Phase 0's two-identity run has to show before AtlasMind can enforce it.
 
 - Enable default mode only after Phase 0's exclusive-dispatch contract passes for the detected Buzz
   version. Otherwise render the mode as unavailable with the exact reason.

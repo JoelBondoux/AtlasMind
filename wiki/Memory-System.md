@@ -112,11 +112,41 @@ you first, and never rewritten; nothing else in the soul changes.
 Imported files carry metadata about where they came from and what they looked like at the time. So:
 
 - **Re-importing refreshes what changed** and skips what didn't
-- **Files you edited by hand after import are preserved**
+- **Files you edited by hand after import are preserved** — and if their sources have moved on since,
+  `index/import-freshness.md` lists them under **Needs Attention**, with the version they were generated at
+- **Maintained pages are never overwritten.** A page listed under `## Maintained Pages` in
+  `project_soul.md`, or one with no import footer, is yours: import skips it, even where it would
+  normally write (for example `domain/product-capabilities.md`)
 - **AtlasMind notices when memory has gone stale** — it warns you, pins a row at the top of the Memory
   view, and offers **Update Project Memory**
 - **While VS Code is open**, it watches your saves, creations, deletions and renames, and quietly
   re-imports when something makes memory out of date
+
+### Every agent keeps it current, not just AtlasMind
+
+AtlasMind's memory agent only runs on AtlasMind chat turns. Work you do in Claude Code, Codex, Copilot,
+Cursor or Gemini reaches Project Memory only if *that* agent writes it. So after an import AtlasMind
+writes a short **Project Memory is the source of truth** rule into each agent's instruction file
+(`CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md` and the rest), inside its own managed block:
+read memory before code for a simple check, update the page in the same change as the fact, and write
+back anything that had to be looked up. **Align all instruction sets** and the testing sync write the same
+block.
+
+A new project also gets `domain/product-facts.md`, a maintained page for what the product does, its
+limits, defaults and tiers, listed under *Maintained Pages* in its soul.
+
+### When memory, docs and code disagree
+
+The same rule tells every agent, AtlasMind's own included, what to do about a contradiction:
+
+- **The code is what the product does today**; a recorded ruling or decision is what it *should* do, so
+  code that contradicts a ruling is a bug to raise, not a fact to copy.
+- **If the fix is in scope and clear, fix the wrong side** in the same change and say so.
+- **Otherwise, record it** as a `- [ ]` line under *Open* in `operations/contradictions.md`, naming both
+  sides and why it wasn't settled, and tell you.
+
+AtlasMind keeps open entries in front of you until you tick them: a notice at start-up with **Open Log**,
+an *Open Contradictions* section in `index/import-freshness.md`, and a line in Atlas's own chat context.
 
 ### Starting over
 

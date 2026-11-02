@@ -7,6 +7,7 @@ import {
   buildDebtMarkerMarkdown,
   buildWorkflowMarkdown,
   buildRoadmapSyncMarkdown,
+  buildMemorySsotMarkdown,
 } from '../../src/utils/testingProtocolSync.js';
 import { seedWorkflowConfig } from '../../src/core/workflowConfig.js';
 import type { AgentDefinition, ProjectTestingConfig } from '../../src/types.js';
@@ -107,6 +108,10 @@ describe('managed instruction blocks — published text is approved, not inciden
 
   it('renders the roadmap synchronization block exactly as approved', () => {
     expectMatchesApproved('roadmap-sync', buildRoadmapSyncMarkdown('project_memory'));
+  });
+
+  it('renders the Project Memory SSOT block exactly as approved', () => {
+    expectMatchesApproved('memory-ssot', buildMemorySsotMarkdown('project_memory'));
   });
 
   it('writes no workflow block at all when no workflow is declared', () => {
