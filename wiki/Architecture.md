@@ -1,5 +1,11 @@
 # Architecture
 
+Roadmap cleanup and document reconciliation keep their editing intent through tool selection and
+exploration limits. An unapplied edit is retried and may escalate before side effects; if unfinished,
+`stoppedWithoutChanges` in the execution artifacts keeps chat, model history and project results
+from reporting it complete. Read-only requests, dry runs, delegated ACP execution and inspected
+documents needing no changes are treated separately; approval and eligibility limits still apply.
+
 Session approval modes live in `src/core/toolApprovalManager.ts` and `src/core/approvalModes.ts`.
 Auto uses an isolated, tool-free Orchestrator review with guarded egress and separate spend records;
 Bypass grants eligible prompts; Ask revokes session/task/category grants. The host-only

@@ -85,6 +85,15 @@ describe('CLI adversarial prompt safety', () => {
       ...runtime.agentRegistry.get('default')!,
       allowedModels: ['local/echo-1'],
     };
+    // This adapter double genuinely implements tool calls. Declare that on its
+    // model rather than relying on the old pin bypass to ignore a routing gate.
+    runtime.modelRouter.registerProvider({
+      id: 'local', displayName: 'Local', apiKeySettingKey: '', enabled: true, pricingModel: 'free',
+      models: [{
+        id: 'local/echo-1', provider: 'local', name: 'Tool-capable test model', contextWindow: 128000,
+        inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'], enabled: true,
+      }],
+    });
 
     const result = await runtime.orchestrator.processTaskWithAgent({
       id: 'cli-adversarial-1',

@@ -234,6 +234,15 @@ The VS Code host creates `atlasmind-acp` launch shims beside the normal CLI shim
 
 ### Orchestrator (`src/core/orchestrator.ts`)
 
+Document maintenance intent includes roadmap/backlog cleanup and document reconciliation. Editing
+requests retain that intent through read-only exploration: after three qualifying rounds the nudge
+asks for the edit and verification, while investigation-only turns keep the diagnosis prompt.
+An edit request that settles without a successful file mutation (including moves and deletions) is retried within the loop and
+may escalate before side effects. If it still does not act, `SubTaskExecutionArtifacts.stoppedWithoutChanges`
+marks the result, model history and chat summary as incomplete; the project scheduler recognizes the
+deterministic notice as failure. Explicit read-only limits, dry runs, delegated ACP tools and an
+inspected no-op are handled separately. Selection and retry never widen authorization.
+
 Central coordinator. Receives a `TaskRequest` and:
 1. Selects the best agent via `AgentRegistry`.
 2. Gathers relevant memory slices via `MemoryManager.queryRelevant()`.

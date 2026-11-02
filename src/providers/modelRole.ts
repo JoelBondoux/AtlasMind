@@ -55,6 +55,7 @@ export type ModelRole =
   | 'embedding'
   | 'reranker'
   | 'transcription'
+  | 'text-cleanup'
   | 'speech-synthesis'
   | 'image-generation';
 
@@ -62,7 +63,7 @@ export type ModelRole =
 export interface ModelRoleRule {
   id: string;
   role: Exclude<ModelRole, 'conversational'>;
-  /** Name segments that identify this role. Matched whole, never as substrings. */
+  /** Whole name segments or exact raw IDs identifying this role; never substring matches. */
   markers: readonly string[];
   /** Stated on every exclusion so a missing model is explainable. */
   reason: string;
@@ -100,8 +101,14 @@ export const MODEL_ROLE_RULES: readonly ModelRoleRule[] = [
   {
     id: 'transcription-family',
     role: 'transcription',
-    markers: ['whisper', 'wav2vec', 'parakeet'],
+    markers: ['whisper', 'wav2vec', 'parakeet', 'transcribe', 'transcription'],
     reason: 'Speech recognition models transcribe audio and cannot answer a text prompt.',
+  },
+  {
+    id: 'dictation-cleanup-model',
+    role: 'text-cleanup',
+    markers: ['copilot-dictation-cleanup-nano'],
+    reason: 'This dictation cleanup model is a text postprocessor, not a general chat or coding model.',
   },
   {
     id: 'speech-synthesis-family',
@@ -190,7 +197,7 @@ export function classifyModelRole(modelId: string): ModelRoleAssessment {
 
   const segments = nameSegments(raw);
   for (const rule of MODEL_ROLE_RULES) {
-    if (rule.markers.some(marker => segments.has(marker))) {
+    if (rule.markers.some(marker => segments.has(marker) || raw === marker)) {
       return { role: rule.role, conversational: false, rule: rule.id, reason: rule.reason };
     }
   }

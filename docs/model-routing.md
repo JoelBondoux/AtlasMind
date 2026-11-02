@@ -252,6 +252,19 @@ Only `low`/`medium`/`high` are used because they are the only values every decla
 
 **Failover.** The directive is planned per model call, so a failover to a model with no declared control sends nothing rather than inheriting the previous model's parameter.
 
+## Non-conversational model exclusions
+
+`modelRole.ts` excludes transcription IDs carrying `transcribe` or `transcription` name segments,
+and the exact dedicated `copilot-dictation-cleanup-nano` model. It does not exclude the whole
+Voxtral family: conversational audio models remain eligible. The router checks role as well as
+the `chat` capability, so stale discovery metadata cannot re-admit a non-chat model. An agent pin
+narrows the eligible candidates and never bypasses a routing rejection.
+
+If an editing model reports that its write tools are unavailable, the orchestrator tries another
+eligible tool-capable model. A model that keeps proposing an edit without applying it can also
+escalate, within the existing attempt limits and only before side effects. Invalid-model errors
+are identified as model-ID rejection rather than presumed endpoint unavailability.
+
 ## Selection Algorithm
 
 ```

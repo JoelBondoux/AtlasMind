@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.516.2</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.516.4</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,29 +178,27 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.516.4
+
+**Requested roadmap and document edits follow through.** “Tidy up the roadmap” and “review and
+reconcile the document” receive editing tools. Investigation leads into applying the change, with
+bounded recovery and an explicit incomplete result if it cannot be applied. Transcription and
+dictation cleanup models are excluded from coding requests, including stale metadata and agent pins.
+
+## What's new in 0.516.3
+
+The last Marketplace publication is now **v0.516.2**, which carries everything since v0.509.0: Buzz
+persona verification and harness registration, every agent keeping Project Memory current, a defined way
+to handle contradictions between memory, docs and code, and the fixes since. Every release is written up
+in full in [CHANGELOG.md](CHANGELOG.md).
+
 ## What's new in 0.516.2
 
 **Buzz harness registration finds the right folder on every platform.** The folder AtlasMind writes a
 persona's harness into is now worked out with that platform's own path rules, so the answer no longer
 depends on which operating system runs it.
 
-## What's new in 0.516.1
-
-**Project Memory protections, tightened.** Open contradictions are checked for credentials before Atlas
-quotes them in chat. Pages you list as maintained are now protected on every import write, including the
-freshness report and agent pages. Aligning instruction sets keeps your configured memory folder.
-
-## What's new in 0.516.0
-
-**Every agent keeps Project Memory current, not just AtlasMind's.** After an import, AtlasMind writes a
-short rule into `CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md` and the other agent files:
-read Project Memory before code for a simple check, and update the page in the same change as the fact.
-Pages you maintain yourself are never overwritten by import, a new project gets a
-`domain/product-facts.md` page for them, and the freshness report now flags edited imports that have
-fallen behind their sources. When memory, docs and code disagree, agents fix it in the same change or
-record it in `operations/contradictions.md`, and AtlasMind keeps it in view until it is resolved.
-
-Only the three newest releases are summarised here. The last Marketplace publication, **v0.509.0**, is
+Only the three newest releases are summarised here. The last Marketplace publication, **v0.516.2**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
 [CHANGELOG.md](CHANGELOG.md).
 

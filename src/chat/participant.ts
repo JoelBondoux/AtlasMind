@@ -5545,6 +5545,8 @@ export function buildAssistantResponseMetadata(
     summary = result.autoDisabledProvider
       ? `${result.autoDisabledProvider.displayName} stopped before returning an answer.`
       : 'No usable answer was returned.';
+  } else if (result.artifacts?.stoppedWithoutChanges) {
+    summary = 'The requested workspace edit was not completed.';
   } else if (result.artifacts?.stoppedAtAnnouncement) {
     // Ahead of the attempt count. "Completed after 2 model attempts" headed a
     // turn whose whole reply was "I will now edit README.md …" — nothing was

@@ -4908,6 +4908,8 @@ export interface SubTaskExecutionArtifacts {
    * fire, not that the turn was checked and found complete.
    */
   stoppedAtAnnouncement?: boolean;
+  /** An editing request ended without a successful workspace file mutation after a bounded retry. */
+  stoppedWithoutChanges?: boolean;
   changedFiles: ChangedWorkspaceFile[];
   diffPreview?: string;
   /**

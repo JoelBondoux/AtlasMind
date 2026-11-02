@@ -19,6 +19,25 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.516.4 -- Carry document maintenance through to edits
+
+Roadmap cleanup and document reconciliation select editing tools. Repeated inspection leads into
+applying the requested change. A model that only proposes a fix is retried and may hand the work to
+a stronger model before side effects; an unfinished edit is reported explicitly in chat and project
+results. Read-only requests, dry runs and approval gates remain in force.
+
+Transcription and the dedicated Copilot dictation cleanup model cannot enter coding routing through
+stale capability metadata or agent pins. Invalid-model errors name the rejected identifiers rather
+than suggesting an endpoint outage.
+
+---
+
+## v0.516.3 -- Published baseline refreshed
+
+The README now names v0.516.2 as the last Marketplace publication.
+
+---
+
 ## v0.516.2 -- Buzz harness folder on every platform
 
 The folder AtlasMind writes a Buzz persona's harness into is now worked out with the target platform's own

@@ -565,6 +565,8 @@ export interface TurnCapabilityEnvelope {
 }
 
 interface TaskAttemptContext {
+  /** The operator requested a workspace edit, independently of which tools were selected. */
+  requiresWorkspaceChange?: boolean;
   taskId: string;
   agentId: string;
   /**
@@ -707,6 +709,16 @@ const READONLY_EXPLORATION_REPROMPT = [
   'Summarize the most likely cause, the smallest concrete fix, and the exact existing file path or UI area you would change next.',
   'Do not guess with hypothetical files. If you still cannot name the exact existing file path from the repository, use one final tool call to identify it first.',
 ].join(' ');
+
+const EDIT_EXPLORATION_REPROMPT = [
+  'You have already gathered several rounds of read-only workspace evidence.',
+  'Stop exploring unless one final tool call is strictly necessary.',
+  'Apply the requested change now using the available editing tools, then verify the result.',
+  'Use find-tool if an editing tool is missing. Do not end with a suggested fix.',
+  'If an approval or another concrete blocker prevents the edit, report it explicitly; do not claim completion.',
+].join(' ');
+
+export const UNAPPLIED_CHANGE_MARKER = '⚠️ **Requested change not completed**';
 
 /**
  * Core orchestrator – receives a task, selects an agent, retrieves
@@ -2404,7 +2416,9 @@ export class Orchestrator {
           baseTaskProfile,
         );
 
-    const initialModel = selectedInitialModel ?? agent.allowedModels?.find(modelId => this.router.getModelInfo(modelId));
+    // A pin narrows eligible candidates; it cannot resurrect a model the router
+    // rejected (including stale transcription metadata that still claims chat).
+    const initialModel = selectedInitialModel;
 
     // ── The project's declared testing policy, for any turn that could change
     // behaviour ─────────────────────────────────────────────────────────────
@@ -2680,6 +2694,8 @@ export class Orchestrator {
               completionCriteria: agent.completionCriteria,
               agentRole: agent.role,
               userMessage: request.userMessage,
+              requiresWorkspaceChange: turnCapabilities.writesAllowed
+                && requiresWorkspaceChange(request.userMessage, request.context),
               signal: request.signal,
               turnCapabilities,
               // What `find-tool` may reach. The eligible pool, not the registry:
@@ -2726,13 +2742,15 @@ export class Orchestrator {
             model: currentModel,
             providerId: selectedProvider,
             endpointScope,
-            status: taskAttempt.toolCapabilityMissing
+            status: taskAttempt.artifacts?.stoppedWithoutChanges ? 'error' : taskAttempt.toolCapabilityMissing
               ? 'capability-mismatch'
               : taskAttempt.escalationReason ? 'escalated' : 'completed',
             durationMs: Date.now() - attemptStartedAt,
             inputTokens: taskAttempt.completion.inputTokens,
             outputTokens: taskAttempt.completion.outputTokens,
-            ...(taskAttempt.toolCapabilityMissing
+            ...(taskAttempt.artifacts?.stoppedWithoutChanges
+              ? { reason: 'The requested workspace edit was not applied.' }
+              : taskAttempt.toolCapabilityMissing
               ? { reason: 'The model returned text instead of required tool calls.' }
               : taskAttempt.escalationReason
                 ? { reason: boundedAttemptReason(taskAttempt.escalationReason) }
@@ -3234,7 +3252,7 @@ export class Orchestrator {
     // Track agent and model performance after recovery so the outcome represents
     // what the user actually received. Unlike the old finish-reason-only grade,
     // this incorporates observable execution and verification evidence.
-    const success = completion.finishReason !== 'error';
+    const success = completion.finishReason !== 'error' && !executionArtifacts?.stoppedWithoutChanges;
     this.agents.recordOutcome(agent.id, success);
     const qualityCompletion = result.response === completion.content
       ? completion
@@ -3253,7 +3271,8 @@ export class Orchestrator {
         failedToolCallCount: executionArtifacts?.failedToolCallCount ?? 0,
         verificationSummary: executionArtifacts?.verificationSummary,
         tddStatus: executionArtifacts?.tddStatus,
-        incompleteDelivery: looksLikeIncompleteDelivery(result.response, agent.completionCriteria?.incompletePatterns),
+        incompleteDelivery: executionArtifacts?.stoppedWithoutChanges === true
+          || looksLikeIncompleteDelivery(result.response, agent.completionCriteria?.incompletePatterns),
       }),
       baseTaskProfile.reasoning,
     );
@@ -4039,11 +4058,14 @@ export class Orchestrator {
     let tddBlockedCaveatApplied = false;
     let announcedActionRepromptDone = false;
     let stoppedAtAnnouncement = false;
+    let changeRepromptDone = false;
+    let stoppedWithoutChanges = false;
     // Two different claims, kept apart: whether a file write *succeeded* (which
     // excuses an announcement — the change was made) and whether anything that
     // *could* change the workspace ran at all (which decides how strongly the
     // not-done notice may say nothing changed).
     let wroteWorkspaceFile = false;
+    let completedWorkspaceMutation = false;
     let sideEffectingToolRan = false;
     let readonlyExplorationTurns = 0;
     let readonlyExplorationNudged = false;
@@ -4296,6 +4318,35 @@ export class Orchestrator {
             ...completion,
             content: appendUnactedAnnouncementCaveat(completion.content, sideEffectingToolRan),
           };
+        }
+        // An edit request is still an edit request after the model has inspected
+        // files. A diagnosis, or "No files changed", cannot satisfy it. Keep
+        // this separate from action bias (which also covers read-only checks).
+        if (
+          context.requiresWorkspaceChange
+          && tools.length > 0
+          && !context.allowDelegatedToolExecution
+          && !dryRunNow()
+          && !completedWorkspaceMutation
+          && !stoppedAtAnnouncement
+          && !tddBlockedCaveatApplied
+          && !(toolArtifacts.some(entry => entry.toolName === 'file-read')
+            && /\bno (?:file )?changes? (?:are |were )?(?:needed|necessary|required)\b/i.test(completion.content))
+        ) {
+          if (!changeRepromptDone) {
+            changeRepromptDone = true;
+            messages.push({ role: 'assistant', origin: 'generated-instruction', content: completion.content });
+            messages.push({ role: 'user', origin: 'system-prompt', content: EDIT_EXPLORATION_REPROMPT });
+            onProgress?.('The requested edit has not been applied; asking the model to make the change or name its blocker.');
+            continue;
+          }
+          stoppedWithoutChanges = true;
+          completion = {
+            ...completion,
+            content: `${completion.content.trimEnd()}\n\n${UNAPPLIED_CHANGE_MARKER} — no successful workspace file change was recorded. ${sideEffectingToolRan ? 'Other actions ran; inspect their results before retrying.' : 'Only investigation was completed.'}`,
+          };
+          loopCapped = false;
+          break;
         }
         // Completion-integrity gate: if the response acknowledges work that was
         // not finished (e.g. "not yet wired", "important follow-up"), inject one
@@ -4977,6 +5028,10 @@ export class Orchestrator {
         if (requiresWriteCheckpoint(entry.toolCall.name, entry.toolCall.arguments) && !isFailedToolEntry(entry)) {
           wroteWorkspaceFile = true;
         }
+        if (!isFailedToolEntry(entry) && (requiresWriteCheckpoint(entry.toolCall.name, entry.toolCall.arguments)
+          || ['file-delete', 'file-move', 'rename-symbol', 'code-action', 'code-format'].includes(entry.toolCall.name))) {
+          completedWorkspaceMutation = true;
+        }
       }
 
       // Prune the oldest tool-exchange pairs when the messages array grows too
@@ -5004,7 +5059,12 @@ export class Orchestrator {
       if (!readonlyExplorationNudged && readonlyExplorationTurns >= READONLY_EXPLORATION_NUDGE_AFTER) {
         readonlyExplorationNudged = true;
         onProgress?.('AtlasMind has enough read-only evidence to stop searching and push for a concrete diagnosis or fix next.');
-        messages.push({ role: 'user', origin: 'system-prompt', content: READONLY_EXPLORATION_REPROMPT });
+        messages.push({
+          role: 'user', origin: 'system-prompt',
+          content: context.requiresWorkspaceChange && !dryRunNow()
+            ? EDIT_EXPLORATION_REPROMPT
+            : READONLY_EXPLORATION_REPROMPT,
+        });
         continue;
       }
 
@@ -5060,7 +5120,10 @@ export class Orchestrator {
 
     return {
       completion,
-      artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary, projectTddState, difficulty.failedToolCalls, stoppedAtAnnouncement),
+      artifacts: buildExecutionArtifacts(completion.content, toolArtifacts, checkpointedTools, verificationSummary, projectTddState, difficulty.failedToolCalls, stoppedAtAnnouncement, stoppedWithoutChanges),
+      ...(stoppedWithoutChanges && context.allowEscalation && !sideEffectingToolRan
+        ? { escalationReason: 'The model suggested a workspace edit without applying it.' }
+        : {}),
     };
   }
 
@@ -7314,9 +7377,10 @@ function buildExecutionArtifacts(
   projectTddState: ProjectTddState | undefined,
   failedToolCallCount: number,
   stoppedAtAnnouncement = false,
+  stoppedWithoutChanges = false,
 ): Omit<SubTaskExecutionArtifacts, 'changedFiles' | 'diffPreview'> | undefined {
   const tddArtifact = buildProjectTddArtifact(projectTddState, verificationSummary);
-  if (toolArtifacts.length === 0 && checkpointedTools.size === 0 && !verificationSummary && !tddArtifact && !stoppedAtAnnouncement) {
+  if (toolArtifacts.length === 0 && checkpointedTools.size === 0 && !verificationSummary && !tddArtifact && !stoppedAtAnnouncement && !stoppedWithoutChanges) {
     return undefined;
   }
 
@@ -7331,6 +7395,7 @@ function buildExecutionArtifacts(
     tddSummary: tddArtifact?.summary,
     checkpointedTools: [...checkpointedTools],
     ...(stoppedAtAnnouncement ? { stoppedAtAnnouncement: true } : {}),
+    ...(stoppedWithoutChanges ? { stoppedWithoutChanges: true } : {}),
   };
 }
 
@@ -7659,6 +7724,9 @@ export function classifySubTaskFailure(response: string): string | undefined {
   if (trimmed.includes(TOOL_EXECUTION_FAILURE_PREFIX)) {
     return 'Subtask ended on a tool-execution failure without recovering.';
   }
+  if (trimmed.includes(UNAPPLIED_CHANGE_MARKER)) {
+    return 'Subtask stopped without delivering the requested workspace edit.';
+  }
   // The marker is checked as well as the shape: the notice that marks an
   // unacted announcement can push the reply past `looksLikePreambleOnly`'s
   // length cap, and a subtask must not pass this boundary *because* the loop
@@ -7684,6 +7752,7 @@ export function classifySubTaskFailure(response: string): string | undefined {
 export function looksLikeToolCapabilityRefusal(response: string): boolean {
   const bounded = response.slice(0, 8_000);
   return [
+    /\b(?:write|edit|editing)\s+tools?\s+(?:are|is|was|were)\s+(?:not\s+available|unavailable|disabled|not\s+accessible)\b/i,
     /\b(?:workspace|file(?:system)?|terminal|process|git)?\s*tools?\s+(?:are|is)\s+(?:not\s+available|unavailable|disabled|not\s+accessible)\b/i,
     /\b(?:cannot|can'?t|unable to)\s+(?:access|execute|use|call|run)\s+(?:any\s+)?(?:workspace|file(?:system)?|terminal|process|git)?\s*tools?\b/i,
     /\bno\s+(?:file\s+(?:read|write)|file\s+search|terminal(?:\/process)?\s+execution|workspace\s+tools?)\s+available\b/i,
@@ -8002,8 +8071,28 @@ export function isToolAllowedByTurnEnvelope(
   return envelope.commandsAllowed && policy.category === 'terminal-read';
 }
 
-const TASK_SCOPED_WORKSPACE_PATTERN = /\b(?:workspace|repo(?:sitory)?|project|codebase|source|implementation|architecture|file|folder|directory|module|class|function|component|extension|webview|panel|sidebar|bug|issue|error|failure|regression|broken|debug|diagnos|inspect|investigat|review|verify|trace|log)\w*\b/i;
+const TASK_SCOPED_WORKSPACE_PATTERN = /\b(?:workspace|repo(?:sitory)?|project|codebase|source|implementation|architecture|file|folder|directory|module|class|function|component|extension|webview|panel|sidebar|bug|issue|error|failure|regression|broken|debug|diagnos|inspect|investigat|review|verify|trace|log|roadmap|backlog|document|readme|changelog|release notes)\w*\b/i;
 const TASK_SCOPED_ACTION_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|edit|write|add|create|delete|remove|move|rename|refactor|format|generate|scaffold|migrate|apply)\w*\b/i;
+const DOCUMENT_MAINTENANCE_PATTERN = /\b(?:tidy(?:\s+up)?|clean\s+up|reconcile|reconciling)\b/i;
+// Completion needs an editing verb, not the noun "changes" in "commit project changes".
+const WORKSPACE_CHANGE_ACTION_PATTERN = /\b(?:fix|patch|repair|resolve|implement|update|change|modify|edit|write|add|create|delete|remove|move|rename|refactor|format|generate|scaffold|migrate|apply)\b/i;
+const WORKSPACE_CHANGE_TARGET_PATTERN = /\b(?:roadmap|backlog|document|readme|changelog|release notes|file|folder|directory|code(?:base)?|source|implementation|module|class|function|component|extension|webview|panel|sidebar|bug|regression|layout)\w*\b/i;
+
+/** Execution intent comes from the operator's request, never a model's closing prose. */
+function requiresWorkspaceChange(userMessage: string, requestContext: Record<string, unknown>): boolean {
+  if (!deriveTurnCapabilityEnvelope(userMessage).writesAllowed || EXPLICIT_ADVICE_ONLY_PATTERN.test(userMessage)) {
+    return false;
+  }
+  const verificationOnly = /\b(?:did you|have you|was it|were they|check whether|verify whether|confirm whether)\b/i.test(userMessage);
+  if (verificationOnly) {
+    return false;
+  }
+  const prior = collectTaskSelectionContext(requestContext);
+  const contextualMutation = DEICTIC_ACTION_FOLLOWUP_PATTERN.test(userMessage)
+    && ACTIONABLE_WORKSPACE_CONTEXT_PATTERN.test(prior);
+  return ((WORKSPACE_CHANGE_ACTION_PATTERN.test(userMessage) || DOCUMENT_MAINTENANCE_PATTERN.test(userMessage))
+      && WORKSPACE_CHANGE_TARGET_PATTERN.test(userMessage)) || contextualMutation;
+}
 const TASK_SCOPED_TOOL_ACTION_PATTERN = /\b(?:send|schedule|publish|deploy|query|search|fetch|download|upload|open|list|show|start|stop|export|import|browse|call|post)\w*\b/i;
 const TASK_SCOPED_COMMAND_PATTERN = /\b(?:run|execute|install|build|compile|lint|format|terminal|shell|command|npm|pnpm|yarn|cargo|docker)\w*\b/i;
 const TASK_SCOPED_TEST_PATTERN = /\b(?:test|testing|atdd|tdd|bdd|acceptance|spec|coverage|vitest|jest|mocha|pytest|playwright|regression)\w*\b/i;
@@ -8147,8 +8236,10 @@ export function selectTaskScopedSkills(
     && !/\b(?:fix|patch|repair|implement|update|change|edit|write|create|delete|remove|move|rename|refactor)\b[^.!?\n]{0,40}\b(?:now|after|then|if)\b/i.test(userMessage);
   const contextualWorkspaceMutation = contextualAction
     && ACTIONABLE_WORKSPACE_CONTEXT_PATTERN.test(priorContext);
-  const mutation = (!verificationOnly && TASK_SCOPED_ACTION_PATTERN.test(userMessage))
-    || contextualWorkspaceMutation;
+  const mutation = deriveTurnCapabilityEnvelope(userMessage).writesAllowed
+    && !EXPLICIT_ADVICE_ONLY_PATTERN.test(userMessage)
+    && ((!verificationOnly && (TASK_SCOPED_ACTION_PATTERN.test(userMessage) || DOCUMENT_MAINTENANCE_PATTERN.test(userMessage)))
+      || contextualWorkspaceMutation);
   const action = mutation
     || TASK_SCOPED_TOOL_ACTION_PATTERN.test(userMessage)
     || contextualAction;
@@ -8471,6 +8562,13 @@ export function summarizeAttemptFailures(attempts: TaskModelAttempt[]): AttemptF
   }
 
   const uniqueEndpoints = new Set(failed.map(attempt => attempt.endpointScope));
+  if (failed.length > 0 && failed.every(attempt => /\binvalid[_ -]model\b/i.test(attempt.reason ?? ''))) {
+    return {
+      lines,
+      diagnosis: 'Every provider response rejected the requested model identifier. The endpoints answered; the selected model IDs could not serve these chat requests.',
+      remedy: 'Refresh model discovery in **AtlasMind: Model Providers** and choose an enabled chat model with tool support.',
+    };
+  }
   if (uniqueEndpoints.size === 1 && failed.length > 1) {
     return {
       lines,
@@ -9173,6 +9271,7 @@ function shouldBiasTowardDirectAction(userMessage: string, requestContext: Recor
   }
 
   return DIRECT_ACTION_BIAS_PATTERN.test(message)
+    || (DOCUMENT_MAINTENANCE_PATTERN.test(message) && TASK_SCOPED_WORKSPACE_PATTERN.test(message))
     || (DEICTIC_ACTION_FOLLOWUP_PATTERN.test(message) && ACTIONABLE_WORKSPACE_CONTEXT_PATTERN.test(collectActionableContext(requestContext)));
 }
 

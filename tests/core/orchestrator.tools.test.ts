@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { removeTempDir } from '../helpers/tempDir.ts';
@@ -16,6 +16,8 @@ import { MemoryManager } from '../../src/memory/memoryManager.ts';
 import { CostTracker } from '../../src/core/costTracker.ts';
 import { ProviderRegistry } from '../../src/providers/index.ts';
 import { TaskProfiler } from '../../src/core/taskProfiler.ts';
+import { fileEditSkill } from '../../src/skills/fileEdit.ts';
+import { fileReadSkill } from '../../src/skills/fileRead.ts';
 import type { AgentDefinition, MemoryEntry, ModelCapability, ModelStruggleState, SkillDefinition, SkillExecutionContext } from '../../src/types.ts';
 import type { ChatMessage, CompletionRequest, CompletionResponse, DelegatedTurnResult, ProviderAdapter } from '../../src/providers/adapter.ts';
 
@@ -3894,7 +3896,8 @@ describe('Orchestrator agentic loop', () => {
     const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
     expect(firstRequest?.messages[0]?.content).toContain('Execution bias hint:');
 
-    expect(result.response).toBe('I checked the workspace and the issue is in the chat panel layout code.');
+    expect(result.response).toContain('I checked the workspace and the issue is in the chat panel layout code.');
+    expect(result.response).toContain('Requested change not completed');
     expect(result.artifacts?.toolCallCount).toBe(1);
 
     const secondRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as CompletionRequest | undefined;
@@ -3953,7 +3956,8 @@ describe('Orchestrator agentic loop', () => {
     const firstRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as CompletionRequest | undefined;
     expect(firstRequest?.messages[0]?.content).toContain('Execution bias hint:');
     expect(firstRequest?.messages[0]?.content).toContain('Workspace investigation hint:');
-    expect(result.response).toBe('I checked the workspace and the issue is still in the chat panel layout code.');
+    expect(result.response).toContain('I checked the workspace and the issue is still in the chat panel layout code.');
+    expect(result.response).toContain('Requested change not completed');
     expect(result.artifacts?.toolCallCount).toBe(1);
 
     const secondRequest = (provider.complete as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as CompletionRequest | undefined;
@@ -5607,6 +5611,27 @@ describe('task-scoped skill context', () => {
     builtIn: true,
   });
 
+  it.each([
+    'The latest Roadmap reconcilliation seems to have added a bnch of nonsense entries such as "Examples are working". Please tidy up the roadmap.',
+    "yes, I'd like you to review and reconcile the document so it is a true and useful representation of what's left to do.",
+  ])('offers editing tools for the requested document maintenance: %s', message => {
+    const selected = selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      ['file-read', 'file-edit', 'file-write', 'diff-preview'].map(id => skill(id)),
+      message,
+    );
+    expect(selected.map(entry => entry.id)).toEqual(expect.arrayContaining(['file-read', 'file-edit', 'file-write']));
+  });
+
+  it('keeps a request to review the roadmap without changes read-only', () => {
+    const selected = selectTaskScopedSkills(
+      { skills: [], skillPolicy: 'task-scoped' },
+      ['file-read', 'file-edit', 'file-write'].map(id => skill(id)),
+      'Review the roadmap without changing it; explain only.',
+    );
+    expect(selected.map(entry => entry.id)).toEqual(['file-read']);
+  });
+
   it('selects a bounded workspace-and-test subset without unrelated capabilities', () => {
     const eligible = [
       'file-search', 'text-search', 'file-read', 'directory-list', 'code-symbols',
@@ -6544,6 +6569,228 @@ describe('a chat reply that only announces a change', () => {
   it('only says nothing changed when nothing that could change the workspace ran', () => {
     expect(appendUnactedAnnouncementCaveat('I will edit it.', false)).toContain('nothing was changed');
     expect(appendUnactedAnnouncementCaveat('I will edit it.', true)).not.toContain('nothing was changed');
+  });
+});
+
+describe('roadmap reconciliation follows through on the requested edits', () => {
+  const message = "yes, I'd like you to review and reconcile the document so it is a true and useful representation of what's left to do.";
+  const reply = (content: string): CompletionResponse => ({
+    content, model: 'local/echo-1', inputTokens: 8, outputTokens: 8, finishReason: 'stop',
+  });
+  const call = (id: string, name: string): CompletionResponse => ({
+    ...reply(''), finishReason: 'tool_calls',
+    toolCalls: [{ id, name, arguments: { path: '/workspace/roadmap.md', search: 'Examples are working', replace: '' } }],
+  });
+  const request = (userMessage = message) => ({
+    id: 'reconcile-roadmap', userMessage, context: {},
+    constraints: { budget: 'balanced' as const, speed: 'balanced' as const },
+    timestamp: new Date().toISOString(),
+  });
+  function skills(edit = vi.fn().mockResolvedValue('Updated roadmap.md')): SkillDefinition[] {
+    return ['file-read', 'file-edit'].map(id => ({
+      id, name: id, description: id, builtIn: true,
+      parameters: { type: 'object', properties: { path: { type: 'string' }, search: { type: 'string' }, replace: { type: 'string' } } },
+      execute: id === 'file-edit' ? edit : vi.fn().mockResolvedValue('Examples are working'),
+    }));
+  }
+
+  it('asks for the edit after repeated inspection instead of asking for a suggested fix', async () => {
+    const requests: CompletionRequest[] = [];
+    const edit = vi.fn().mockResolvedValue('Updated roadmap.md');
+    const provider: ProviderAdapter = {
+      providerId: 'local', listModels: async () => ['local/echo-1'], healthCheck: async () => true,
+      complete: vi.fn(async (req: CompletionRequest) => {
+        requests.push(structuredClone(req));
+        if (req.messages.some(m => m.role === 'tool' && m.toolName === 'file-edit')) {
+          return reply('Removed the spurious entry and reconciled the roadmap.');
+        }
+        if (req.messages.at(-1)?.content.includes('You have already gathered several rounds')) {
+          return req.messages.at(-1)?.content.includes('Apply the requested change')
+            ? call('edit-roadmap', 'file-edit')
+            : reply('Smallest fix: remove the entry. No files changed.');
+        }
+        return call(`read-${requests.length}`, 'file-read');
+      }),
+    };
+    const result = await makeOrchestrator(provider, skills(edit), makeSkillContext()).processTask(request());
+    expect(edit).toHaveBeenCalledTimes(1);
+    expect(result.response).toContain('Removed the spurious entry');
+    expect(requests.some(req => req.messages.some(m => m.content.includes('you would change next')))).toBe(false);
+  });
+
+  it('does not accept a suggested fix as completion of an editing request', async () => {
+    const edit = vi.fn().mockResolvedValue('Updated roadmap.md');
+    const provider = makeMockProvider([
+      call('read-roadmap', 'file-read'),
+      reply('Smallest fix: remove the spurious entry. No files changed.'),
+      call('edit-roadmap', 'file-edit'),
+      reply('Removed the spurious entry and reconciled the roadmap.'),
+    ]);
+    const result = await makeOrchestrator(provider, skills(edit), makeSkillContext()).processTask(request());
+    expect(edit).toHaveBeenCalledTimes(1);
+    expect(result.response).toContain('Removed the spurious entry');
+  });
+
+  it('applies the recovered edit through the real file-edit skill and preserves genuine backlog work', async () => {
+    const root = mkdtempSync(nodePath.join(tmpdir(), 'atlasmind-reconcile-'));
+    const roadmapPath = nodePath.join(root, 'roadmap.md');
+    writeFileSync(roadmapPath, '- [ ] Ship actual work\n- [ ] Examples are working\n');
+    const actualCall = (id: string, name: string): CompletionResponse => ({
+      ...call(id, name),
+      toolCalls: [{ id, name, arguments: { path: roadmapPath, search: '- [ ] Examples are working\n', replace: '' } }],
+    });
+    const provider = makeMockProvider([
+      actualCall('read-real-roadmap', 'file-read'),
+      reply('Smallest fix: remove the spurious entry. No files changed.'),
+      actualCall('edit-real-roadmap', 'file-edit'),
+      reply('Removed the spurious entry and preserved genuine backlog work.'),
+    ]);
+    try {
+      const context = makeSkillContext({
+        workspaceRootPath: root,
+        readFile: async path => readFileSync(path, 'utf8'),
+        writeFile: async (path, content) => { writeFileSync(path, content, 'utf8'); },
+      });
+      const result = await makeOrchestrator(provider, [fileReadSkill, fileEditSkill], context).processTask(request());
+      expect(readFileSync(roadmapPath, 'utf8')).toBe('- [ ] Ship actual work\n');
+      expect(result.artifacts?.toolCalls.some(tool => tool.toolName === 'file-edit')).toBe(true);
+      expect(result.artifacts?.stoppedWithoutChanges).toBeUndefined();
+    } finally {
+      removeTempDir(root);
+    }
+  });
+
+  it('marks an editing turn incomplete if it keeps suggesting a fix without writing', async () => {
+    const provider = makeMockProvider([
+      call('read-roadmap', 'file-read'),
+      reply('Smallest fix: remove the spurious entry. No files changed.'),
+    ]);
+    const result = await makeOrchestrator(provider, skills(), makeSkillContext()).processTask(request());
+    expect(result.response).toContain('Requested change not completed');
+    expect(result.modelAttempts?.at(-1)?.status).not.toBe('completed');
+  });
+
+  it.each(['file-delete', 'file-move'])('recognizes a completed %s as workspace mutation', async toolName => {
+    const mutate = vi.fn().mockResolvedValue('Updated workspace files.');
+    const provider = makeMockProvider([
+      call('mutate-document', toolName),
+      reply('Removed the obsolete document from its old location.'),
+    ]);
+    const available = [...skills(), { ...skills()[1]!, id: toolName, name: toolName, execute: mutate }];
+    const result = await makeOrchestrator(provider, available, makeSkillContext()).processTask(request('Remove the obsolete document from this workspace.'));
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(result.artifacts?.stoppedWithoutChanges).toBeUndefined();
+  });
+
+  it('does not require another file edit when asked to commit existing project changes', async () => {
+    const commit = vi.fn().mockResolvedValue('Committed project changes.');
+    const provider = makeMockProvider([
+      call('commit-existing-changes', 'git-commit'), reply('Committed project changes.'),
+    ]);
+    const available = [...skills(), { ...skills()[1]!, id: 'git-commit', name: 'git-commit', execute: commit }];
+    const result = await makeOrchestrator(provider, available, makeSkillContext()).processTask(request('Commit the project changes.'));
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(result.artifacts?.stoppedWithoutChanges).toBeUndefined();
+  });
+
+  it('keeps diagnosis-only requests free of edit requirements', async () => {
+    const edit = vi.fn();
+    const provider = makeMockProvider([
+      call('read-roadmap', 'file-read'),
+      reply('The spurious entry came from an archived checklist. No files changed.'),
+    ]);
+    const result = await makeOrchestrator(provider, skills(edit), makeSkillContext()).processTask(request('Review the roadmap read-only. Explain only; do not change anything.'));
+    expect(edit).not.toHaveBeenCalled();
+    expect(result.response).not.toContain('Requested change not completed');
+  });
+
+  it('recognizes the actual unavailable-write-tool wording from the chat log', () => {
+    expect(looksLikeToolCapabilityRefusal('No files were changed; a write tool was unavailable.')).toBe(true);
+  });
+
+  it.each([
+    ['No files were changed; a write tool was unavailable.', 'capability-mismatch'],
+    ['Smallest fix: remove the spurious entry. No files changed.', 'error'],
+  ])('hands an incomplete response to a healthy tool-capable provider: %s', async (response, status) => {
+    const edit = vi.fn().mockResolvedValue('Updated roadmap.md');
+    const provider = makeMockProvider([
+      call('read-roadmap', 'file-read'),
+      reply(response),
+    ]);
+    let fallbackCalls = 0;
+    const fallback: ProviderAdapter = {
+      providerId: 'openai', listModels: async () => ['openai/fixer'], healthCheck: async () => true,
+      complete: vi.fn(async () => ({
+        ...(fallbackCalls++ === 0 ? call('edit-roadmap', 'file-edit') : reply('Reconciled and updated the roadmap.')),
+        model: 'openai/fixer',
+      })),
+    };
+    const orchestrator = makeOrchestrator(provider, skills(edit), makeSkillContext(), undefined, [], [], undefined, undefined, undefined, undefined, {
+      extraProviders: [{ providerId: 'mistral', adapter: { ...provider, providerId: 'mistral' }, models: [{
+        id: 'mistral/draft', name: 'Draft', contextWindow: 128000,
+        inputPricePer1k: 0, outputPricePer1k: 0,
+        capabilities: ['chat', 'code', 'function_calling'],
+      }] }, { providerId: 'openai', adapter: fallback, models: [{
+        id: 'openai/fixer', name: 'Fixer', contextWindow: 128000,
+        inputPricePer1k: 0.003, outputPricePer1k: 0.015,
+        capabilities: ['chat', 'code', 'function_calling', 'reasoning'],
+      }] }],
+    });
+    const result = await orchestrator.processTask({
+      ...request(), constraints: { budget: 'balanced', speed: 'balanced', preferredModel: 'mistral/draft' },
+    });
+    expect(edit).toHaveBeenCalledTimes(1);
+    expect(result.modelUsed).toBe('openai/fixer');
+    expect(result.modelAttempts?.some(attempt => attempt.status === status)).toBe(true);
+    expect(result.artifacts?.stoppedWithoutChanges).toBeUndefined();
+  });
+
+  it('permits an evidenced no-op when inspection establishes no changes are needed', async () => {
+    const edit = vi.fn();
+    const provider = makeMockProvider([
+      call('read-roadmap', 'file-read'),
+      reply('No changes are needed: the document already matches the active roadmap items.'),
+    ]);
+    const result = await makeOrchestrator(provider, skills(edit), makeSkillContext()).processTask(request());
+    expect(edit).not.toHaveBeenCalled();
+    expect(result.artifacts?.stoppedWithoutChanges).toBeUndefined();
+    expect(result.response).not.toContain('Requested change not completed');
+  });
+
+  it('does not bypass role filtering through an agent pinned to a transcription model', async () => {
+    const provider = makeMockProvider([reply('This must never be called.')]);
+    const transcriber: ProviderAdapter = {
+      providerId: 'mistral', complete: vi.fn(async () => reply('This must never be called.')),
+      listModels: async () => ['mistral/voxtral-mini-transcribe-3'], healthCheck: async () => true,
+    };
+    const orchestrator = makeOrchestrator(provider, skills(), makeSkillContext(), undefined, [{
+      id: 'roadmap-maintainer', name: 'Roadmap maintainer', role: 'roadmap maintainer',
+      description: 'Review and reconcile the roadmap document', systemPrompt: 'Maintain roadmap documents.',
+      skills: ['file-read', 'file-edit'], allowedModels: ['mistral/voxtral-mini-transcribe-3'],
+    }], [], undefined, undefined, undefined, undefined, {
+      extraProviders: [{ providerId: 'mistral', adapter: transcriber, models: [{
+        id: 'mistral/voxtral-mini-transcribe-3', name: 'Transcriber', contextWindow: 128000,
+        inputPricePer1k: 0, outputPricePer1k: 0, capabilities: ['chat', 'code', 'function_calling'],
+      }] }],
+    });
+    const result = await orchestrator.processTaskWithAgent(request(), {
+      id: 'pinned-maintainer', name: 'Pinned maintainer', role: 'maintainer', description: 'Roadmap maintenance',
+      systemPrompt: 'Reconcile documents.', skills: ['file-read', 'file-edit'],
+      allowedModels: ['mistral/voxtral-mini-transcribe-3'], builtIn: false,
+    });
+    expect(transcriber.complete).not.toHaveBeenCalled();
+    expect(result.response).toContain('No enabled healthy models');
+  });
+
+  it('reports invalid model errors as model rejection, rather than an endpoint outage', () => {
+    const summary = summarizeAttemptFailures(['mistral/voxtral-mini-transcribe-3', 'mistral/voxtral-mini-transcribe-3-0'].map(model => ({
+      model, providerId: 'mistral', endpointScope: 'provider:mistral', status: 'error' as const,
+      durationMs: 1000, inputTokens: 0, outputTokens: 0,
+      reason: 'Mistral stream request failed (400): {"type":"invalid_model","message":"Invalid model"}',
+    })));
+    expect(summary.diagnosis).toContain('rejected the requested model');
+    expect(summary.diagnosis).not.toContain('says nothing about the models');
+    expect(summary.remedy).toContain('Refresh');
   });
 });
 

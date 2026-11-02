@@ -802,6 +802,21 @@ describe('participant helper logic', () => {
     );
   });
 
+  it('does not head an unapplied editing request "Completed" after model failures', () => {
+    const metadata = buildAssistantResponseMetadata('Reconcile the roadmap document', {
+      agentId: 'default', modelUsed: 'copilot/final', costUsd: 0.01, inputTokens: 100, outputTokens: 20,
+      artifacts: {
+        output: 'No files changed.', outputPreview: 'No files changed.',
+        toolCallCount: 3, toolCalls: [], checkpointedTools: [], stoppedWithoutChanges: true,
+      },
+      modelAttempts: [
+        { model: 'mistral/first', providerId: 'mistral', endpointScope: 'provider:mistral', status: 'error', durationMs: 1, inputTokens: 0, outputTokens: 0 },
+        { model: 'copilot/final', providerId: 'copilot', endpointScope: 'provider:copilot', status: 'error', durationMs: 1, inputTokens: 100, outputTokens: 20 },
+      ],
+    });
+    expect(metadata.thoughtSummary?.summary).toBe('The requested workspace edit was not completed.');
+  });
+
   it('does not head a turn "Completed" when it only announced the change', () => {
     // Observed: "Completed after 2 model attempts; 1 did not complete." above a
     // reply that said "I will now edit README.md …" and edited nothing.
