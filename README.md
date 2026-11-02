@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.515.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.516.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,16 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.516.0
+
+**Every agent keeps Project Memory current, not just AtlasMind's.** After an import, AtlasMind writes a
+short rule into `CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md` and the other agent files:
+read Project Memory before code for a simple check, and update the page in the same change as the fact.
+Pages you maintain yourself are never overwritten by import, a new project gets a
+`domain/product-facts.md` page for them, and the freshness report now flags edited imports that have
+fallen behind their sources. When memory, docs and code disagree, agents fix it in the same change or
+record it in `operations/contradictions.md`, and AtlasMind keeps it in view until it is resolved.
+
 ## What's new in 0.515.0
 
 **AtlasMind registers the Buzz harness for you.** Some Buzz 0.5 builds have no place to type a command
@@ -190,14 +200,6 @@ It never overwrites a harness AtlasMind did not register.
 **Buzz setup steps that match Buzz.** The recipe AtlasMind copies for Buzz now uses Buzz Desktop 0.5's
 real fields: *Agent harness → Add custom harness…*, with one argument per row and a harness per persona.
 It also tells you to type any value for the model Buzz still asks for; AtlasMind picks the model itself.
-
-## What's new in 0.514.0
-
-**Know which Buzz identity runs each persona.** **AtlasMind: Verify Buzz Persona Deployment** copies a
-one-time check to post in Buzz. The persona answers it without a model, and AtlasMind records the identity
-that answered, only if its signature and its owner's authorisation check out and you recognise the owner.
-The Director page has a new *Buzz agents* card showing each persona, its state and the suggested teams.
-Personas stay mention-only until channel default routing is proven.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.509.0**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
@@ -375,7 +377,7 @@ recipe; **AtlasMind: Verify Buzz Persona Deployment** records which Buzz identit
 | `src/core/quarantinedReader.ts` | The quarantined reader: a third-party tool result over 8,000 characters is read by a separate, tool-less model, and the agent gets a schema-checked extract and a handle instead of the raw text — the routing rules, the extraction prompt, the validator, the fallbacks and the approval-gated release |
 | `src/core/capabilitySearch.ts` | When `find-tool` finds no installed skill: sends the redacted, clamped query to the Agent Finders you enabled and returns up to five candidates to review and install — searching installs and grants nothing |
 | `src/runtime/` | Built-in agents and runtime composition |
-| `src/bootstrap/` | `/bootstrap` and its intake (`bootstrapper.ts`), and the question asked first — the project in your own words, kept verbatim and skippable, shared with the Describe the Project command (`projectBriefOnboarding.ts`) |
+| `src/bootstrap/` | `/bootstrap` and its intake (`bootstrapper.ts`), and the question asked first — the project in your own words, kept verbatim and skippable, shared with the Describe the Project command (`projectBriefOnboarding.ts`), and the Maintained Pages import never overwrites (`maintainedPages.ts`) |
 | `src/providers/` | Model provider adapters (the ACP bridge's launch-path checks live in `acpAgentEnvironment.ts`), catalogs, health, `modelRole.ts` (what a model is *for*), the local-GPU support layer — `gpuProbe.ts`, `localFootprint.ts`, `localRuntimeClient.ts` — and Unsloth Studio's native API, read from its source: identity before the key, server-side tools off, quant suggestion and its own GGUF catalogue (`unslothStudio.ts`) |
 | `src/skills/` | Built-in tools and skill handlers |
 | `src/memory/` | Project memory: retrieval, scanning, redaction, persistence |

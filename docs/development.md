@@ -258,7 +258,7 @@ AtlasMind/
 │   │   ├── lensCredentialCommand.ts Store and clear a connection string in SecretStorage
 │   │   └── lensLivePanel.ts Editor-hosted drift, reachability, and live trust results
 │   ├── voice/            TTS/STT: `voiceManager.ts` bridge, `hostSpeechSynthesizer.ts` (OS TTS), `localTranscriber.ts` (on-device Whisper STT)
-│   └── bootstrap/        Project bootstrapper (`bootstrapper.ts`) and the question it asks first — the project in your own words, kept verbatim and skippable, shared with the Describe the Project command (`projectBriefOnboarding.ts`)
+│   └── bootstrap/        Project bootstrapper (`bootstrapper.ts`) and the question it asks first — the project in your own words, kept verbatim and skippable, shared with the Describe the Project command (`projectBriefOnboarding.ts`), and the Maintained Pages import never overwrites (`maintainedPages.ts`)
 ├── schemas/
 │   ├── lens-mappings.schema.json VS Code guidance for repository-authored Lens mappings
 │   ├── lens-data-trust.schema.json VS Code guidance for explicit Lens field trust metadata

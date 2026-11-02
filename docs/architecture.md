@@ -3055,11 +3055,19 @@ The outbound counterpart to `aiInstructionSync.ts`. `syncTestingProtocols(worksp
 
 Two-way instruction-set sync, driving the `/sync-instructions` chat command and the Settings → AI Instructions "Align all instruction sets" action. Where `aiInstructionSync.ts` only imports other tools' instructions *into* AtlasMind, this module reconciles them *across* tools:
 
-- `gatherInstructionSources(workspaceRoot)` reads the full authored content of every detected tool file plus AtlasMind's own canonical instructions (`project_memory/agents/atlas-personality-profile.md`, `project_soul.md`), stripping AtlasMind-managed shared, testing, and roadmap blocks so the merge never re-ingests its own mirror.
+- `gatherInstructionSources(workspaceRoot)` reads the full authored content of every detected tool file plus AtlasMind's own canonical instructions (`project_memory/agents/atlas-personality-profile.md`, `project_soul.md`), stripping AtlasMind-managed shared, testing, roadmap and Project Memory blocks so the merge never re-ingests its own mirror.
 - `runInstructionMerge` / `parseMergeResult` run one LLM reconciliation (via the injected `complete()` — wired to `Orchestrator.completeBootstrap`) returning a unified directive set, auto-resolved minor differences, and only *genuinely contradictory* `conflicts`. Parsing is defensive: malformed/empty output throws before anything is written.
-- `runInstructionRender` / `renderUnifiedMarkdown` re-express the unified set in each tool's native format (deterministic fallback when the model omits a tool); `applyManagedInstructionBlock` upserts the result into each detected file's `<!-- atlasmind:shared-instructions:start -->` block and refreshes the separate roadmap block on every seeded target; `writeUnifiedToSsot` mirrors the set to `project_memory/domain/ai-instructions-sync.md`.
+- `runInstructionRender` / `renderUnifiedMarkdown` re-express the unified set in each tool's native format (deterministic fallback when the model omits a tool); `applyManagedInstructionBlock` upserts the result into each detected file's `<!-- atlasmind:shared-instructions:start -->` block and refreshes the separate Project Memory SSOT and roadmap blocks on every seeded target (both deterministic, so every tool reads identical wording); `writeUnifiedToSsot` mirrors the set to `project_memory/domain/ai-instructions-sync.md`.
 
 Significant conflicts are surfaced in chat and the writeback is gated on user resolution (recommended pick, per-option override, then apply); in-flight state lives in `workspaceState` (`atlasmind.pendingInstructionSync`).
+
+### Project Memory SSOT rule and maintained pages (`src/utils/testingProtocolSync.ts`, `src/bootstrap/maintainedPages.ts`)
+
+AtlasMind's memory agent only runs on AtlasMind chat turns, so work done in another tool reaches Project Memory only if that tool's agent writes it. `buildMemorySsotMarkdown(ssotPath)` renders the rule every agent is given — read memory before code for a simple check, update the page in the same change as the fact, write back what had to be looked up, prefer maintained pages to imported ones — and `syncMemorySsotInstructions` installs it in its own `<!-- atlasmind:memory-ssot:start -->` block (seeding `AGENTS.md`, dry-run held) at the end of every `importProject`. `syncTestingProtocols` and `applyManagedInstructionBlock` write the same block. The memory root is sanitised as for the roadmap rule, and the text is pinned by `tests/baselines/__approvals__/memory-ssot.approved.md`.
+
+`maintainedPages.ts` holds the pure rules import obeys: `parseMaintainedPages` reads the soul's `## Maintained Pages` list (traversal ignored), `buildMaintainedPagesSection` carries a project's list over when a starter soul is rewritten, `buildProductFactsStarter` is the `domain/product-facts.md` scaffolded next to a new soul, and `describeVersionDrift` words the freshness report's version note. In `bootstrapper.ts`, import skips a listed page or any footer-less, non-legacy page at an import path (`preserved-maintained`), does not count it stale, records the manifest `version` as `source-version:` in new footers, and lists edited imports whose sources moved on under **Needs Attention** in `index/import-freshness.md`.
+
+**Contradictions.** The rule's contradiction bullet (code is what ships today, a recorded ruling is what should ship; fix in the same change when in scope and clear, otherwise record and tell the user) has one durable home, `operations/contradictions.md`, scaffolded by `buildContradictionsStarter` beside a new soul. `parseOpenContradictions` returns its unticked entries; `ImportBuildSnapshot.openContradictions` carries them to `ProjectMemoryFreshnessStatus.openContradictions` (kept apart from `isStale`, since a re-import cannot resolve one), to the **Open Contradictions** section of the freshness report (and its fingerprint), to `reportOpenContradictions` in `extension.ts` (log line, plus a non-modal **Open Log** notice on the notifying start-up pass), and to `buildWorkspaceIdentityPrompt`, which gives AtlasMind's own turns the same rule and quotes up to five open entries.
 
 ### TerminalOutput (`src/utils/terminalOutput.ts`)
 
@@ -3660,7 +3668,7 @@ extension.ts
   │     │     └── core/websiteGenerationRunner.ts
   │     ├── views/missionControlPanel.ts
   │     │     └── core/missionRunner.ts (→ core/goalEvaluator.ts, core/missionRegistry.ts)
-  │     └── bootstrap/bootstrapper.ts (→ bootstrap/projectBriefOnboarding.ts)
+  │     └── bootstrap/bootstrapper.ts (→ bootstrap/projectBriefOnboarding.ts, bootstrap/maintainedPages.ts, utils/testingProtocolSync.ts)
   ├── views/treeViews.ts
   ├── views/modelSidebarVisibility.ts (user-level Models tree filtering + exact-entry restore)
   └── core/orchestrator.ts

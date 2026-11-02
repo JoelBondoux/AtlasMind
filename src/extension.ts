@@ -82,6 +82,7 @@ const BUZZ_GUIDE_SESSION_TITLE = 'Buzz setup';
  */
 const SETUP_TERMINAL_NAME = 'AtlasMind setup';
 import type { ProjectMemoryFreshnessStatus } from './bootstrap/bootstrapper.js';
+import { CONTRADICTIONS_PATH, parseOpenContradictions } from './bootstrap/maintainedPages.js';
 import type { SessionConversation, SessionPolicySnapshot } from './chat/sessionConversation.js';
 import type { VoiceManager } from './voice/voiceManager.js';
 import type { Orchestrator } from './core/orchestrator.js';
@@ -527,9 +528,31 @@ export function buildWorkspaceIdentityPrompt(
   const projectSoul = buildProjectSoulPrompt(options);
   if (projectSoul) {
     sections.push(`Project soul:\n${projectSoul}`);
+    // The same contradiction rule every other agent's instruction file carries,
+    // so AtlasMind's own turns follow it too, plus what is still open.
+    sections.push(buildProjectMemoryContradictionPrompt(options));
   }
 
   return sections.length > 0 ? sections.join('\n\n') : undefined;
+}
+
+/** Most open entries quoted into a chat turn; the log itself holds the rest. */
+const MAX_PROMPTED_CONTRADICTIONS = 5;
+
+function buildProjectMemoryContradictionPrompt(options?: WorkspaceIdentityPromptOptions): string {
+  const lines = [
+    'Project memory contradictions:',
+    '- When project memory, docs and code disagree, code is what the product does today and a recorded ruling or decision is what it should do. Fix the wrong side in the same change when that is in scope and clear; otherwise do not guess: add a `- [ ]` line under `## Open` in `operations/contradictions.md` naming both sides and why it was not settled, and tell the user.',
+  ];
+  const soulPath = resolveProjectSoulFilePath(options);
+  const logPath = soulPath ? path.join(path.dirname(soulPath), ...CONTRADICTIONS_PATH.split('/')) : undefined;
+  const readTextFile = options?.readTextFile ?? readTextFileIfExists;
+  const open = logPath ? parseOpenContradictions(readTextFile(logPath)) : [];
+  if (open.length > 0) {
+    const quoted = open.slice(0, MAX_PROMPTED_CONTRADICTIONS).map(item => summarizeForPolicy(item, 200));
+    lines.push(`- Open (${open.length}): ${quoted.join(' | ')}${open.length > MAX_PROMPTED_CONTRADICTIONS ? ' | …' : ''}`);
+  }
+  return lines.join('\n');
 }
 
 export function buildWorkspacePolicySnapshots(
@@ -1474,6 +1497,41 @@ function getConfiguredFeedbackRoutingWeight(): number {
   return Math.max(0, Math.min(2, configured));
 }
 
+/**
+ * Say, at start-up, that the contradictions log has open entries.
+ *
+ * Separate from the stale-memory warning on purpose: a re-import cannot settle
+ * a contradiction, so offering "Update Memory" for one would be a button that
+ * changes nothing. The action opens the log instead. Not modal, and only on
+ * the notifying start-up pass, so a project with open entries is told once per
+ * window rather than on every save.
+ */
+async function reportOpenContradictions(
+  workspaceFolder: vscode.WorkspaceFolder,
+  openContradictions: readonly string[],
+  outputChannel?: Pick<vscode.OutputChannel, 'appendLine'>,
+  options?: { notify?: boolean },
+): Promise<void> {
+  if (openContradictions.length === 0) {
+    return;
+  }
+  const count = `${openContradictions.length} open contradiction${openContradictions.length === 1 ? '' : 's'}`;
+  outputChannel?.appendLine(`[activate] memoryFreshness: ${count} recorded in ${CONTRADICTIONS_PATH}`);
+  if (!options?.notify) {
+    return;
+  }
+  const selection = await vscode.window.showInformationMessage(
+    `AtlasMind project memory has ${count} between memory, docs and code waiting to be resolved.`,
+    'Open Log',
+  );
+  if (selection === 'Open Log') {
+    const ssotPath = normalizeSsotPath(
+      vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', DEFAULT_SSOT_PATH),
+    ) ?? DEFAULT_SSOT_PATH;
+    await vscode.window.showTextDocument(vscode.Uri.joinPath(workspaceFolder.uri, ssotPath, CONTRADICTIONS_PATH));
+  }
+}
+
 async function refreshWorkspaceMemoryFreshness(
   workspaceFolder: vscode.WorkspaceFolder,
   outputChannel?: Pick<vscode.OutputChannel, 'appendLine'>,
@@ -1494,6 +1552,7 @@ async function refreshWorkspaceMemoryFreshness(
   const status = await getProjectMemoryFreshness(workspaceFolder.uri);
   await setSsotPresentContext(true);
   await setMemoryNeedsUpdateContext(status.isStale);
+  await reportOpenContradictions(workspaceFolder, status.openContradictions, outputChannel, options);
 
   if (!status.hasImportedEntries) {
     outputChannel?.appendLine('[activate] memoryFreshness skipped: no imported SSOT entries found');

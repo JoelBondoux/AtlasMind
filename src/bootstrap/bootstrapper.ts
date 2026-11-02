@@ -17,6 +17,18 @@ import {
   type ShopifyCompositionComponent,
 } from '../core/projectComposition.js';
 import { promptForProjectBrief, readProjectBriefAt, writeProjectBriefAt } from './projectBriefOnboarding.js';
+import {
+  CONTRADICTIONS_PATH,
+  PRODUCT_FACTS_PATH,
+  buildContradictionsStarter,
+  buildDefaultMaintainedPagesSection,
+  buildMaintainedPagesSection,
+  buildProductFactsStarter,
+  describeVersionDrift,
+  parseMaintainedPages,
+  parseOpenContradictions,
+} from './maintainedPages.js';
+import { syncMemorySsotInstructions } from '../utils/testingProtocolSync.js';
 import { buildSeedGameProfile, renderGameProfileMarkdown, serializeGameProfile } from '../core/gameProfile.js';
 import {
   interpretWorkflowConfigDocument,
@@ -2495,6 +2507,8 @@ function buildBootstrapProjectSoul(existing: string | undefined, intake: Bootstr
       '',
       buildBootstrapDocumentationPolicySection(intake),
       '',
+      buildMaintainedPagesSection(existing),
+      '',
       '## Imported References',
       ...(intake.ownWordsBriefStatus === 'given' || intake.ownWordsBriefStatus === 'already-written' ? ["- project-brief.md (the project in the owner's own words)"] : []),
       '- domain/project-brief.md',
@@ -3268,6 +3282,8 @@ function getStarterContent(filename: string): string {
         '',
         '## Key Decisions',
         '<!-- Link to decisions/ folder entries -->',
+        '',
+        buildDefaultMaintainedPagesSection(),
         '',
       ].join('\n');
     default:
@@ -6503,6 +6519,11 @@ export interface ProjectMemoryFreshnessStatus {
   staleEntryCount: number;
   staleEntries: string[];
   lastImportedAt?: string;
+  /**
+   * Unticked entries in the contradictions log. Reported apart from staleness:
+   * a re-import cannot resolve one, only a person or an agent deciding can.
+   */
+  openContradictions: string[];
 }
 
 interface ScannedImportFile {
@@ -6521,10 +6542,16 @@ interface ImportEntryCandidate {
 interface ImportEntryProcessingResult {
   path: string;
   title: string;
-  status: 'created' | 'refreshed' | 'unchanged' | 'preserved-manual-edits' | 'rejected';
+  status: 'created' | 'refreshed' | 'unchanged' | 'preserved-manual-edits' | 'preserved-maintained' | 'rejected';
   sourcePaths: string[];
   sourceFingerprint: string;
   reason?: string;
+  /** True when a preserved page's sources have moved on since it was generated. */
+  stale?: boolean;
+  /** When the preserved copy was generated, from its import footer. */
+  generatedAt?: string;
+  /** e.g. "generated from version 0.10.483; the manifest is now at 0.11.2". */
+  versionDrift?: string;
 }
 
 interface ImportEntryMetadata {
@@ -6534,16 +6561,24 @@ interface ImportEntryMetadata {
   sourcePaths: string[];
   sourceFingerprint: string;
   bodyFingerprint: string;
+  /** The manifest version the page was generated at, where the manifest has one. */
+  sourceVersion?: string;
 }
 
 interface ImportBuildSnapshot {
   now: string;
+  ssotRelPath: string;
   ssotRoot: vscode.Uri;
   scanned: Map<string, ScannedImportFile>;
   projectType: string | undefined;
   entries: ImportEntryCandidate[];
   readme: { path: string; content: string } | undefined;
   architectureDoc: { path: string; content: string } | undefined;
+  manifestVersion: string | undefined;
+  /** SSOT-relative paths listed under `## Maintained Pages` in the soul. */
+  maintainedPages: Set<string>;
+  /** Open entries in `operations/contradictions.md`. */
+  openContradictions: string[];
 }
 
 const IMPORT_GENERATOR_VERSION = 2;
@@ -6563,7 +6598,7 @@ export async function importProject(
     return { entriesCreated: 0, entriesSkipped: 0, projectType: undefined };
   }
 
-  const { now, ssotRoot, scanned, projectType, entries, readme, architectureDoc } = snapshot;
+  const { now, ssotRelPath, ssotRoot, scanned, projectType, entries, readme, architectureDoc, manifestVersion, maintainedPages, openContradictions } = snapshot;
 
   // 5. Project soul (upgrade starter template when it is still blank)
   const soulUri = vscode.Uri.joinPath(ssotRoot, 'project_soul.md');
@@ -6598,14 +6633,35 @@ export async function importProject(
       sourcePaths: candidate.sourcePaths,
       sourceFingerprint: candidate.sourceFingerprint,
       bodyFingerprint: getImportBodyFingerprint(candidate.content),
+      sourceVersion: manifestVersion,
     };
     const wrappedContent = appendImportMetadata(candidate.content, metadata);
     const targetUri = vscode.Uri.joinPath(ssotRoot, candidate.entry.path);
     const existingContent = await tryReadTextFile(targetUri);
     const existingMetadata = parseImportMetadata(existingContent);
+    // A maintained page is never written over: an overwritten SSOT page is
+    // worse than a stale one, because it looks current. The soul's list is the
+    // explicit claim; a page with no import footer (and not a pre-footer
+    // import) is the implicit one.
+    const maintainedReason = describeMaintainedPage(candidate.entry.path, existingContent, existingMetadata, maintainedPages);
+    if (maintainedReason) {
+      skipped++;
+      processedEntries.push({
+        path: candidate.entry.path,
+        title: candidate.entry.title,
+        status: 'preserved-maintained',
+        sourcePaths: candidate.sourcePaths,
+        sourceFingerprint: candidate.sourceFingerprint,
+        reason: maintainedReason,
+      });
+      continue;
+    }
     if (existingMetadata) {
       const existingBody = stripImportMetadata(existingContent ?? '');
       if (getImportBodyFingerprint(existingBody) !== existingMetadata.bodyFingerprint) {
+        // Preserved, but say whether the sources have moved on since: a page
+        // that silently stops refreshing is how SSOT goes stale unnoticed.
+        const stale = existingMetadata.sourceFingerprint !== candidate.sourceFingerprint;
         skipped++;
         processedEntries.push({
           path: candidate.entry.path,
@@ -6613,7 +6669,12 @@ export async function importProject(
           status: 'preserved-manual-edits',
           sourcePaths: candidate.sourcePaths,
           sourceFingerprint: candidate.sourceFingerprint,
-          reason: 'Existing imported file has local edits; AtlasMind preserved it.',
+          reason: stale
+            ? `Existing imported file has local edits; AtlasMind preserved it, but its sources have changed since it was generated on ${existingMetadata.generatedAt}. Move the edited facts to a maintained page, or delete this file so the next import regenerates it.`
+            : 'Existing imported file has local edits; AtlasMind preserved it.',
+          stale,
+          generatedAt: existingMetadata.generatedAt,
+          versionDrift: describeVersionDrift(existingMetadata.sourceVersion, manifestVersion),
         });
         continue;
       }
@@ -6657,7 +6718,12 @@ export async function importProject(
   }
 
   const supplementalEntries: ImportEntryCandidate[] = [];
-  const reportFingerprint = hashImportValue(processedEntries.map(item => `${item.path}:${item.status}:${item.sourceFingerprint}`));
+  // The open contradictions are part of the report, so they are part of what
+  // decides whether it needs rewriting.
+  const reportFingerprint = hashImportValue([
+    ...processedEntries.map(item => `${item.path}:${item.status}:${item.sourceFingerprint}`),
+    ...openContradictions.map(item => `contradiction:${item}`),
+  ]);
   const importCatalog = buildImportCatalog(processedEntries);
   if (importCatalog) {
     supplementalEntries.push({
@@ -6679,7 +6745,7 @@ export async function importProject(
     });
   }
 
-  const freshnessReport = buildImportFreshnessReport(processedEntries);
+  const freshnessReport = buildImportFreshnessReport(processedEntries, openContradictions);
   if (freshnessReport) {
     supplementalEntries.push({
       entry: {
@@ -6976,7 +7042,34 @@ export async function importProject(
     }
   }
 
+  // Every agent that works here, in any tool, is told to read this memory and
+  // keep it current. Import is the moment a project is known to use it.
+  try {
+    await syncMemorySsotInstructions(workspaceRoot.fsPath, ssotRelPath);
+  } catch {
+    // Non-fatal: the import itself succeeded.
+  }
+
   return { entriesCreated: created, entriesSkipped: skipped, projectType };
+}
+
+/**
+ * Why an import candidate's path holds a maintained page, or `undefined` when
+ * import may write it.
+ */
+function describeMaintainedPage(
+  entryPath: string,
+  existingContent: string | undefined,
+  existingMetadata: ImportEntryMetadata | undefined,
+  maintainedPages: ReadonlySet<string>,
+): string | undefined {
+  if (maintainedPages.has(entryPath)) {
+    return 'Listed under Maintained Pages in project_soul.md, so import never overwrites it.';
+  }
+  if (existingContent && existingContent.trim().length > 0 && !existingMetadata && !looksLikeLegacyImportedEntry(existingContent)) {
+    return 'Has no import footer, so it is a maintained page; import never overwrites it.';
+  }
+  return undefined;
 }
 
 export async function getProjectMemoryFreshness(
@@ -6989,8 +7082,10 @@ export async function getProjectMemoryFreshness(
       isStale: false,
       staleEntryCount: 0,
       staleEntries: [],
+      openContradictions: [],
     };
   }
+  const { openContradictions } = snapshot;
 
   const importedEntries = await collectImportedEntryMetadata(snapshot.ssotRoot);
   if (importedEntries.length === 0) {
@@ -7001,6 +7096,7 @@ export async function getProjectMemoryFreshness(
         isStale: true,
         staleEntryCount: legacyImportedEntries.length,
         staleEntries: legacyImportedEntries.map(entry => entry.entry.path),
+        openContradictions,
       };
     }
 
@@ -7009,6 +7105,7 @@ export async function getProjectMemoryFreshness(
       isStale: false,
       staleEntryCount: 0,
       staleEntries: [],
+      openContradictions,
     };
   }
 
@@ -7022,9 +7119,19 @@ export async function getProjectMemoryFreshness(
 
   for (const candidate of snapshot.entries) {
     const metadata = importedByPath.get(candidate.entry.path);
-    if (!metadata || metadata.sourceFingerprint !== candidate.sourceFingerprint) {
-      stalePaths.add(candidate.entry.path);
+    if (metadata && metadata.sourceFingerprint === candidate.sourceFingerprint) {
+      continue;
     }
+    // A maintained page sits where an import would go but is not an import, so
+    // it cannot be stale against the import's sources. Counting it would keep
+    // memory permanently "out of date" and re-run the import on every save.
+    const existingContent = metadata
+      ? undefined
+      : await tryReadTextFile(vscode.Uri.joinPath(snapshot.ssotRoot, candidate.entry.path));
+    if (describeMaintainedPage(candidate.entry.path, existingContent, metadata, snapshot.maintainedPages)) {
+      continue;
+    }
+    stalePaths.add(candidate.entry.path);
   }
 
   for (const metadata of importedEntries) {
@@ -7046,6 +7153,7 @@ export async function getProjectMemoryFreshness(
     staleEntryCount: stalePaths.size,
     staleEntries: [...stalePaths].sort(),
     lastImportedAt,
+    openContradictions,
   };
 }
 
@@ -7132,6 +7240,10 @@ async function buildImportSnapshot(
 
   const ssotRoot = vscode.Uri.joinPath(workspaceRoot, ssotRelPath);
   await ensureSsotStructure(ssotRoot);
+  const maintainedPages = parseMaintainedPages(
+    await tryReadTextFile(vscode.Uri.joinPath(ssotRoot, 'project_soul.md')),
+    ssotRelPath,
+  );
 
   const scanned = await scanImportFiles(workspaceRoot);
   const directoryListing = await getTopLevelDirectoryListing(workspaceRoot);
@@ -7393,13 +7505,32 @@ async function buildImportSnapshot(
 
   return {
     now,
+    ssotRelPath,
     ssotRoot,
     scanned,
     projectType,
     entries,
     readme,
     architectureDoc,
+    manifestVersion: readManifestVersion(manifest),
+    maintainedPages,
+    openContradictions: parseOpenContradictions(
+      await tryReadTextFile(vscode.Uri.joinPath(ssotRoot, CONTRADICTIONS_PATH)),
+    ),
   };
+}
+
+/** The `version` of a JSON manifest, or undefined for any other shape. */
+function readManifestVersion(manifest: { path: string; content: string } | undefined): string | undefined {
+  if (!manifest || !manifest.path.endsWith('.json')) {
+    return undefined;
+  }
+  try {
+    const version = (JSON.parse(manifest.content) as { version?: unknown }).version;
+    return typeof version === 'string' && /^[\w.+-]{1,64}$/.test(version) ? version : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function scanImportFiles(workspaceRoot: vscode.Uri): Promise<Map<string, ScannedImportFile>> {
@@ -7670,12 +7801,14 @@ function truncate(text: string, maxLen: number): string {
 async function ensureSsotStructure(ssotRoot: vscode.Uri): Promise<void> {
   await vscode.workspace.fs.createDirectory(ssotRoot);
 
+  let createdSoul = false;
   for (const entry of SSOT_FOLDERS) {
     if (entry.endsWith('.md')) {
       const fileUri = vscode.Uri.joinPath(ssotRoot, entry);
       if (!(await pathExists(fileUri))) {
         await ensureParentDirectory(fileUri, ssotRoot);
         await vscode.workspace.fs.writeFile(fileUri, Buffer.from(getStarterContent(entry), 'utf-8'));
+        createdSoul ||= entry === 'project_soul.md';
       }
       continue;
     }
@@ -7685,6 +7818,23 @@ async function ensureSsotStructure(ssotRoot: vscode.Uri): Promise<void> {
     const keepUri = vscode.Uri.joinPath(dirUri, '.gitkeep');
     if (!(await pathExists(keepUri))) {
       await vscode.workspace.fs.writeFile(keepUri, new Uint8Array());
+    }
+  }
+
+  // A new memory gets the maintained pages its soul lists: product facts and
+  // the contradictions log. Only when the soul is new: an existing project has
+  // already decided where its facts live, and gains no file it did not ask for
+  // (its agents create the log the first time they need it).
+  if (createdSoul) {
+    for (const [relativePath, content] of [
+      [PRODUCT_FACTS_PATH, buildProductFactsStarter()],
+      [CONTRADICTIONS_PATH, buildContradictionsStarter()],
+    ] as const) {
+      const pageUri = vscode.Uri.joinPath(ssotRoot, relativePath);
+      if (!(await pathExists(pageUri))) {
+        await ensureParentDirectory(pageUri, ssotRoot);
+        await vscode.workspace.fs.writeFile(pageUri, Buffer.from(content, 'utf-8'));
+      }
     }
   }
 }
@@ -7724,6 +7874,8 @@ function appendImportMetadata(content: string, metadata: ImportEntryMetadata): s
     `source-paths: ${metadata.sourcePaths.join(' | ')}`,
     `source-fingerprint: ${metadata.sourceFingerprint}`,
     `body-fingerprint: ${metadata.bodyFingerprint}`,
+    // Optional, so footers written before it existed still parse.
+    ...(metadata.sourceVersion ? [`source-version: ${metadata.sourceVersion}`] : []),
     '-->',
   ];
   return `${stripImportMetadata(content).trimEnd()}\n\n${metadataLines.join('\n')}\n`;
@@ -7771,6 +7923,7 @@ function parseImportMetadata(content: string | undefined): ImportEntryMetadata |
       .filter(Boolean),
     sourceFingerprint,
     bodyFingerprint,
+    sourceVersion: metadata.get('source-version') || undefined,
   };
 }
 
@@ -8053,7 +8206,10 @@ function buildImportCatalog(entries: ImportEntryProcessingResult[]): string | un
   return lines.join('\n');
 }
 
-function buildImportFreshnessReport(entries: ImportEntryProcessingResult[]): string | undefined {
+function buildImportFreshnessReport(
+  entries: ImportEntryProcessingResult[],
+  openContradictions: readonly string[] = [],
+): string | undefined {
   if (entries.length === 0) {
     return undefined;
   }
@@ -8066,18 +8222,46 @@ function buildImportFreshnessReport(entries: ImportEntryProcessingResult[]): str
     '- `refreshed` — source content changed and the generated memory was updated.',
     '- `unchanged` — source fingerprint matched the last generated version, so the file was left untouched.',
     '- `preserved-manual-edits` — AtlasMind detected local edits in a generated file and skipped overwriting it.',
+    '- `preserved-maintained` — the path holds a maintained page (listed under Maintained Pages in `project_soul.md`, or written without an import footer), so import never overwrites it.',
     '- `rejected` — the candidate was not written because memory validation rejected it.',
     '',
-    '## Entries',
   ];
 
+  // Lead with what needs a person: an edited import whose sources moved on no
+  // longer refreshes, and nothing else will say so.
+  const stale = entries.filter(entry => entry.stale);
+  if (stale.length > 0) {
+    lines.push('## Needs Attention');
+    lines.push('These imported pages were edited by hand, so import stopped refreshing them, and their sources have changed since. Do not treat them as current: move the facts to a maintained page, or delete the file so the next import regenerates it.');
+    for (const entry of stale) {
+      const detail = [entry.generatedAt ? `generated ${entry.generatedAt}` : undefined, entry.versionDrift].filter(Boolean).join('; ');
+      lines.push(`- \`${entry.path}\`${detail ? ` — ${detail}` : ''}`);
+    }
+    lines.push('');
+  }
+
+  // Contradictions an agent could not settle in the change that found them.
+  // Listed until ticked in the log, because a re-import cannot resolve them.
+  if (openContradictions.length > 0) {
+    lines.push('## Open Contradictions');
+    lines.push(`Recorded in \`${CONTRADICTIONS_PATH}\` and not yet resolved. Settle each one, then tick its box and move it to Resolved.`);
+    for (const item of openContradictions) {
+      lines.push(`- ${item}`);
+    }
+    lines.push('');
+  }
+
+  lines.push('## Entries');
   for (const entry of entries) {
     lines.push(`### ${entry.title}`);
     lines.push(`- Path: \`${entry.path}\``);
-    lines.push(`- Status: \`${entry.status}\``);
+    lines.push(`- Status: \`${entry.status}\`${entry.stale ? ' (stale)' : ''}`);
     lines.push(`- Source fingerprint: \`${entry.sourceFingerprint}\``);
     if (entry.sourcePaths.length > 0) {
       lines.push(`- Sources: ${entry.sourcePaths.join(', ')}`);
+    }
+    if (entry.generatedAt && entry.status === 'preserved-manual-edits') {
+      lines.push(`- Generated: ${entry.generatedAt}${entry.versionDrift ? ` (${entry.versionDrift})` : ''}`);
     }
     if (entry.reason) {
       lines.push(`- Note: ${entry.reason}`);
@@ -8123,6 +8307,8 @@ function buildProjectSoul(
     '- Provider credentials live in SecretStorage, not in project memory or source.',
     '- `develop` is the routine integration branch and `master` is the protected release-ready branch.',
     '- See `decisions/development-guardrails.md`, `operations/security-and-safety.md`, and `architecture/runtime-and-surfaces.md` for supporting detail.',
+    '',
+    buildMaintainedPagesSection(existing),
     '',
     '## Imported References',
     '- architecture/project-overview.md',

@@ -5,6 +5,7 @@ const mockReadFile = vi.fn<(uri: { path: string }) => Promise<Uint8Array>>();
 const mockWriteFile = vi.fn<(uri: { path: string }, data: Uint8Array) => Promise<void>>();
 const mockCreateDirectory = vi.fn<(uri: { path: string }) => Promise<void>>();
 const mockReadDirectory = vi.fn<(uri: { path: string }) => Promise<[string, number][]>>();
+const mockStat = vi.fn<(uri: { path: string }) => Promise<{ mtime: number }>>(async () => ({ mtime: 0 }));
 
 vi.mock('vscode', () => ({
   workspace: {
@@ -13,7 +14,7 @@ vi.mock('vscode', () => ({
       writeFile: (...args: unknown[]) => mockWriteFile(args[0] as { path: string }, args[1] as Uint8Array),
       createDirectory: (...args: unknown[]) => mockCreateDirectory(args[0] as { path: string }),
       readDirectory: (...args: unknown[]) => mockReadDirectory(args[0] as { path: string }),
-      stat: async () => ({ mtime: 0 }),
+      stat: (...args: unknown[]) => mockStat(args[0] as { path: string }),
     },
     workspaceFolders: undefined,
     getConfiguration: () => ({
@@ -485,5 +486,138 @@ describe('importProject', () => {
     expect(freshness.isStale).toBe(false);
     expect(freshness.staleEntryCount).toBe(0);
     expect(freshness.staleEntries).toEqual([]);
+  });
+});
+
+describe('importProject — maintained pages and the SSOT rule', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const readText = (relativePath: string): string | undefined => {
+    const bytes = fileResponses.get(`/workspace/${relativePath}`);
+    return bytes ? Buffer.from(bytes).toString('utf-8') : undefined;
+  };
+
+  const SOURCES = {
+    'package.json': JSON.stringify({ name: 'demo', version: '1.2.0', contributes: { commands: [] } }),
+    'README.md': '# Demo\n\nA demo product.\n',
+  };
+
+  it('never overwrites a hand-written page at an import path, and does not call it stale', async () => {
+    // The failure this guards: a project replaces the README import with a page
+    // it maintains, and the next (automatic) import silently writes the README
+    // back over it — so the SSOT looks current and is wrong.
+    const maintained = '# Product Capabilities\n\nMaintained by hand. Free tier: 3 worlds.\n';
+    setupFileSystem({ ...SOURCES, 'project_memory/domain/product-capabilities.md': maintained });
+
+    const { atlas, upsertedEntries } = makeAtlas();
+    await importProject(ROOT as any, atlas);
+
+    expect(upsertedEntries.some(entry => entry.entry.path === 'domain/product-capabilities.md')).toBe(false);
+    expect(readText('project_memory/domain/product-capabilities.md')).toBe(maintained);
+    expect(readText('project_memory/index/import-freshness.md')).toContain('`preserved-maintained`');
+
+    const freshness = await getProjectMemoryFreshness(ROOT as any);
+    expect(freshness.staleEntries).not.toContain('domain/product-capabilities.md');
+  });
+
+  it('never overwrites a page listed under Maintained Pages, even one with an import footer', async () => {
+    setupFileSystem(SOURCES);
+    const { atlas } = makeAtlas();
+    await importProject(ROOT as any, atlas);
+    const generated = readText('project_memory/architecture/project-overview.md');
+    expect(generated).toContain('<!-- atlasmind-import');
+
+    fileResponses.set(
+      '/workspace/project_memory/project_soul.md',
+      Buffer.from('# Soul\n\n## Maintained Pages\n- `architecture/project-overview.md` — kept by hand now\n', 'utf-8'),
+    );
+    fileResponses.set('/workspace/README.md', Buffer.from('# Demo\n\nChanged.\n', 'utf-8'));
+
+    const second = makeAtlas();
+    await importProject(ROOT as any, second.atlas);
+    expect(second.upsertedEntries.some(entry => entry.entry.path === 'architecture/project-overview.md')).toBe(false);
+    expect(readText('project_memory/architecture/project-overview.md')).toBe(generated);
+    expect((await getProjectMemoryFreshness(ROOT as any)).staleEntries).not.toContain('architecture/project-overview.md');
+  });
+
+  it('records the manifest version an imported page was generated at', async () => {
+    setupFileSystem(SOURCES);
+    const { atlas } = makeAtlas();
+    await importProject(ROOT as any, atlas);
+    expect(readText('project_memory/domain/product-capabilities.md')).toContain('source-version: 1.2.0');
+  });
+
+  it('flags an edited import whose sources moved on, with the version it was generated at', async () => {
+    setupFileSystem(SOURCES);
+    const { atlas } = makeAtlas();
+    await importProject(ROOT as any, atlas);
+
+    const path = 'project_memory/domain/product-capabilities.md';
+    fileResponses.set(`/workspace/${path}`, Buffer.from(readText(path)!.replace('# Product Capabilities', '# Product Capabilities\n\nHand edit.'), 'utf-8'));
+    fileResponses.set('/workspace/package.json', Buffer.from(JSON.stringify({ name: 'demo', version: '2.0.0', contributes: { commands: [] } }), 'utf-8'));
+
+    await importProject(ROOT as any, makeAtlas().atlas);
+    const report = readText('project_memory/index/import-freshness.md') ?? '';
+    expect(report).toContain('## Needs Attention');
+    expect(report).toContain('`domain/product-capabilities.md`');
+    expect(report).toContain('generated from version 1.2.0; the manifest is now at 2.0.0');
+    expect(report).toContain('`preserved-manual-edits` (stale)');
+  });
+
+  it('scaffolds a maintained product-facts page that a new soul lists', async () => {
+    setupFileSystem(SOURCES);
+    // The default stat mock says everything exists; here a new memory has no soul.
+    mockStat.mockImplementation(async (uri: { path: string }) => {
+      if (fileResponses.has(uri.path)) { return { mtime: 0 }; }
+      throw new Error('ENOENT');
+    });
+    try {
+      await importProject(ROOT as any, makeAtlas().atlas);
+    } finally {
+      mockStat.mockImplementation(async () => ({ mtime: 0 }));
+    }
+
+    expect(readText('project_memory/domain/product-facts.md')).toContain('# Product Facts');
+    expect(readText('project_memory/operations/contradictions.md')).toContain('## Open');
+    expect(readText('project_memory/project_soul.md')).toContain('## Maintained Pages');
+    expect(readText('project_memory/project_soul.md')).toContain('domain/product-facts.md');
+  });
+
+  it('surfaces open contradictions in the freshness status and report, and refreshes the report when one is added', async () => {
+    setupFileSystem(SOURCES);
+    await importProject(ROOT as any, makeAtlas().atlas);
+    expect(readText('project_memory/index/import-freshness.md')).not.toContain('## Open Contradictions');
+
+    // Nothing else changes, so only the log can make the report stale.
+    fileResponses.set(
+      '/workspace/project_memory/operations/contradictions.md',
+      Buffer.from('# Contradictions\n\n## Open\n- [ ] 2026-11-02 — README says 3 worlds; code allows 5\n\n## Resolved\n', 'utf-8'),
+    );
+    const freshness = await getProjectMemoryFreshness(ROOT as any);
+    expect(freshness.openContradictions).toEqual(['2026-11-02 — README says 3 worlds; code allows 5']);
+
+    await importProject(ROOT as any, makeAtlas().atlas);
+    const report = readText('project_memory/index/import-freshness.md') ?? '';
+    expect(report).toContain('## Open Contradictions');
+    expect(report).toContain('- 2026-11-02 — README says 3 worlds; code allows 5');
+  });
+
+  it('does not add a product-facts page to a project that already has a soul', async () => {
+    setupFileSystem({ ...SOURCES, 'project_memory/project_soul.md': '# Soul\n\n## Vision\nAlready here.\n' });
+    await importProject(ROOT as any, makeAtlas().atlas);
+    expect(readText('project_memory/domain/product-facts.md')).toBeUndefined();
+  });
+
+  it('writes the Project Memory SSOT rule into the agent instruction files', async () => {
+    setupFileSystem(SOURCES);
+    await importProject(ROOT as any, makeAtlas().atlas);
+
+    const agentsWrite = mockWriteFile.mock.calls.find(call => /AGENTS\.md$/.test(call[0].path));
+    expect(agentsWrite).toBeDefined();
+    const written = Buffer.from(agentsWrite![1]).toString('utf-8');
+    expect(written).toContain('<!-- atlasmind:memory-ssot:start -->');
+    expect(written).toContain('Read Project Memory before code');
   });
 });

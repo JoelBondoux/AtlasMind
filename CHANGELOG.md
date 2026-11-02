@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.516.0] - 2026-11-02
+
+### Added
+
+- **Every agent keeps Project Memory current, from any tool.** AtlasMind's memory agent only runs on
+  AtlasMind chat turns, so work done in Claude Code, Codex, Copilot, Cursor or Gemini reached Project
+  Memory only if that agent happened to write it, and agents read code even for simple fact checks. A new
+  managed block, `<!-- atlasmind:memory-ssot:start -->`, tells every agent that Project Memory is the
+  single source of truth for simple facts (what the product does, limits, defaults, tiers, decisions): read
+  it before code, starting with the soul's *Maintained Pages*; update the page in the same change as the
+  fact; write back anything that had to be settled in code; and prefer maintained pages to imported ones.
+  - Written at the end of every import (`syncMemorySsotInstructions`, seeding `AGENTS.md`, held by a dry
+    run), and by the testing-protocol sync and **Align all instruction sets**. Deterministic rather than
+    part of the model-rendered shared block, so every tool reads the same words; pinned by an approved
+    baseline (`buildMemorySsotMarkdown` in `src/utils/testingProtocolSync.ts`).
+- **A defined way to handle contradictions between memory, docs and code.** The same rule tells every
+  agent, and AtlasMind's own chat turns, that the code is what the product does today and a recorded ruling
+  is what it should do. A contradiction is fixed in the same change when that is in scope and clear;
+  otherwise it is recorded as a `- [ ]` line in `operations/contradictions.md` and the user is told, never
+  guessed. AtlasMind keeps the open entries visible until they are ticked: an **Open Log** notice at
+  start-up, an *Open Contradictions* section in `index/import-freshness.md`, and a line in Atlas's chat
+  context (`parseOpenContradictions`, `buildContradictionsStarter`; `openContradictions` on the freshness
+  status).
+- **A maintained product-facts page for new projects.** A new `project_soul.md` starts with a
+  `## Maintained Pages` section listing `domain/product-facts.md` and `operations/contradictions.md`, both
+  scaffolded beside it. An
+  existing project gains no file (`src/bootstrap/maintainedPages.ts`).
+
+### Fixed
+
+- **Import no longer overwrites a page you maintain.** A page at an import path with no import footer, such
+  as a hand-written `domain/product-capabilities.md`, was overwritten by the next import, including the
+  automatic one that runs after saves, so the SSOT looked current and was wrong. Import now skips it, and
+  any page listed under *Maintained Pages*, as `preserved-maintained`, and does not count it stale. Pages
+  that look like pre-footer imports are still refreshed.
+- **Stale imported pages are visible.** An imported page edited by hand stopped refreshing silently. When
+  its sources have changed since, `index/import-freshness.md` now lists it under **Needs Attention** with
+  the date and manifest version it was generated at; new import footers record that version as
+  `source-version:`.
+
 ## [0.515.0] - 2026-10-28
 
 ### Added
