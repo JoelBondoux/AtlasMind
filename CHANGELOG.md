@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.516.2] - 2026-11-02
+
+### Fixed
+
+- **Buzz's custom-harness folder is resolved with the target platform's path rules.**
+  `buzzCustomHarnessDirectory` used the host's `path` module for whichever platform it was asked about,
+  so on Linux and macOS it called a Windows `APPDATA` path relative and returned nothing. It now uses
+  `path.win32` for Windows and `path.posix` otherwise. The test compares literal paths, so it no longer
+  passes on Windows only; the Linux and macOS CI jobs were failing on it.
+
 ## [0.516.1] - 2026-11-02
 
 ### Fixed

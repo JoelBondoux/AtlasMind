@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.516.1</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.516.2</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,12 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.516.2
+
+**Buzz harness registration finds the right folder on every platform.** The folder AtlasMind writes a
+persona's harness into is now worked out with that platform's own path rules, so the answer no longer
+depends on which operating system runs it.
+
 ## What's new in 0.516.1
 
 **Project Memory protections, tightened.** Open contradictions are checked for credentials before Atlas
@@ -193,13 +199,6 @@ Pages you maintain yourself are never overwritten by import, a new project gets 
 `domain/product-facts.md` page for them, and the freshness report now flags edited imports that have
 fallen behind their sources. When memory, docs and code disagree, agents fix it in the same change or
 record it in `operations/contradictions.md`, and AtlasMind keeps it in view until it is resolved.
-
-## What's new in 0.515.0
-
-**AtlasMind registers the Buzz harness for you.** Some Buzz 0.5 builds have no place to type a command
-or its arguments. **AtlasMind: Prepare Buzz Persona Deployment** now writes the persona's harness into
-Buzz's own custom-harness folder, after you confirm, so in Buzz you only pick it under *Agent harness*.
-It never overwrites a harness AtlasMind did not register.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.509.0**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in

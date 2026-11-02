@@ -211,12 +211,15 @@ export function buzzCustomHarnessDirectory(
   env: Readonly<Record<string, string | undefined>>,
   home: string,
 ): string | undefined {
+  // The path rules are the target platform's, not the host's: the host's
+  // `path` calls a Windows `APPDATA` relative on Linux and returns nothing.
+  const paths = platform === 'win32' ? path.win32 : path.posix;
   const base = platform === 'win32'
     ? env['APPDATA']
     : platform === 'darwin'
-      ? (home ? path.join(home, 'Library', 'Application Support') : undefined)
-      : (env['XDG_DATA_HOME'] || (home ? path.join(home, '.local', 'share') : undefined));
-  return base && path.isAbsolute(base) ? path.join(base, BUZZ_DESKTOP_APP_IDENTIFIER, 'custom_harnesses') : undefined;
+      ? (home ? paths.join(home, 'Library', 'Application Support') : undefined)
+      : (env['XDG_DATA_HOME'] || (home ? paths.join(home, '.local', 'share') : undefined));
+  return base && paths.isAbsolute(base) ? paths.join(base, BUZZ_DESKTOP_APP_IDENTIFIER, 'custom_harnesses') : undefined;
 }
 
 export type BuzzHarnessWritePlan =

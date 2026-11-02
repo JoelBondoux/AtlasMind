@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.516.2 -- Buzz harness folder on every platform
+
+The folder AtlasMind writes a Buzz persona's harness into is now worked out with the target platform's own
+path rules, so it is found the same way whichever operating system computes it.
+
+---
+
 ## v0.516.1 -- Project Memory protections, tightened
 
 Open contradictions are checked for credentials before Atlas quotes them in its own chat context. Pages

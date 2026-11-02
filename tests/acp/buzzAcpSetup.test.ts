@@ -108,9 +108,15 @@ describe('registering the harness with Buzz', () => {
 
   it('finds Buzz\'s folder under each platform\'s app-data directory', () => {
     expect(buzzCustomHarnessDirectory('win32', { APPDATA: 'C:\\Users\\me\\AppData\\Roaming' }, 'C:\\Users\\me'))
-      .toBe(path.join('C:\\Users\\me\\AppData\\Roaming', 'xyz.block.buzz.app', 'custom_harnesses'));
-    expect(buzzCustomHarnessDirectory('linux', {}, '/home/me')).toBe(path.join('/home/me', '.local', 'share', 'xyz.block.buzz.app', 'custom_harnesses'));
+      .toBe('C:\\Users\\me\\AppData\\Roaming\\xyz.block.buzz.app\\custom_harnesses');
+    expect(buzzCustomHarnessDirectory('linux', {}, '/home/me')).toBe('/home/me/.local/share/xyz.block.buzz.app/custom_harnesses');
+    expect(buzzCustomHarnessDirectory('darwin', {}, '/Users/me'))
+      .toBe('/Users/me/Library/Application Support/xyz.block.buzz.app/custom_harnesses');
     expect(buzzCustomHarnessDirectory('win32', {}, '')).toBeUndefined();
+    // Literal expectations, not the host's `path.join`: the answer must not
+    // depend on which OS runs the test, which is what let this pass on Windows
+    // and fail on Linux and macOS.
+    expect(buzzCustomHarnessDirectory('linux', { XDG_DATA_HOME: 'C:\\not-posix' }, '/home/me')).toBeUndefined();
   });
 
   it('refuses paths Buzz would split at a comma', () => {
