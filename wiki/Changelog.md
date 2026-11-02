@@ -19,6 +19,12 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.516.3 -- Published baseline refreshed
+
+The README now names v0.516.2 as the last Marketplace publication.
+
+---
+
 ## v0.516.2 -- Buzz harness folder on every platform
 
 The folder AtlasMind writes a Buzz persona's harness into is now worked out with the target platform's own
