@@ -74,9 +74,7 @@ export function parseOpenContradictions(content: string | undefined): string[] {
   if (!content) {
     return [];
   }
-  const withoutComments = content
-    .replace(/^```[\s\S]*?^```/gm, '')
-    .replace(/<!--[\s\S]*?-->/g, '');
+  const withoutComments = stripHtmlComments(content.replace(/^```[\s\S]*?^```/gm, ''));
   const open: string[] = [];
   let inResolved = false;
   for (const line of withoutComments.split(/\r?\n/)) {
@@ -191,6 +189,22 @@ export function buildProductFactsStarter(): string {
     '_Not recorded yet. Newest first, with the date._',
     '',
   ].join('\n');
+}
+
+/**
+ * Remove HTML comments, repeating until none remain, then drop any unmatched
+ * opener: one pass over `<!<!---->--` would leave a fresh `<!--` behind.
+ */
+function stripHtmlComments(text: string): string {
+  let current = text;
+  for (;;) {
+    const next = current.replace(/<!--[\s\S]*?-->/g, '');
+    if (next === current) {
+      break;
+    }
+    current = next;
+  }
+  return current.replace(/<!--[\s\S]*$/, '');
 }
 
 /**

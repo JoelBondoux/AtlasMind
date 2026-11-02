@@ -542,6 +542,27 @@ describe('importProject — maintained pages and the SSOT rule', () => {
     expect((await getProjectMemoryFreshness(ROOT as any)).staleEntries).not.toContain('architecture/project-overview.md');
   });
 
+  it('keeps the maintained-page promise for report pages and agent stubs too', async () => {
+    setupFileSystem({
+      ...SOURCES,
+      'project_memory/project_soul.md': '# Soul\n\n## Maintained Pages\n- index/import-freshness.md — kept by hand\n- agents/helper.md — kept by hand\n',
+    });
+    const { atlas, upsertedEntries } = makeAtlas();
+    (atlas as unknown as { agentRegistry: unknown }).agentRegistry = {
+      listAgents: () => [{ id: 'helper', name: 'Helper', role: 'r', description: 'd', systemPrompt: 'p', skills: [] }],
+    };
+    const handReport = '# Import Freshness Report\n\nMine.\n';
+    const handAgent = '# Helper\n\nMine.\n\n<!-- atlasmind-import\nentry-path: agents/helper.md\ngenerator-version: 2\ngenerated-at: x\nsource-paths: agent\nsource-fingerprint: old\nbody-fingerprint: old\n-->\n';
+    fileResponses.set('/workspace/project_memory/index/import-freshness.md', Buffer.from(handReport, 'utf-8'));
+    fileResponses.set('/workspace/project_memory/agents/helper.md', Buffer.from(handAgent, 'utf-8'));
+
+    await importProject(ROOT as any, atlas);
+
+    expect(upsertedEntries.some(entry => entry.entry.path === 'index/import-freshness.md')).toBe(false);
+    expect(readText('project_memory/index/import-freshness.md')).toBe(handReport);
+    expect(readText('project_memory/agents/helper.md')).toBe(handAgent);
+  });
+
   it('records the manifest version an imported page was generated at', async () => {
     setupFileSystem(SOURCES);
     const { atlas } = makeAtlas();

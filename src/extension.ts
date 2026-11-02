@@ -83,6 +83,7 @@ const BUZZ_GUIDE_SESSION_TITLE = 'Buzz setup';
 const SETUP_TERMINAL_NAME = 'AtlasMind setup';
 import type { ProjectMemoryFreshnessStatus } from './bootstrap/bootstrapper.js';
 import { CONTRADICTIONS_PATH, parseOpenContradictions } from './bootstrap/maintainedPages.js';
+import { redactSecrets } from './utils/secretRedactor.js';
 import type { SessionConversation, SessionPolicySnapshot } from './chat/sessionConversation.js';
 import type { VoiceManager } from './voice/voiceManager.js';
 import type { Orchestrator } from './core/orchestrator.js';
@@ -549,7 +550,12 @@ function buildProjectMemoryContradictionPrompt(options?: WorkspaceIdentityPrompt
   const readTextFile = options?.readTextFile ?? readTextFileIfExists;
   const open = logPath ? parseOpenContradictions(readTextFile(logPath)) : [];
   if (open.length > 0) {
-    const quoted = open.slice(0, MAX_PROMPTED_CONTRADICTIONS).map(item => summarizeForPolicy(item, 200));
+    // The identity prompt travels as `system-prompt`, which the egress policy
+    // does not redact, so a log entry that quotes a credential is redacted here
+    // rather than trusted to have been written carefully.
+    const quoted = open
+      .slice(0, MAX_PROMPTED_CONTRADICTIONS)
+      .map(item => summarizeForPolicy(redactSecrets(item).text, 200));
     lines.push(`- Open (${open.length}): ${quoted.join(' | ')}${open.length > MAX_PROMPTED_CONTRADICTIONS ? ' | …' : ''}`);
   }
   return lines.join('\n');

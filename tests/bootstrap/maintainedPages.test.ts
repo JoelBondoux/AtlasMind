@@ -117,6 +117,11 @@ describe('parseOpenContradictions', () => {
     ]);
   });
 
+  it('cannot be fooled by a nested or unterminated comment into reviving a hidden entry', () => {
+    expect(parseOpenContradictions('## Open\n<!<!---->-- - [ ] hidden -->\n- [ ] real\n')).toEqual(['real']);
+    expect(parseOpenContradictions('## Open\n- [ ] real\n<!-- - [ ] never closed\n')).toEqual(['real']);
+  });
+
   it('returns nothing for a missing log', () => {
     expect(parseOpenContradictions(undefined)).toEqual([]);
   });

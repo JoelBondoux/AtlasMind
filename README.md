@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.516.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.516.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,12 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.516.1
+
+**Project Memory protections, tightened.** Open contradictions are checked for credentials before Atlas
+quotes them in chat. Pages you list as maintained are now protected on every import write, including the
+freshness report and agent pages. Aligning instruction sets keeps your configured memory folder.
+
 ## What's new in 0.516.0
 
 **Every agent keeps Project Memory current, not just AtlasMind's.** After an import, AtlasMind writes a
@@ -194,12 +200,6 @@ record it in `operations/contradictions.md`, and AtlasMind keeps it in view unti
 or its arguments. **AtlasMind: Prepare Buzz Persona Deployment** now writes the persona's harness into
 Buzz's own custom-harness folder, after you confirm, so in Buzz you only pick it under *Agent harness*.
 It never overwrites a harness AtlasMind did not register.
-
-## What's new in 0.514.1
-
-**Buzz setup steps that match Buzz.** The recipe AtlasMind copies for Buzz now uses Buzz Desktop 0.5's
-real fields: *Agent harness → Add custom harness…*, with one argument per row and a harness per persona.
-It also tells you to type any value for the model Buzz still asks for; AtlasMind picks the model itself.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.509.0**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in

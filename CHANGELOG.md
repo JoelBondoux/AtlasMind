@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.516.1] - 2026-11-02
+
+### Fixed
+
+- **Open contradictions are redacted before Atlas quotes them.** The workspace identity prompt travels as
+  `system-prompt`, which the egress policy does not redact, so an entry in `operations/contradictions.md`
+  that quoted a credential would have reached the model verbatim. Each quoted entry now passes through
+  `redactSecrets` first.
+- **The maintained-page promise covers every import write.** The freshness report, the import catalog and
+  generated agent pages were still written without consulting `## Maintained Pages`; they now honour it.
+- **Align all instruction sets keeps a configured memory root.** It rewrote the memory and roadmap rules
+  with `project_memory/` even when `atlasmind.ssotPath` named another folder, pointing every agent at the
+  wrong directory. The configured path is now passed through `applyManagedInstructionBlock`.
+- **The contradictions parser strips HTML comments completely** (repeated until none remain, and an
+  unterminated opener is dropped), so a nested comment cannot revive a hidden entry (CodeQL).
+
 ## [0.516.0] - 2026-11-02
 
 ### Added

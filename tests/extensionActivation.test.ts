@@ -130,6 +130,27 @@ describe('runActivationStep', () => {
     expect(prompt).not.toContain('old one');
   });
 
+  it('redacts a credential quoted in a contradiction before it reaches the system prompt', () => {
+    const secret = 'sk-ant-api03-' + 'a'.repeat(40);
+    const prompt = buildWorkspaceIdentityPrompt({ get: vi.fn().mockReturnValue(undefined) } as never, {
+      workspaceFolders: [{ uri: { fsPath: '/workspace' } } as never],
+      ssotPath: 'project_memory',
+      readTextFile: filePath => {
+        const normalized = filePath.replace(/\\/g, '/');
+        if (normalized.endsWith('project_soul.md')) {
+          return '# Project Soul\n\n## Vision\nShip it.\n\n## Principles\n- Keep memory current\n';
+        }
+        if (normalized.endsWith('operations/contradictions.md')) {
+          return `## Open\n- [ ] docs use key ${secret} but code reads another\n`;
+        }
+        return undefined;
+      },
+    });
+
+    expect(prompt).toContain('[REDACTED]');
+    expect(prompt).not.toContain(secret);
+  });
+
   it('builds follow-up policy snapshots from identity and safety sources', () => {
     const policies = buildWorkspacePolicySnapshots({
       get: vi.fn().mockReturnValue({

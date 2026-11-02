@@ -6779,6 +6779,11 @@ export async function importProject(
     const targetUri = vscode.Uri.joinPath(ssotRoot, candidate.entry.path);
     const existingContent = await tryReadTextFile(targetUri);
     const existingMetadata = parseImportMetadata(existingContent);
+    // The report pages honour the same promise as every other import write.
+    if (describeMaintainedPage(candidate.entry.path, existingContent, existingMetadata, maintainedPages)) {
+      skipped++;
+      continue;
+    }
     if (
       existingMetadata
       && existingMetadata.generatorVersion === metadata.generatorVersion
@@ -6820,8 +6825,8 @@ export async function importProject(
     const existingAgentContent = await tryReadTextFile(agentTargetUri);
     const existingAgentMeta = parseImportMetadata(existingAgentContent);
 
-    if (existingAgentContent !== undefined && !existingAgentMeta) {
-      // Manually-created file — preserve it
+    if ((existingAgentContent !== undefined && !existingAgentMeta) || maintainedPages.has(agentEntryPath)) {
+      // Manually-created file, or one the soul lists as maintained — preserve it
       skipped++;
       continue;
     }

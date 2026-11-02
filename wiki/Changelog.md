@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.516.1 -- Project Memory protections, tightened
+
+Open contradictions are checked for credentials before Atlas quotes them in its own chat context. Pages
+listed under *Maintained Pages* are now protected on every import write, including the freshness report
+and generated agent pages. **Align all instruction sets** keeps a custom `atlasmind.ssotPath` instead of
+pointing agents back at `project_memory/`.
+
+---
+
 ## v0.516.0 -- Every agent keeps Project Memory current
 
 AtlasMind's memory agent only runs on AtlasMind chat turns, so work done in other tools never reached

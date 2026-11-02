@@ -172,6 +172,17 @@ describe('applyManagedInstructionBlock', () => {
     expect(readFileSync(path.join(root, 'CLAUDE.md'), 'utf8')).toContain(MEMORY_SSOT_BLOCK_START);
   });
 
+  it('keeps a configured memory root rather than resetting the rules to the default', async () => {
+    write(root, 'CLAUDE.md', '# Claude\n\nrules');
+    const unified: MergeDirective[] = [{ id: '1', category: 'General', text: 'Do the thing', sources: [] }];
+
+    await applyManagedInstructionBlock(root, {}, unified, 'workspace_memory');
+    const claude = readFileSync(path.join(root, 'CLAUDE.md'), 'utf8');
+    expect(claude).toContain('`workspace_memory/project_soul.md`');
+    expect(claude).toContain('workspace_memory/roadmap/improvement-plan.md');
+    expect(claude).not.toContain('project_memory/');
+  });
+
   it('seeds the current path for a tool but never a superseded spelling', async () => {
     // The contract changed deliberately: an agent opening a repository for the
     // first time should find the project's rules already there rather than

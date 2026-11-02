@@ -4141,7 +4141,12 @@ async function performInstructionWriteback(
 ): Promise<void> {
   const targetTools = detectedWritebackTools(workspaceRoot);
   const rendered = await runInstructionRender(unified, targetTools, complete);
-  const writeResult = await applyManagedInstructionBlock(workspaceRoot, rendered, unified);
+  const writeResult = await applyManagedInstructionBlock(
+    workspaceRoot,
+    rendered,
+    unified,
+    vscode.workspace.getConfiguration('atlasmind').get<string>('ssotPath', 'project_memory'),
+  );
   const isoDate = new Date().toISOString().slice(0, 10);
   const ssotWritten = await writeUnifiedToSsot(workspaceRoot, unified, isoDate);
 

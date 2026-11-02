@@ -464,10 +464,14 @@ export async function applyManagedInstructionBlock(
   workspaceRoot: string,
   renderedByTool: Record<string, string>,
   unified: MergeDirective[],
+  // The configured memory root. Without it, alignment would rewrite the rules
+  // an import installed for a custom `atlasmind.ssotPath` back to the default,
+  // pointing every agent at a directory the project does not use.
+  ssotPath = 'project_memory',
 ): Promise<InstructionWritebackResult> {
   const fallback = renderUnifiedMarkdown(unified);
-  const roadmapBody = buildRoadmapSyncMarkdown();
-  const memoryBody = buildMemorySsotMarkdown();
+  const roadmapBody = buildRoadmapSyncMarkdown(ssotPath);
+  const memoryBody = buildMemorySsotMarkdown(ssotPath);
   const updated: string[] = [];
   const skipped: { path: string; reason: string }[] = [];
 
