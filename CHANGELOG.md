@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.516.4] - 2026-11-02
+
+### Fixed
+
+- **Document maintenance carries through to edits.** Requests to tidy a roadmap or review and
+  reconcile a document select editing tools. After repeated inspection the model is asked to apply
+  the change, rather than describe a proposed fix. An unapplied edit receives a bounded retry and
+  can escalate to a stronger model before any side effects; if still unfinished, chat and project
+  results explicitly report that the requested edit was not completed. Read-only requests and dry
+  runs retain their limits, and an inspected document needing no changes may be reported as such.
+- **Non-chat models cannot consume coding failover attempts.** Transcription model names and the
+  dedicated Copilot dictation cleanup model are excluded even when cached metadata claims chat
+  and tool support. Agent pins no longer bypass routing rejection. Invalid-model errors are
+  explained as rejected model identifiers rather than evidence of an endpoint outage.
+
 ## [0.516.3] - 2026-11-02
 
 ### Documentation

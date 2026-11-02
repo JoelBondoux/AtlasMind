@@ -1,5 +1,10 @@
 # Tool Execution & Safety
 
+Document reconciliation and roadmap cleanup select editing tools and retain the requested action
+after inspection. Selection is not permission: eligibility, read-only limits, dry runs and approval
+gates still apply. A model that only suggests an edit is retried; an unapplied edit is reported as
+incomplete and may escalate only before side effects, so recovery cannot replay an action.
+
 ACP resolves the named configured agent exactly; a missing agent is refused before spawning
 another subscription. A failed per-agent probe excludes that agent's discovered rows. The legacy
 Codex warning-plus-JSON HTTP-error compatibility case rejects the turn instead of recording a

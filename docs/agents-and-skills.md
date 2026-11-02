@@ -1,5 +1,12 @@
 # Agents & Skills
 
+Requests to tidy a roadmap/backlog or reconcile a document select workspace reading and editing
+skills. The exploration nudge asks for the requested edit rather than a proposed fix; if no edit is
+recorded after bounded recovery, chat and project results say so explicitly. These are selection
+and completion checks: the agent's eligibility pool, turn restrictions, TDD policy, dry-run behavior
+and approval gates still govern every call. A file read establishing that no changes are needed
+may finish as a no-op.
+
 ACP agent selection requires the configured id to match exactly; removing an agent cannot send
 its pinned tasks to the first remaining subscription. Failed probes are excluded per agent,
 while a successful session-open probe still requires a real reply check to establish usability.

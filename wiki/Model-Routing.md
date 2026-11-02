@@ -1,5 +1,11 @@
 # Model Routing
 
+Transcription IDs with `transcribe` or `transcription` name segments and the exact Copilot dictation
+cleanup model are excluded from chat/coding routes, including cached capability claims and agent
+pins. Conversational Voxtral models remain eligible. Unapplied editing work can hand over to another
+eligible model before side effects, within the existing attempt budget. A provider's invalid-model
+response is reported as rejection of the requested identifier, rather than an endpoint outage.
+
 ACP adapters can bundle a different CLI from a working desktop app. Keep agent commands and
 runtime pins in User settings; a workspace array shadows that list. An agent's `env.CODEX_PATH`
 pins a known Codex executable, and `env.CLAUDE_CODE_EXECUTABLE` pins Claude. Recheck versioned
