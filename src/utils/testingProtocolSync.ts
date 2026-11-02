@@ -69,6 +69,18 @@ export const WORKFLOW_BLOCK_END = '<!-- atlasmind:workflow:end -->';
 export const ROADMAP_SYNC_BLOCK_START = '<!-- atlasmind:roadmap-sync:start -->';
 export const ROADMAP_SYNC_BLOCK_END = '<!-- atlasmind:roadmap-sync:end -->';
 
+/**
+ * The Project Memory SSOT rule: read memory before code, and keep it current.
+ *
+ * Its own block because AtlasMind's memory agent only runs on AtlasMind chat
+ * turns. Work done in Claude Code, Codex, Copilot or any other tool reaches
+ * Project Memory only if *that* agent writes it, and an agent has no way to know
+ * it should unless the rule is in the file it already reads. Deterministic, not
+ * part of the LLM-rendered shared block, so the wording cannot drift per tool.
+ */
+export const MEMORY_SSOT_BLOCK_START = '<!-- atlasmind:memory-ssot:start -->';
+export const MEMORY_SSOT_BLOCK_END = '<!-- atlasmind:memory-ssot:end -->';
+
 /** Markdown-style instruction files that can host the managed block. */
 const MANAGED_MARKDOWN_TARGETS: { tool: string; path: string }[] = [
   { tool: 'GitHub Copilot', path: '.github/copilot-instructions.md' },
@@ -172,6 +184,7 @@ const TESTING_PROTOCOL_MARKERS = { start: MANAGED_BLOCK_START, end: MANAGED_BLOC
 const DEBT_MARKER_MARKERS = { start: DEBT_MARKER_BLOCK_START, end: DEBT_MARKER_BLOCK_END };
 const WORKFLOW_MARKERS = { start: WORKFLOW_BLOCK_START, end: WORKFLOW_BLOCK_END };
 export const ROADMAP_SYNC_MARKERS = { start: ROADMAP_SYNC_BLOCK_START, end: ROADMAP_SYNC_BLOCK_END };
+export const MEMORY_SSOT_MARKERS = { start: MEMORY_SSOT_BLOCK_START, end: MEMORY_SSOT_BLOCK_END };
 
 /**
  * Where the testing block is rendered from.
@@ -262,24 +275,73 @@ export function buildWorkflowMarkdown(input: WorkflowGuidanceInput | undefined):
 }
 
 /**
- * Stable instructions that make AtlasMind's roadmap the one source of truth.
+ * The memory root as it may appear inside an instruction file.
  *
  * The path is configurable, so it is supplied by the caller. A malformed value
  * falls back to the default rather than becoming markdown or an instruction
  * path an agent might follow outside the workspace.
  */
-export function buildRoadmapSyncMarkdown(ssotPath = 'project_memory'): string {
+function safeInstructionSsotPath(ssotPath: string | undefined): string {
   const candidate = String(ssotPath ?? '')
     .replace(/\\/g, '/')
     .replace(/^\.\//, '')
     .replace(/^\/+|\/+$/g, '');
-  const safeSsotPath = candidate.length > 0
+  return candidate.length > 0
     && !candidate.split('/').includes('..')
     && !/^[A-Za-z]:/.test(candidate)
     && !/[\u0000-\u001f`]/.test(candidate)
     ? candidate
     : 'project_memory';
-  const canonicalPath = `${safeSsotPath}/roadmap/improvement-plan.md`;
+}
+
+/**
+ * Stable instructions that make Project Memory the SSOT for simple facts, for
+ * every agent in the repository whatever tool it runs in.
+ *
+ * The page names are ones AtlasMind itself creates or reads: the soul's
+ * `## Maintained Pages` list (which import never overwrites), the scaffolded
+ * `domain/product-facts.md`, and the freshness report import writes.
+ */
+export function buildMemorySsotMarkdown(ssotPath = 'project_memory'): string {
+  const root = safeInstructionSsotPath(ssotPath);
+  return [
+    '## Project Memory is the source of truth (managed by AtlasMind)',
+    '',
+    `\`${root}/\` is this project's single source of truth (SSOT) for simple facts: what the product does, its limits,`,
+    'defaults, settings, tiers or plans, and the decisions behind them. This applies to every agent working in this',
+    'repository, whichever tool it runs in.',
+    '',
+    `- **Read Project Memory before code.** For a simple check, start with the pages listed under \`## Maintained Pages\` in`,
+    `  \`${root}/project_soul.md\`, then \`${root}/domain/product-facts.md\`, then the rest of \`${root}/\`. Read code when memory`,
+    '  does not answer the question or the task needs exactness.',
+    '- **Change the fact, change the page.** Any change that alters one of those facts updates the Project Memory page that',
+    '  records it, in the same change. A change that leaves a page wrong is not finished.',
+    '- **Write back what you had to look up.** If no page answers the question, settle it in the code once and record the',
+    `  answer on the page it belongs on (or in \`${root}/domain/product-facts.md\`), so the next agent does not have to.`,
+    '- **Prefer maintained pages to imported ones.** A page ending in an `<!-- atlasmind-import` footer is generated from',
+    `  other files (README, manifest, docs) and can lag the code; \`${root}/index/import-freshness.md\` says which are stale.`,
+    '  Record a fact on a maintained page: an imported page that is edited by hand stops refreshing.',
+    '- **No other agent will do it for you.** AtlasMind\'s memory agent only runs on AtlasMind chat turns. Work done in any',
+    '  other tool (Claude Code, Codex, Copilot, Cursor, Gemini and the rest) reaches Project Memory only if the agent doing',
+    '  that work writes it.',
+    '- **Settle or record every contradiction; never ignore one.** When Project Memory, the docs and the code disagree, the',
+    '  code is what the product does today, and a recorded ruling or decision (for example under `decisions/`) is what it',
+    '  should do, so code that contradicts one is a bug to raise rather than a fact to copy. If the fix is in scope and it',
+    '  is clear which side is right, correct the wrong side in the same change and say so. Otherwise do not guess: add a',
+    `  \`- [ ]\` line under \`## Open\` in \`${root}/operations/contradictions.md\` (create the page if it is missing) naming`,
+    '  what disagrees, the paths on each side and why it was not settled, and tell the user. AtlasMind keeps surfacing',
+    '  open entries until the box is ticked.',
+    '- Never write secrets, credentials or personal data into Project Memory.',
+    '',
+  ].join('\n');
+}
+
+/**
+ * Stable instructions that make AtlasMind's roadmap the one source of truth.
+ * The memory root is sanitised by `safeInstructionSsotPath`.
+ */
+export function buildRoadmapSyncMarkdown(ssotPath = 'project_memory'): string {
+  const canonicalPath = `${safeInstructionSsotPath(ssotPath)}/roadmap/improvement-plan.md`;
   return [
     '## Roadmap synchronization (managed by AtlasMind)',
     '',
@@ -309,7 +371,38 @@ export async function syncRoadmapInstructions(
   workspaceRoot: string,
   ssotPath = 'project_memory',
 ): Promise<TestingProtocolSyncResult> {
-  const body = buildRoadmapSyncMarkdown(ssotPath);
+  return syncStandaloneBlock(workspaceRoot, buildRoadmapSyncMarkdown(ssotPath), ROADMAP_SYNC_MARKERS, {
+    surface: 'roadmap-instruction-sync',
+    label: 'roadmap rule',
+    userInitiated: false,
+  });
+}
+
+/**
+ * Install or refresh only the Project Memory SSOT rule.
+ *
+ * Run after a Project Memory import, which is the moment a project is known to
+ * use AtlasMind's memory. Same seeding and preservation rules as the roadmap
+ * rule above.
+ */
+export async function syncMemorySsotInstructions(
+  workspaceRoot: string,
+  ssotPath = 'project_memory',
+): Promise<TestingProtocolSyncResult> {
+  return syncStandaloneBlock(workspaceRoot, buildMemorySsotMarkdown(ssotPath), MEMORY_SSOT_MARKERS, {
+    surface: 'memory-ssot-instruction-sync',
+    label: 'Project Memory rule',
+    userInitiated: true,
+  });
+}
+
+async function syncStandaloneBlock(
+  workspaceRoot: string,
+  body: string,
+  markers: { start: string; end: string },
+  options: { surface: string; label: string; userInitiated: boolean },
+): Promise<TestingProtocolSyncResult> {
+  const { surface, label, userInitiated } = options;
   const updated: string[] = [];
   const skipped: { path: string; reason: string }[] = [];
   const heldByDryRun: string[] = [];
@@ -325,16 +418,17 @@ export async function syncRoadmapInstructions(
     }
     try {
       const existing = present ? readFileSync(resolved, { encoding: 'utf8' }) : '';
-      const next = upsertManagedBlock(existing, body, ROADMAP_SYNC_MARKERS);
+      const next = upsertManagedBlock(existing, body, markers);
       if (next !== existing || !present) {
-        // This runs when the Roadmap page opens, not because anybody asked for
-        // an instruction file to change, so a dry run records it instead.
+        // The roadmap rule is written when the Roadmap page opens, not because
+        // anybody asked for an instruction file to change, so a dry run records
+        // it instead. The memory rule follows an import, held the same way.
         if (interceptDryRun({
-          surface: 'roadmap-instruction-sync',
+          surface,
           kind: 'auto-write',
-          summary: `${present ? 'refresh' : 'create'} the roadmap rule in ${target.path}`,
+          summary: `${present ? 'refresh' : 'create'} the ${label} in ${target.path}`,
           details: { path: target.path },
-          userInitiated: false,
+          userInitiated,
         })) {
           heldByDryRun.push(target.path);
           continue;
@@ -352,7 +446,7 @@ export async function syncRoadmapInstructions(
     // installed when it was deliberately not written.
     return {
       success: true,
-      summary: `Dry run is on, so the AtlasMind roadmap rule was not written to ${heldByDryRun.join(', ')}.`,
+      summary: `Dry run is on, so the AtlasMind ${label} was not written to ${heldByDryRun.join(', ')}.`,
       updated,
       skipped: [...skipped, ...heldByDryRun.map(path => ({ path, reason: 'dry run is on, so it was not written' }))],
     };
@@ -361,8 +455,8 @@ export async function syncRoadmapInstructions(
   return {
     success: updated.length > 0,
     summary: updated.length > 0
-      ? `Synced the AtlasMind roadmap rule into ${updated.length} agent instruction file${updated.length === 1 ? '' : 's'}.`
-      : 'Could not sync the AtlasMind roadmap rule into an agent instruction file.',
+      ? `Synced the AtlasMind ${label} into ${updated.length} agent instruction file${updated.length === 1 ? '' : 's'}.`
+      : `Could not sync the AtlasMind ${label} into an agent instruction file.`,
     updated,
     skipped,
   };
@@ -448,6 +542,7 @@ export async function syncTestingProtocols(
     ? undefined
     : withSourceDigest(renderedWorkflow, readSourceText(workspaceRoot, WORKFLOW_SSOT_PATH));
   const roadmapBody = buildRoadmapSyncMarkdown(ssotPath);
+  const memoryBody = buildMemorySsotMarkdown(ssotPath);
   const updated: string[] = [];
   const skipped: { path: string; reason: string }[] = [];
 
@@ -458,11 +553,12 @@ export async function syncTestingProtocols(
     }
     try {
       const existing = readFileSync(resolved, { encoding: 'utf8' });
-      // Four blocks, written in one pass. Each owns its own delimiters, so a
+      // Five blocks, written in one pass. Each owns its own delimiters, so a
       // file carrying one and not the others keeps what it has.
       const withProtocols = upsertManagedBlock(existing, blockBody, TESTING_PROTOCOL_MARKERS);
       const withMarkers = upsertManagedBlock(withProtocols, markerBody, DEBT_MARKER_MARKERS);
-      const withRoadmap = upsertManagedBlock(withMarkers, roadmapBody, ROADMAP_SYNC_MARKERS);
+      const withMemory = upsertManagedBlock(withMarkers, memoryBody, MEMORY_SSOT_MARKERS);
+      const withRoadmap = upsertManagedBlock(withMemory, roadmapBody, ROADMAP_SYNC_MARKERS);
       // No declared workflow means no block, not an empty one — see
       // `buildWorkflowMarkdown`. A file that already has the block keeps it
       // until a workflow exists to refresh it from.

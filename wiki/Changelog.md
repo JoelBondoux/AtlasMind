@@ -19,6 +19,30 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.516.1 -- Project Memory protections, tightened
+
+Open contradictions are checked for credentials before Atlas quotes them in its own chat context. Pages
+listed under *Maintained Pages* are now protected on every import write, including the freshness report
+and generated agent pages. **Align all instruction sets** keeps a custom `atlasmind.ssotPath` instead of
+pointing agents back at `project_memory/`.
+
+---
+
+## v0.516.0 -- Every agent keeps Project Memory current
+
+AtlasMind's memory agent only runs on AtlasMind chat turns, so work done in other tools never reached
+Project Memory unless that agent wrote it. After an import, AtlasMind now writes a **Project Memory is the
+source of truth** rule into every agent instruction file: read memory before code for a simple check,
+update the page in the same change as the fact, and write back anything you had to look up. Pages you
+maintain, listed under *Maintained Pages* in `project_soul.md` or written without an import footer, are
+never overwritten by import. New projects get a `domain/product-facts.md` page. A contradiction between
+memory, docs and code is fixed in the same change when that is clear and in scope; otherwise it goes in
+`operations/contradictions.md`, and AtlasMind shows the open ones at start-up, in the freshness report and
+in Atlas's chat context until they are ticked. The freshness report lists
+edited imports that have fallen behind their sources, with the version they were generated at.
+
+---
+
 ## v0.515.0 -- AtlasMind registers the Buzz harness for you
 
 Some Buzz Desktop 0.5 builds have nowhere to type a command or arguments: the agent editor offers only

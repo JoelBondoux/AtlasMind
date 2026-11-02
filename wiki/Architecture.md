@@ -318,6 +318,16 @@ missing or mismatched marker and falls back to the current transcript. Clear, de
 regenerate wait for invalidation, so an older background summary cannot reintroduce a turn the operator
 removed.
 
+Project Memory is the source of truth for simple facts, and **every agent keeps it current, not only
+AtlasMind's**: its memory agent runs only on AtlasMind chat turns, so after each import AtlasMind writes a
+*Project Memory is the source of truth* rule into every agent instruction file, in its own managed block
+(`src/utils/testingProtocolSync.ts`). **Maintained pages are never overwritten by import** — those listed
+under *Maintained Pages* in `project_soul.md`, and any page at an import path without an import footer
+(`src/bootstrap/maintainedPages.ts`) — and an edited import whose sources moved on is listed under
+*Needs Attention* in `index/import-freshness.md`. A contradiction between memory, docs and code that an
+agent cannot settle in the same change is recorded in `operations/contradictions.md`, and AtlasMind keeps
+its open entries visible (start-up notice, freshness report, Atlas's chat context) until they are ticked.
+
 Game integration begins at the persistence boundary rather than with an engine command. The future
 `game.json` profile is registered at schema v1 before any writer exists, while project composition stays
 inside the existing v1 workflow document. That declaration now round-trips with unknown fields preserved
