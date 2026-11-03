@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.516.6] - 2026-11-03
+
+### Fixed
+
+- Consolidated eight reviewed dependency PRs: PostgreSQL, MySQL, WebSocket runtime/types,
+  MCP and ACP SDKs, developer tooling, pinned GitHub Actions and security overrides.
+  Production dependencies have no known findings in the npm audit snapshot.
+- ACP SDK 2.2 retains stable ACP v1 through the existing app API. A real JSON-transport
+  regression checks streamed replies, denied write permissions and cancellation.
+- Dependabot uses the existing `dependencies` label; removed two nonexistent labels
+  that caused bot errors on update PRs. Dependency integration follows the normal develop workflow.
+
 ## [0.516.5] - 2026-11-03
 
 ### Documentation

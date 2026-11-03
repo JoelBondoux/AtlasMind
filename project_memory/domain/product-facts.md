@@ -1,5 +1,14 @@
 # Product facts
 
+## Dependency review
+
+Source v0.516.6 consolidates dependency PRs #246, #252, #254, #259, #267, #270, #271 and #275.
+ACP SDK 2.2.0 keeps stable ACP v1 and the existing app API. The real SDK JSON-transport test
+covers streamed replies, denied write permission and cancellation. The 2026-11-03 production
+npm audit reports zero findings; the complete audit still reports 13 moderate development
+dependency findings. This source integration is separate from Marketplace publication.
+Evidence: `package-lock.json`, `tests/acp/atlasMindAcpAgent.test.ts`, and `docs/development.md`.
+
 ## Chat execution and routing
 
 - Roadmap cleanup and document reconciliation requests select reading and editing tools within

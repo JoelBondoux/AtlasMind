@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.516.5</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.516.6</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,13 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.516.6
+
+Eight dependency updates are reviewed together: database drivers, WebSockets, MCP/ACP SDKs,
+developer tooling, security fixes and GitHub Actions pins. ACP remains on stable protocol v1,
+with transport checks for replies, permission denial and cancellation. See
+[development guidance](docs/development.md#reviewed-dependency-updates) for the reviewed versions.
+
 ## What's new in 0.516.5
 
 The published baseline now names **v0.516.4**, which carries the roadmap/document edit follow-through,
@@ -189,13 +196,6 @@ completion reporting and non-chat model filtering fixes. This source update reco
 reconcile the document” receive editing tools. Investigation leads into applying the change, with
 bounded recovery and an explicit incomplete result if it cannot be applied. Transcription and
 dictation cleanup models are excluded from coding requests, including stale metadata and agent pins.
-
-## What's new in 0.516.3
-
-The v0.516.3 source update recorded **v0.516.2** as published, carrying everything since v0.509.0: Buzz
-persona verification and harness registration, every agent keeping Project Memory current, a defined way
-to handle contradictions between memory, docs and code, and the fixes since. Every release is written up
-in full in [CHANGELOG.md](CHANGELOG.md).
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.516.4**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in

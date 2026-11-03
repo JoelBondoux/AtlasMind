@@ -44,6 +44,65 @@ function createClient() {
 }
 
 describe('AtlasMindAcpAgent', () => {
+  it('preserves stable v1 replies, denied writes and cancellation through the official SDK transport', async () => {
+    const acp = await import('@agentclientprotocol/sdk');
+    const outbound = new TransformStream<Uint8Array, Uint8Array>();
+    const inbound = new TransformStream<Uint8Array, Uint8Array>();
+    const workspaceRoot = path.resolve('C:/workspace');
+    const runtime = createRuntime();
+    const implementation = new AtlasMindAcpAgent({ workspaceRoot, version: '1.0.0', runtime });
+    const updates: unknown[] = [];
+    const permissions: unknown[] = [];
+    let started!: () => void;
+    const waiting = new Promise<void>(resolve => { started = resolve; });
+    let calls = 0;
+    runtime.orchestrator.processTaskWithAgent.mockImplementation(async (request: any, _agent: unknown, onChunk: any) => {
+      if (calls++ === 0) {
+        const decision = await implementation.toolApprovalGate(request.id, 'file-write', {
+          path: path.join(workspaceRoot, 'file.txt'), content: 'change',
+        });
+        expect(decision.approved).toBe(false);
+        onChunk('Write refused');
+      } else {
+        started();
+        await new Promise<void>(resolve => request.signal.addEventListener('abort', () => resolve(), { once: true }));
+      }
+      return { response: 'Write refused', agentId: 'default', modelUsed: 'local/echo' };
+    });
+    const server = acp.agent({ name: 'atlasmind' })
+      .onRequest('initialize', ctx => implementation.initialize(ctx.params))
+      .onRequest('session/new', ctx => implementation.newSession(ctx.params))
+      .onRequest('session/prompt', ctx => implementation.prompt(ctx.params, ctx.client))
+      .onNotification('session/cancel', ctx => implementation.cancel(ctx.params))
+      .connect(acp.ndJsonStream(outbound.writable, inbound.readable));
+    const client = acp.client({ name: 'atlasmind-test' })
+      .onNotification('session/update', ctx => { updates.push(ctx.params); })
+      .onRequest('session/request_permission', ctx => {
+        permissions.push(ctx.params);
+        return { outcome: { outcome: 'selected', optionId: 'reject-once' } };
+      })
+      .connect(acp.ndJsonStream(inbound.writable, outbound.readable));
+    try {
+      const initialized = await client.agent.request('initialize', { protocolVersion: 1, clientCapabilities: {} });
+      expect(initialized).toMatchObject({ protocolVersion: 1, agentCapabilities: { loadSession: false, promptCapabilities: { embeddedContext: true } } });
+      const { sessionId } = await client.agent.request('session/new', { cwd: workspaceRoot, mcpServers: [] });
+      await expect(client.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'Edit the file' }] }))
+        .resolves.toEqual({ stopReason: 'end_turn' });
+      expect(permissions).toHaveLength(1);
+      expect(updates).toContainEqual(expect.objectContaining({
+        sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Write refused' } },
+      }));
+      const pending = client.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'Wait' }] });
+      await waiting;
+      await client.agent.notify('session/cancel', { sessionId });
+      await expect(pending).resolves.toEqual({ stopReason: 'cancelled' });
+    } finally {
+      client.close();
+      server.close();
+      await Promise.all([client.closed, server.closed]);
+    }
+  });
+
   it('advertises a stable ACP v1, stdio-safe capability surface', async () => {
     const runtime = createRuntime();
     const agent = new AtlasMindAcpAgent({
