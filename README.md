@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.516.7</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.516.8</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,11 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.516.8
+
+The published baseline now names **v0.516.7**, carrying the reviewed database, WebSocket,
+MCP/ACP SDK, developer-tooling and security updates. This source update records that publication.
+
 ## What's new in 0.516.7
 
 Full-history secret scans recognize individually reviewed historical test values and public
@@ -191,12 +196,7 @@ developer tooling, security fixes and GitHub Actions pins. ACP remains on stable
 with transport checks for replies, permission denial and cancellation. See
 [development guidance](docs/development.md#reviewed-dependency-updates) for the reviewed versions.
 
-## What's new in 0.516.5
-
-The published baseline now names **v0.516.4**, which carries the roadmap/document edit follow-through,
-completion reporting and non-chat model filtering fixes. This source update records that publication.
-
-Only the three newest releases are summarised here. The last Marketplace publication, **v0.516.4**, is
+Only the three newest releases are summarised here. The last Marketplace publication, **v0.516.7**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
 [CHANGELOG.md](CHANGELOG.md).
 

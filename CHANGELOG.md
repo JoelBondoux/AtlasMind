@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.516.8] - 2026-11-03
+
+### Documentation
+
+- The README and maintained product facts now name v0.516.7 as the last Marketplace
+  publication, after successful publication of the reviewed dependency and secret-scan fixes.
+
 ## [0.516.7] - 2026-11-03
 
 ### Fixed

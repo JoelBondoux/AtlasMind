@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.516.8 -- Published baseline refreshed
+
+The README and maintained product facts now name v0.516.7 as the last Marketplace publication,
+after the tag-triggered workflow successfully published the reviewed dependency and security fixes.
+
+---
+
 ## v0.516.7 -- Historical secret-scan findings reviewed
 
 The follow-up review also accepts PR #276's ESLint 10.14.0 rule and dependency fixes.
