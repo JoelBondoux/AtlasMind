@@ -1,5 +1,11 @@
 # Security
 
+Full-history secret scanning retains detection for new credentials. `.gitleaksignore` lists
+only exact historical findings (commit, path, rule, line) after source review. The 2026-11-03
+review covers invented test credentials, a public NIP-OA signature vector and a form identifier
+published through [Mistral's Privacy requests link](https://mistral.ai/contact/). No new file-wide
+or credential-pattern exclusions were added. A scanner exception is not a credential revocation.
+
 Document-maintenance intent selects tools within the existing eligibility ceiling; it grants no
 additional permission. Read-only limits and dry runs suppress edit enforcement, approvals still
 govern writes, and recovery to another model is withheld once side effects have started.

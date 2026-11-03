@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.516.6</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.516.7</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,12 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.516.7
+
+Full-history secret scans recognize individually reviewed historical test values and public
+identifiers. Exceptions identify each original finding; detection stays active for future secrets.
+The follow-up dependency review also includes ESLint 10.14.0.
+
 ## What's new in 0.516.6
 
 Eight dependency updates are reviewed together: database drivers, WebSockets, MCP/ACP SDKs,
@@ -189,13 +195,6 @@ with transport checks for replies, permission denial and cancellation. See
 
 The published baseline now names **v0.516.4**, which carries the roadmap/document edit follow-through,
 completion reporting and non-chat model filtering fixes. This source update records that publication.
-
-## What's new in 0.516.4
-
-**Requested roadmap and document edits follow through.** “Tidy up the roadmap” and “review and
-reconcile the document” receive editing tools. Investigation leads into applying the change, with
-bounded recovery and an explicit incomplete result if it cannot be applied. Transcription and
-dictation cleanup models are excluded from coding requests, including stale metadata and agent pins.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.516.4**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in

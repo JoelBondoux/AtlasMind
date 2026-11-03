@@ -1,5 +1,8 @@
 # Contributing
 
+The v0.516.7 follow-up uses ESLint 10.14.0 after reviewing the new dependency PR #276.
+Historical secret-scan exceptions pin individual reviewed findings; see [Security](Security.md).
+
 The v0.516.6 dependency review updates database/WebSocket drivers, MCP/ACP SDKs and build tooling
 together. ACP SDK 2.2.0 still uses stable protocol v1 through the app API; run the ACP agent
 tests when changing it, including the JSON-transport permission and cancellation regression.

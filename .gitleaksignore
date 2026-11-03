@@ -1,4 +1,4 @@
-# Individual gitleaks findings that were read and judged synthetic.
+# Individual gitleaks findings reviewed as synthetic or public, non-secret data.
 #
 # `.gitleaks.toml` allowlists whole files that exist to hold synthetic secrets.
 # This file is narrower: each line pins ONE finding — commit, file, rule and
@@ -15,3 +15,33 @@
 271de8a9c0b045cb5d6fb3d7542aea54033073d4:tests/core/sandboxApprovalRelaxation.test.ts:generic-api-key:670
 271de8a9c0b045cb5d6fb3d7542aea54033073d4:tests/core/sandboxPlan.test.ts:generic-api-key:70
 271de8a9c0b045cb5d6fb3d7542aea54033073d4:tests/core/sandboxRunner.test.ts:generic-api-key:727
+
+# Full-history workflow_dispatch scan reviewed on 2026-11-03. Each exception is
+# one original finding; no new file or credential pattern is globally allowed.
+# Invented alphabet/hex credentials and malformed Nostr keys used by rejection,
+# redaction, preview-token and activation tests; no value authenticates a service.
+a616f66c3ae533baac4a954e9828def69ba48816:tests/core/buzzPersonaManifest.test.ts:generic-api-key:56
+b280c6dfd431b2444f167b31103f51eeb7063a0d:tests/core/buzzRevocation.test.ts:generic-api-key:24
+83530667389c0c03f6925ee0b4ad31ac54a51f04:tests/core/promotionRunner.test.ts:github-pat:338
+83530667389c0c03f6925ee0b4ad31ac54a51f04:tests/core/promotionRunner.test.ts:github-pat:340
+ec1ceb0d86a38973d25fc47873436a0bdad82c39:tests/core/uiPreviewRuntime.test.ts:generic-api-key:12
+f9d97773d96ac6985ada891d09b2762cfb727faa:tests/core/websitePreviewServer.test.ts:generic-api-key:10
+02ad797baffd5460c5d7a13079aa795218da6c33:tests/core/ciFailureAnalysis.test.ts:stripe-access-token:192
+02ad797baffd5460c5d7a13079aa795218da6c33:tests/core/ciFailureAnalysis.test.ts:generic-api-key:263
+02ad797baffd5460c5d7a13079aa795218da6c33:tests/core/ciFailureAnalysis.test.ts:generic-api-key:301
+0cc169d20faeb70d0e4a55cd73e2ba14f31b9f30:tests/core/ciFailureAnalysis.test.ts:stripe-access-token:192
+0cc169d20faeb70d0e4a55cd73e2ba14f31b9f30:tests/core/ciFailureAnalysis.test.ts:generic-api-key:263
+0cc169d20faeb70d0e4a55cd73e2ba14f31b9f30:tests/core/ciFailureAnalysis.test.ts:generic-api-key:301
+924de8edef81da1a01d4db55cf352d6400f97ee1:tests/core/websiteWorkspaceManager.test.ts:generic-api-key:89
+5f19e0ff49c34212e1311194e278089dad0cb35a:tests/extensionActivation.test.ts:generic-api-key:234
+5f19e0ff49c34212e1311194e278089dad0cb35a:tests/extensionActivation.test.ts:generic-api-key:235
+02e4edf2939fb584b25fb0c7ba7982fdbcc2a751:tests/memory/memoryManager.test.ts:generic-api-key:158
+e80ef4d9e0b09c6418871b9e36f7c173a705f83c:tests/memory/memoryManager.test.ts:generic-api-key:53
+e80ef4d9e0b09c6418871b9e36f7c173a705f83c:tests/core/skillScanner.test.ts:generic-api-key:74
+f0eec1c676fa1a962e44c151f260ff72023b30ae:tests/core/toolWebhookDispatcher.test.ts:generic-api-key:8
+aa09d751ec0e049dbbca5eda02cc667762bb9a51:tests/memory/memoryScanner.test.ts:generic-api-key:55
+# Public NIP-OA signature vector (128 hex characters, not a private key).
+b280c6dfd431b2444f167b31103f51eeb7063a0d:tests/core/buzzOwnerAttestation.test.ts:generic-api-key:19
+# Public form identifier, verified via the Privacy requests link at
+# https://mistral.ai/contact/ on 2026-11-03. Not an inference/account credential.
+6ad7c2febfb7671540f1536e55a0b8b51a149e5f:src/core/providerDataGovernance.ts:generic-api-key:72

@@ -1,5 +1,9 @@
 # Tool Execution & Safety
 
+Repository secret-scan exceptions use exact historical finding fingerprints after source review.
+They do not grant tool access, approve a credential's use or exclude future keys in that file.
+See [Security](Security.md) for the historical finding review and its public-data evidence.
+
 Document reconciliation and roadmap cleanup select editing tools and retain the requested action
 after inspection. Selection is not permission: eligibility, read-only limits, dry runs and approval
 gates still apply. A model that only suggests an edit is retried; an unapplied edit is reported as

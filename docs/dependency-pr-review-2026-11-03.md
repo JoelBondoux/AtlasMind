@@ -5,6 +5,13 @@ All eight contain useful updates. Their changes are consolidated in source v0.51
 version/changelog update. The source PRs can then be closed as superseded by that integration;
 closing them does not mean their bot commits were merged individually.
 
+Dependabot closed seven original PRs once it detected their updates on develop, then opened
+[276](https://github.com/JoelBondoux/AtlasMind/pull/276) at
+`173e8231014e6b2f1b0f5a0982f0d65feff40092`. This additional review accepts ESLint 10.14.0:
+same major and compatible parser peers, with rule crash/autofix fixes and stricter dependency
+constraints. Its lockfile changes only the ESLint package; existing shared versions satisfy the
+new constraints. This update is included in v0.516.7 and receives the same final validation.
+
 | PR | Reviewed head | Change and verdict |
 | --- | --- | --- |
 | [246](https://github.com/JoelBondoux/AtlasMind/pull/246) | `b8e21717ccad5daf0cf1a3c1cefbc2d6793f82d7` | Accept pg 8.23.1 and its connection/protocol patch updates. |
@@ -32,6 +39,12 @@ The 2026-11-03 npm audit snapshot reports **zero production findings**, down fro
 production packages. The full audit retains 13 moderate development-package findings rooted in
 minimatch; npm reports no automatic fix. This review does not claim those findings are resolved.
 Default-branch security alerts can remain open until a later intentional release promotion.
+
+The first manually dispatched integration CI scanned all history and found 22 pre-existing
+false positives. Source v0.516.7 records exact historical exceptions after checking every source
+window: 20 synthetic test-value findings, one public NIP-OA signature and one public form identifier
+verified through [Mistral's contact page](https://mistral.ai/contact/). No file or credential pattern
+was newly excluded. This follow-up clears the historical scan without narrowing its scan range.
 
 Validation uses `npm run ci:local` (compile, lint, integration coverage audit, full tests,
 provider checks, coverage and VSIX packaging), the normal commit hook, and a manually dispatched

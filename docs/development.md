@@ -1,5 +1,9 @@
 ## Reviewed dependency updates
 
+Follow-up v0.516.7 accepts the newly opened PR #276 for ESLint 10.14.0. Its lockfile
+changes only ESLint's package; the installed shared dependencies were already compatible.
+Historical secret-scan finding exceptions are documented in [Security](../wiki/Security.md).
+
 Source v0.516.6 consolidates PRs #246, #252, #254, #259, #267, #270, #271 and #275.
 Runtime locks are pg 8.23.1, mysql2 3.24.6, ws 8.22.0, MCP SDK 1.32.2 and ACP SDK 2.2.0.
 ACP's default entry remains stable protocol v1; AtlasMind already uses its app API. The ACP

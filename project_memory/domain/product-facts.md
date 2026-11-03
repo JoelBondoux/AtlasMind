@@ -2,6 +2,11 @@
 
 ## Dependency review
 
+The follow-up v0.516.7 records exact exceptions for 22 historical secret-scan false positives,
+reviewed against their original source and public form provenance. No additional file or
+credential pattern is excluded; new credentials remain detectable. Evidence: `.gitleaksignore`.
+It also accepts the new PR #276 for ESLint 10.14.0; runtime dependency locks are unchanged.
+
 Source v0.516.6 consolidates dependency PRs #246, #252, #254, #259, #267, #270, #271 and #275.
 ACP SDK 2.2.0 keeps stable ACP v1 and the existing app API. The real SDK JSON-transport test
 covers streamed replies, denied write permission and cancellation. The 2026-11-03 production

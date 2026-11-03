@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.516.7] - 2026-11-03
+
+### Fixed
+
+- Reviewed the newly opened ESLint PR #276 and updated to 10.14.0, including its
+  rule crash/autofix fixes and dependency constraint corrections.
+- Full-history secret scans recognize 22 individually reviewed historical findings:
+  synthetic test credentials, a public signature vector and a publicly linked privacy-form
+  identifier. Exceptions pin the original commit, path, rule and line; future credentials
+  remain scanned. No additional file or credential pattern is globally excluded.
+
 ## [0.516.6] - 2026-11-03
 
 ### Fixed
