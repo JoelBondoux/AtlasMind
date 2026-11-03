@@ -19,6 +19,13 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.516.5 -- Published baseline refreshed
+
+The README and maintained product facts now name v0.516.4 as the last Marketplace publication,
+after the tag-triggered workflow successfully published the roadmap/document execution fixes.
+
+---
+
 ## v0.516.4 -- Carry document maintenance through to edits
 
 Roadmap cleanup and document reconciliation select editing tools. Repeated inspection leads into

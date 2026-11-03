@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.516.4</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.516.5</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,11 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.516.5
+
+The published baseline now names **v0.516.4**, which carries the roadmap/document edit follow-through,
+completion reporting and non-chat model filtering fixes. This source update records that publication.
+
 ## What's new in 0.516.4
 
 **Requested roadmap and document edits follow through.** “Tidy up the roadmap” and “review and
@@ -187,18 +192,12 @@ dictation cleanup models are excluded from coding requests, including stale meta
 
 ## What's new in 0.516.3
 
-The last Marketplace publication is now **v0.516.2**, which carries everything since v0.509.0: Buzz
+The v0.516.3 source update recorded **v0.516.2** as published, carrying everything since v0.509.0: Buzz
 persona verification and harness registration, every agent keeping Project Memory current, a defined way
 to handle contradictions between memory, docs and code, and the fixes since. Every release is written up
 in full in [CHANGELOG.md](CHANGELOG.md).
 
-## What's new in 0.516.2
-
-**Buzz harness registration finds the right folder on every platform.** The folder AtlasMind writes a
-persona's harness into is now worked out with that platform's own path rules, so the answer no longer
-depends on which operating system runs it.
-
-Only the three newest releases are summarised here. The last Marketplace publication, **v0.516.2**, is
+Only the three newest releases are summarised here. The last Marketplace publication, **v0.516.4**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
 [CHANGELOG.md](CHANGELOG.md).
 
