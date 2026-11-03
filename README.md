@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.516.4</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.516.7</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,27 +178,25 @@ important limits on overrides and compliance claims.
 
 ---
 
-## What's new in 0.516.4
+## What's new in 0.516.7
 
-**Requested roadmap and document edits follow through.** “Tidy up the roadmap” and “review and
-reconcile the document” receive editing tools. Investigation leads into applying the change, with
-bounded recovery and an explicit incomplete result if it cannot be applied. Transcription and
-dictation cleanup models are excluded from coding requests, including stale metadata and agent pins.
+Full-history secret scans recognize individually reviewed historical test values and public
+identifiers. Exceptions identify each original finding; detection stays active for future secrets.
+The follow-up dependency review also includes ESLint 10.14.0.
 
-## What's new in 0.516.3
+## What's new in 0.516.6
 
-The last Marketplace publication is now **v0.516.2**, which carries everything since v0.509.0: Buzz
-persona verification and harness registration, every agent keeping Project Memory current, a defined way
-to handle contradictions between memory, docs and code, and the fixes since. Every release is written up
-in full in [CHANGELOG.md](CHANGELOG.md).
+Eight dependency updates are reviewed together: database drivers, WebSockets, MCP/ACP SDKs,
+developer tooling, security fixes and GitHub Actions pins. ACP remains on stable protocol v1,
+with transport checks for replies, permission denial and cancellation. See
+[development guidance](docs/development.md#reviewed-dependency-updates) for the reviewed versions.
 
-## What's new in 0.516.2
+## What's new in 0.516.5
 
-**Buzz harness registration finds the right folder on every platform.** The folder AtlasMind writes a
-persona's harness into is now worked out with that platform's own path rules, so the answer no longer
-depends on which operating system runs it.
+The published baseline now names **v0.516.4**, which carries the roadmap/document edit follow-through,
+completion reporting and non-chat model filtering fixes. This source update records that publication.
 
-Only the three newest releases are summarised here. The last Marketplace publication, **v0.516.2**, is
+Only the three newest releases are summarised here. The last Marketplace publication, **v0.516.4**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
 [CHANGELOG.md](CHANGELOG.md).
 

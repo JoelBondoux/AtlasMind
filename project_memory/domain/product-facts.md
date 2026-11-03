@@ -1,5 +1,19 @@
 # Product facts
 
+## Dependency review
+
+The follow-up v0.516.7 records exact exceptions for 22 historical secret-scan false positives,
+reviewed against their original source and public form provenance. No additional file or
+credential pattern is excluded; new credentials remain detectable. Evidence: `.gitleaksignore`.
+It also accepts the new PR #276 for ESLint 10.14.0; runtime dependency locks are unchanged.
+
+Source v0.516.6 consolidates dependency PRs #246, #252, #254, #259, #267, #270, #271 and #275.
+ACP SDK 2.2.0 keeps stable ACP v1 and the existing app API. The real SDK JSON-transport test
+covers streamed replies, denied write permission and cancellation. The 2026-11-03 production
+npm audit reports zero findings; the complete audit still reports 13 moderate development
+dependency findings. This source integration is separate from Marketplace publication.
+Evidence: `package-lock.json`, `tests/acp/atlasMindAcpAgent.test.ts`, and `docs/development.md`.
+
 ## Chat execution and routing
 
 - Roadmap cleanup and document reconciliation requests select reading and editing tools within
@@ -17,4 +31,11 @@
 - An agent's model pins narrow routing candidates; they cannot bypass routing rejection.
 
 Evidence: `src/core/orchestrator.ts`, `src/core/modelRouter.ts`, `src/providers/modelRole.ts`,
-`src/chat/participant.ts`, and the regression suites for those modules. Source version 0.516.4.
+`src/chat/participant.ts`, and the regression suites for those modules. Behavior introduced in 0.516.4.
+
+## Published release
+
+v0.516.4 was published on 2026-11-03 through the tag-triggered Marketplace workflow
+([run 41550779260](https://github.com/JoelBondoux/AtlasMind/actions/runs/41550779260)).
+Release PR #274 merged as `b6fb7ac5bae7fa9c926be038a5bc0a5001121be6`; the annotated release tag
+points to that exact main commit. The published-baseline source follow-up is version 0.516.5.

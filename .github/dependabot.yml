@@ -9,8 +9,6 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - dependencies
-      - security
-      - area:ci
     groups:
       runtime-integrations:
         patterns:
@@ -66,8 +64,6 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - dependencies
-      - security
-      - area:ci
     groups:
       github-actions:
         patterns:

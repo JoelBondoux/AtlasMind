@@ -1,3 +1,19 @@
+## Reviewed dependency updates
+
+Follow-up v0.516.7 accepts the newly opened PR #276 for ESLint 10.14.0. Its lockfile
+changes only ESLint's package; the installed shared dependencies were already compatible.
+Historical secret-scan finding exceptions are documented in [Security](../wiki/Security.md).
+
+Source v0.516.6 consolidates PRs #246, #252, #254, #259, #267, #270, #271 and #275.
+Runtime locks are pg 8.23.1, mysql2 3.24.6, ws 8.22.0, MCP SDK 1.32.2 and ACP SDK 2.2.0.
+ACP's default entry remains stable protocol v1; AtlasMind already uses its app API. The ACP
+agent suite also exercises the real SDK JSON transport, including denied writes and cancellation.
+Tooling uses typescript-eslint 8.72.1, vsce 4.1.0, Node types 26.6.6 and ws types 8.18.2.
+TypeScript and the minimum VS Code version remain declared by `package.json`.
+Actions setup-node 7.1.0 and upload-artifact 7.0.2 stay pinned to upstream commit SHAs.
+Dependabot labels are restricted to labels that exist on the repository. For delivery policy,
+see [the repository workflow](github-workflow.md) and [guided workflow](guided-github-workflow.md).
+
 ## Running a branch
 
 Configure ACP agents in User settings. The repository's `.vscode/settings.json` deliberately does
@@ -55,7 +71,7 @@ daily-use development machine and must not accept untrusted pull-request code.
 
 ## Prerequisites
 
-- **VS Code** ≥ 1.96.0
+- **VS Code** ≥ 1.120.0 (the existing `engines.vscode` floor)
 - **Node.js** ≥ 22 — CI builds on 24, which is what this is developed against. The floor moved off
   18 because the dev toolchain moved: `jsdom` and Stryker both require 22 or newer, and a stated
   prerequisite nobody can actually build on is worse than none.

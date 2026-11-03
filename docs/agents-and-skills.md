@@ -1,5 +1,10 @@
 # Agents & Skills
 
+Full-history secret scanning uses exact finding exceptions after review, separately from tool
+approvals and runtime redaction. The 2026-11-03 exceptions cover historical synthetic/public data;
+they grant no agent permission and leave future credentials detectable. See
+[Security](../wiki/Security.md) and `.gitleaksignore` for the evidence and original fingerprints.
+
 Requests to tidy a roadmap/backlog or reconcile a document select workspace reading and editing
 skills. The exploration nudge asks for the requested edit rather than a proposed fix; if no edit is
 recorded after bounded recovery, chat and project results say so explicitly. These are selection

@@ -19,6 +19,33 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.516.7 -- Historical secret-scan findings reviewed
+
+The follow-up review also accepts PR #276's ESLint 10.14.0 rule and dependency fixes.
+
+Full-history scans now recognize 22 exact historical findings that were checked against the
+original source: synthetic test values, a public signature vector and a publicly linked form
+identifier. Exceptions pin the commit, path, rule and line rather than disabling a file or pattern.
+
+---
+
+## v0.516.6 -- Reviewed dependency updates
+
+Eight dependency PRs are consolidated on develop: database drivers, WebSocket runtime/types,
+MCP and ACP SDKs, developer tooling, pinned Actions and security overrides. ACP retains stable
+protocol v1, verified through JSON transport for replies, denied writes and cancellation.
+Dependabot uses the existing dependencies label to avoid errors from missing labels.
+The production npm audit snapshot contains no findings; development audit findings remain.
+
+---
+
+## v0.516.5 -- Published baseline refreshed
+
+The README and maintained product facts now name v0.516.4 as the last Marketplace publication,
+after the tag-triggered workflow successfully published the roadmap/document execution fixes.
+
+---
+
 ## v0.516.4 -- Carry document maintenance through to edits
 
 Roadmap cleanup and document reconciliation select editing tools. Repeated inspection leads into

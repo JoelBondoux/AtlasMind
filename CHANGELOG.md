@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.516.7] - 2026-11-03
+
+### Fixed
+
+- Reviewed the newly opened ESLint PR #276 and updated to 10.14.0, including its
+  rule crash/autofix fixes and dependency constraint corrections.
+- Full-history secret scans recognize 22 individually reviewed historical findings:
+  synthetic test credentials, a public signature vector and a publicly linked privacy-form
+  identifier. Exceptions pin the original commit, path, rule and line; future credentials
+  remain scanned. No additional file or credential pattern is globally excluded.
+
+## [0.516.6] - 2026-11-03
+
+### Fixed
+
+- Consolidated eight reviewed dependency PRs: PostgreSQL, MySQL, WebSocket runtime/types,
+  MCP and ACP SDKs, developer tooling, pinned GitHub Actions and security overrides.
+  Production dependencies have no known findings in the npm audit snapshot.
+- ACP SDK 2.2 retains stable ACP v1 through the existing app API. A real JSON-transport
+  regression checks streamed replies, denied write permissions and cancellation.
+- Dependabot uses the existing `dependencies` label; removed two nonexistent labels
+  that caused bot errors on update PRs. Dependency integration follows the normal develop workflow.
+
+## [0.516.5] - 2026-11-03
+
+### Documentation
+
+- The README and maintained product facts now name v0.516.4 as the last Marketplace publication,
+  following successful publication of the roadmap/document execution and model-routing fixes.
+
 ## [0.516.4] - 2026-11-02
 
 ### Fixed

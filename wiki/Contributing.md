@@ -1,5 +1,16 @@
 # Contributing
 
+The v0.516.7 follow-up uses ESLint 10.14.0 after reviewing the new dependency PR #276.
+Historical secret-scan exceptions pin individual reviewed findings; see [Security](Security.md).
+
+The v0.516.6 dependency review updates database/WebSocket drivers, MCP/ACP SDKs and build tooling
+together. ACP SDK 2.2.0 still uses stable protocol v1 through the app API; run the ACP agent
+tests when changing it, including the JSON-transport permission and cancellation regression.
+The reviewed versions and Actions pins are listed in
+[development guidance](https://github.com/JoelBondoux/AtlasMind/blob/develop/docs/development.md#reviewed-dependency-updates).
+Dependabot should request only repository labels that already exist. Delivery policy remains in
+[the repository workflow](https://github.com/JoelBondoux/AtlasMind/blob/develop/docs/github-workflow.md).
+
 ACP agent commands and runtime pins belong in local User settings; repository settings do not
 override them. Include completion-only reply checks when testing an adapter, because session
 creation can succeed with an expired login or unsupported model. See [Model Routing](Model-Routing.md).
@@ -13,7 +24,7 @@ This page covers getting set up, the conventions, and how to add the things peop
 
 ## Getting set up
 
-You'll need **Node.js 22+**, **npm 9+**, **VS Code 1.96+** and **git**. CI builds on Node 24, which is
+You'll need **Node.js 22+**, **npm 9+**, **VS Code 1.120+** and **git**. CI builds on Node 24, which is
 what AtlasMind is developed against; the floor moved off 18 because the dev toolchain did — `jsdom` and
 Stryker both require 22 or newer now.
 
