@@ -3313,7 +3313,7 @@
     "@types/ws": "^8.18.2",
     "@typescript-eslint/eslint-plugin": "^8.72.1",
     "@typescript-eslint/parser": "^8.67.0",
-    "@vitest/coverage-v8": "^5.0.5",
+    "@vitest/coverage-v8": "^5.1.0",
     "@vscode/test-web": "^0.0.81",
     "@vscode/vsce": "^4.1.0",
     "esbuild": "^0.28.2",
