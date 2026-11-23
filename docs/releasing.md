@@ -69,6 +69,11 @@ Windows Task Scheduler, because hosted Actions often have no credits to run:
 - **Machine off or asleep at 10:30 or 22:00:** Task Scheduler runs the missed
   window once, soon after the next sign-in (`StartWhenAvailable`). Two missed
   windows become one run, and the daily limit still applies.
+- **A launcher outside the clone.** The tasks run
+  `%LOCALAPPDATA%\AtlasMind\release-gate\run-window.mjs`, which the script writes.
+  It moves the clone to `origin/main` and runs that copy of `release-window.mjs`.
+  If `main` has no gate yet, it logs that and exits, so the tasks need no change
+  once the gate reaches `main`.
 - `-Unregister` removes both tasks.
 
 ## Hosted fallback

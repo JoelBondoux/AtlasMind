@@ -51,7 +51,30 @@ if (-not (Test-Path (Join-Path $Clone '.git'))) {
 }
 
 $node = (Get-Command node -ErrorAction Stop).Source
-$script = Join-Path $Clone 'scripts\release-gate\release-window.mjs'
+# The task runs a launcher kept outside the clone, so it works before and after
+# the gate reaches main: it moves the clone to origin/main and runs that copy of
+# release-window.mjs, or logs that main has no gate yet and exits 0.
+$state = Split-Path $Clone
+$script = Join-Path $state 'run-window.mjs'
+$cloneJson = ConvertTo-Json $Clone
+@"
+// Written by register-publish-windows.ps1. Runs one AtlasMind publish window.
+import { spawnSync } from 'node:child_process';
+import { appendFileSync, existsSync } from 'node:fs';
+import path from 'node:path';
+const clone = $cloneJson;
+const logFile = path.join(path.dirname(clone), 'window.log');
+const log = (m) => appendFileSync(logFile, ``[`${new Date().toISOString()}] [launcher] `${m}\n``);
+const git = (...a) => spawnSync('git', a, { cwd: clone, windowsHide: true, encoding: 'utf8' });
+for (const a of [['fetch', '--quiet', '--tags', '--prune', 'origin'], ['checkout', '--quiet', '--detach', 'origin/main']]) {
+  const r = git(...a);
+  if (r.status !== 0) { log(``git `${a[0]} failed: `${(r.stderr || '').trim()}``); process.exit(1); }
+}
+const windowScript = path.join(clone, 'scripts', 'release-gate', 'release-window.mjs');
+if (!existsSync(windowScript)) { log('origin/main has no release gate yet; nothing to do'); process.exit(0); }
+const r = spawnSync(process.execPath, [windowScript, ...process.argv.slice(2)], { cwd: clone, stdio: 'inherit', windowsHide: true });
+process.exit(r.status ?? 1);
+"@ | Set-Content -Encoding utf8 $script
 # conhost --headless starts the process with no visible console at all.
 $action = New-ScheduledTaskAction -Execute "$env:WINDIR\System32\conhost.exe" `
   -Argument "--headless `"$node`" `"$script`"" -WorkingDirectory $Clone
