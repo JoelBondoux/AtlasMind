@@ -85,12 +85,11 @@ The specification's stage 6 (Release Automation), instantiated. **The release is
    It creates or reuses the `develop` → `main` release PR and enables merge-commit auto-merge.
 2. Wait for the release PR to merge into `main`.
 3. Run **`npm run tag:release`** locally. This pushes `v<package.json version>`.
-4. The tag push triggers **`Release — publish Marketplace from tag`**, which signs in as the managed identity `vscode-marketplace-publisher` via workload identity federation, verifies it still has publish rights, then publishes via `vsce`
-   and creates the GitHub Release with generated notes.
+4. The tag does not publish by itself. The next scheduled publish window (10:30 or 22:00 UK, on the maintainer's machine) runs the release gate on the newest tag the Marketplace lacks and publishes it only if every check passes, at most twice a UK day. **`Release — publish Marketplace from tag`** is the hosted fallback, dispatched by hand: it signs in as the managed identity `vscode-marketplace-publisher` and runs the same gate. See [releasing.md](releasing.md).
 
 > **Publishing and tagging are separate commands, deliberately.**
 >
-> `publish:release` runs `vsce publish` and nothing else. `tag:release` pushes the tag.
+> `publish:release` runs the release gate and publishes only if it passes. `tag:release` pushes the tag.
 >
 > They were chained until v0.184.0, and the chain was a live hazard: the tag push triggers
 > `publish.yml`, which ran `publish:release` again in CI, and the second attempt failed on

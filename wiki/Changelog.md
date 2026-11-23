@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.516.9 -- Gated, scheduled Marketplace publishing
+
+A release is published only after the release gate passes: full local CI, the security suite,
+npm audit, a secret scan of the packaged VSIX and an install-and-activate smoke test. Two
+windows a day (10:30 and 22:00 UK) publish the newest release that passes, at most two a day.
+A tag push no longer publishes on its own.
+
+---
+
 ## v0.516.8 -- Published baseline refreshed
 
 The README and maintained product facts now name v0.516.7 as the last Marketplace publication,

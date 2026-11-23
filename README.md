@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.516.8</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.516.9</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,12 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.516.9
+
+Releases now reach the Marketplace only after a release gate passes: full CI, security checks,
+a secret scan and an install-and-activate smoke test of the packaged extension. Two scheduled
+windows a day publish the newest release that passes. See [releasing](docs/releasing.md).
+
 ## What's new in 0.516.8
 
 The published baseline now names **v0.516.7**, carrying the reviewed database, WebSocket,
@@ -188,13 +194,6 @@ MCP/ACP SDK, developer-tooling and security updates. This source update records 
 Full-history secret scans recognize individually reviewed historical test values and public
 identifiers. Exceptions identify each original finding; detection stays active for future secrets.
 The follow-up dependency review also includes ESLint 10.14.0.
-
-## What's new in 0.516.6
-
-Eight dependency updates are reviewed together: database drivers, WebSockets, MCP/ACP SDKs,
-developer tooling, security fixes and GitHub Actions pins. ACP remains on stable protocol v1,
-with transport checks for replies, permission denial and cancellation. See
-[development guidance](docs/development.md#reviewed-dependency-updates) for the reviewed versions.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.516.7**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in

@@ -413,12 +413,25 @@ describe('a documented count matches the code', () => {
  * `fetch-depth: 0` on every CI run for a documentation assertion.
  */
 describe('the README\'s published-version baseline is not stale', () => {
+  /**
+   * The newest release tag *older than this source version*.
+   *
+   * Not simply the newest tag. At a release tag the README cannot name that
+   * release as already published (it is not, yet), and when the release gate
+   * checks out an older tag, tags made since must not count against it. Until
+   * 2026-11-23 this compared against the newest tag of all, so every tag failed
+   * its own suite the moment it was pushed, and a gate that runs the suite on
+   * the tag could never pass.
+   */
   function newestTag(): string | undefined {
     try {
+      const rank = (v: string) => v.split('.').map(Number).reduce((acc, n) => acc * 1e4 + n, 0);
+      const source = rank((JSON.parse(read('package.json')) as { version: string }).version);
       const tags = execFileSync('git', ['tag', '--sort=-v:refname'], { encoding: 'utf8' })
         .split(/\r?\n/)
         .map(line => line.trim())
-        .filter(line => /^v\d+\.\d+\.\d+$/.test(line));
+        .filter(line => /^v\d+\.\d+\.\d+$/.test(line))
+        .filter(line => rank(line.slice(1)) < source);
       return tags[0]?.slice(1);
     } catch {
       return undefined;

@@ -126,9 +126,9 @@ The release is **Actions-driven**. When asked to publish or ship a release, foll
 4. **Package**: `npm run package` — produces `atlasmind-<version>.vsix`.
 5. **Open the release PR**: trigger the `Release — promote develop to main` workflow from the Actions tab; it creates the `develop` → `main` PR and enables squash auto-merge. Never force-push.
 6. **Wait for the PR to merge** into `main` with CI green.
-7. **Tag**: `npm run tag:release` — pushes `v<version>`, which triggers CI to publish to the Marketplace and create the GitHub Release.
+7. **Tag**: `npm run tag:release` — pushes `v<version>`. A tag push no longer publishes: the next scheduled publish window (10:30 or 22:00 UK) runs the release gate and publishes the newest release that passes, at most two a UK day.
 
-**Do not run `npm run publish:release` for a normal release** — it publishes *and* pushes the tag, and the tag push makes CI publish again, failing on "version already exists". Reserve it for an emergency local publish.
+**The release gate is the only route to the Marketplace** (`docs/releasing.md`). It fails closed and has no bypass option; never add one, and never publish with `vsce` directly.
 
 ### Commits
 - Use conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
@@ -508,7 +508,7 @@ of this same file. Follow those.
 - Use conventional commit prefixes: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
 - Routine implementation targets `develop`; never push directly to protected `main`.
 - Release is Actions-driven: commit, merge to `develop`, run `npm run compile` and `npm run package`, open/execute promote `develop -> main` PR, wait for merge + CI, then run `npm run tag:release`.
-- Normal publishing is tag-triggered after merge; `npm run publish:release` is emergency/local only.
+- Normal publishing is through the release gate at a scheduled publish window (10:30 / 22:00 UK, at most two a day); a tag push does not publish. See `docs/releasing.md`.
 - Release PR to `main` must use merge commit (never squash).
 - CI publishing uses Entra + `marketplace` environment context and requires the existing identity verification path.
 
