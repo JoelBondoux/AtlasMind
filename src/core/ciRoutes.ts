@@ -201,8 +201,8 @@ export const CI_ROUTES: readonly CiRouteDefinition[] = [
   },
   {
     id: 'local-runner',
-    label: 'Lend this computer to GitHub',
-    blurb: 'Serve one queued GitHub job in a one-job container on this machine.',
+    label: 'Lend this computer to trusted-branch pushes',
+    blurb: 'Serve one queued GitHub job from a push to the trusted branch, in a one-job container on this machine. Approving one pull request\'s commit is the reviewed-PR route, not this one.',
     evidence: 'linux-container',
     evidenceCaveat: 'Proves Linux container behaviour only. A Linux container running on Windows or macOS is not evidence about Windows or macOS, and AtlasMind never counts it as platform coverage.',
     capabilities: {

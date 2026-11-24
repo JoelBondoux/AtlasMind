@@ -1277,8 +1277,13 @@ describe('Pipeline section reachability and defaults', () => {
    */
   it('judges setup completeness once, on durable facts', () => {
     expect(WEBVIEW_SCRIPT).toContain('function pipelineSetupState(');
-    expect(WEBVIEW_SCRIPT).toContain('complete: workflowReady && machineReady && hasRun');
-    expect(WEBVIEW_SCRIPT).toContain('const setup = pipelineSetupState(runner, buildRecords, runs);');
+    expect(WEBVIEW_SCRIPT).toContain('const trustedComplete = workflowReady && machineReady && hasRun;');
+    expect(WEBVIEW_SCRIPT).toContain('const setup = pipelineSetupState(runner, buildRecords, runs, reviewedPr);');
+    // Two routes share the chip, and it says which one it is talking about:
+    // a repository patched for reviewed PRs with the trusted route untouched is
+    // set up for the route it uses, not "1/3" of a route nobody started.
+    expect(WEBVIEW_SCRIPT).toContain("complete: trustedComplete || (route === 'reviewed-pr' && reviewedPrReady)");
+    expect(WEBVIEW_SCRIPT).toContain("chipLabel: route === 'reviewed-pr' ? 'reviewed-PR ready'");
     expect(WEBVIEW_SCRIPT).toContain('data-payload="setup"');
   });
 
@@ -1594,7 +1599,7 @@ describe('Rules — setup is findable, and optional stays optional', () => {
     expect(executors).toContain('the queue command and the start plan');
     // The Pipeline page hands Rules the same setup reading the journey uses,
     // so the two surfaces cannot disagree about whether anything has run.
-    expect(WEBVIEW_SCRIPT).toContain('renderPipelineRules(delivery.routes || [], delivery.routing || {}, runnerCard, setup)');
+    expect(WEBVIEW_SCRIPT).toContain('renderPipelineRules(delivery.routes || [], delivery.routing || {}, runnerCard, setup, reviewedPr)');
   });
 
   /**
@@ -1634,9 +1639,21 @@ describe('Rules — setup is findable, and optional stays optional', () => {
    * moment somebody is trying to set it up.
    */
   it('treats no rules as undecided rather than as nothing being needed', () => {
-    expect(executors).toContain('(core && referenced.size === 0)');
+    expect(executors).toContain('(core && referenced.size === 0 && undecidedCountsAsUsed)');
     expect(executors).toContain('undecided, not unwanted');
-    expect(rules).toContain("|| !(routing.matrix || []).length");
+    expect(rules).toContain("|| (!(routing.matrix || []).length && undecidedCountsAsUsed)");
+  });
+
+  /**
+   * The one exception to "undecided means needed". A repository already patched
+   * and ready for reviewed PRs, whose trusted-branch route nobody has touched,
+   * must not open Rules on "Write the trusted workflow…" for a route not in
+   * use — which is exactly how the page read on a fully patched repository.
+   */
+  it('does not let the untouched trusted route take the page over on a reviewed-PR repository', () => {
+    expect(rules).toContain("setup.route === 'reviewed-pr' && !setup.trustedRouteStarted");
+    expect(rules).toContain('const undecidedCountsAsUsed = !trustedRouteUntouched;');
+    expect(executors).toContain('renderReviewedPrExecutorRow(options && options.reviewedPr)');
   });
 });
 

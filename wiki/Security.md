@@ -1082,7 +1082,10 @@ The reviewed-PR extension of this path is **manual and exact-SHA**, never a `pul
 trusted base branch owns `.atlasmind/local-ci.json`, the generated argv runner and the workflow; AtlasMind
 requires the two executable files to match its generator byte for byte. It refuses draft and fork PRs,
 shows the complete head SHA, re-reads the PR after approval, then identifies the newly dispatched run by
-its run id and input-derived title before the local runner may claim it. The workflow controller checkout
+its run id and input-derived title before the local runner may claim it. The only cancel it performs is of
+runs of that same workflow dispatched by hand on the trusted branch — listed to you and confirmed in a modal
+that names each — or of the one run it dispatched itself when its runner fails before claiming the job.
+Nothing else on GitHub is cancelled, and a dry run records the cancel instead. The workflow controller checkout
 uses the dispatch commit (`github.sha`), so a later base-branch push cannot replace the reviewed controller
 while a job waits. Inputs reach the validation shell through environment variables, and the candidate
 contract rejects shell executables.

@@ -83,6 +83,17 @@ organisation-owned repository, which has no owner account, the contract pins one
 `reviewedPrLocalCiCommands.ts` re-reads the PR after approval, identifies the newly dispatched workflow
 run by its unique run id and input-derived title, and passes that id into `LocalCiRunnerManager`. The base
 branch supplies the controller at `github.sha`; the proposed SHA supplies only the candidate checkout.
+Runs already waiting on GitHub are listed in plain words and cancelled only after a confirmation that names
+each one; a runner that ends before finishing cancels the single run it dispatched and publishes an error
+status, so AtlasMind's own queue cannot block its next attempt. A missing or unreadable contract is
+reported with the open folder and the file it looked for. `reviewedPrLocalCiState.ts` derives, from the
+contract, the two managed files, their git status and the current branch, where the route stands in the open
+folder (absent, disabled, invalid, enabled; runnable or blocked, with the run command's own refusals) and the
+one next action from a declared table; the dashboard collects it beside `delivery.localRunner` so the card
+and the Rules executor row offer the step that would otherwise fail first. `requiredCheckGap.ts` judges each
+open pull request against the checks its base branch requires — read from branch protection and rulesets
+on the repository refresh, unioned — keeping missing, failing, pending, none-required and not-read apart,
+and naming the reviewed-PR run as the action when the missing check is `AtlasMind/local-ci`.
 The producer name is never a trust signal, so Codex, Claude, other agent interfaces and humans follow the
 same route. The job retains outbound network access for GitHub and dependency installation, so the
 container is defence in depth and explicit code review remains the authorisation boundary.

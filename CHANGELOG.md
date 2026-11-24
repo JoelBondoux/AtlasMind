@@ -6,6 +6,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.519.0] - 2026-11-24
+
+### Added
+
+- Pull requests are judged against the checks their base branch **requires**, not only the
+  checks that ran. A new pure module (`src/core/requiredCheckGap.ts`) reads branch protection
+  and rulesets on the repository refresh and tells apart a required check nobody posted, one
+  that failed, one still pending, a base that requires none, and a base GitHub would not
+  answer for (reported as not read, never as clear). A pull request blocked on the
+  `AtlasMind/local-ci` status says so on its row and offers **Run reviewed PR…** when the open
+  folder is ready. Pipeline opens with a **Needs you** strip listing pull requests waiting for
+  a check only this computer posts; it is empty when nothing is.
+
+## [0.518.0] - 2026-11-24
+
+### Added
+
+- The Pipeline and Pull Requests pages now know where the reviewed-PR local-CI route
+  stands in the open folder. A new pure module (`src/core/reviewedPrLocalCiState.ts`) reads
+  the contract, the two managed files, their git status and the current branch, and says
+  whether the folder is unpatched, disabled, patched-but-not-ready or ready, with the
+  blockers in the run command's own words. The card's primary button is now the step that
+  would otherwise fail first: patch, open the contract, commit the managed files, check out
+  the trusted branch, re-patch, or run. The folder and contract path are on the card.
+- Rules lists **Run a reviewed pull request here** as its own executor row, with a two-line
+  explainer telling the two local routes apart (dismissable per machine).
+
+### Changed
+
+- The trusted-branch route is labelled **Lend this computer to trusted-branch pushes**, so it
+  no longer reads as the way to run a pull request.
+- The Pipeline setup chip says which route it is talking about (`reviewed-PR ready`,
+  `trusted route 1/3`) instead of a bare `setup 1/3`, and a repository that is patched and
+  ready for reviewed PRs no longer opens Rules on the trusted route's "Write the trusted
+  workflow…" checklist when nothing routes work to that route.
+
+## [0.517.0] - 2026-11-24
+
+### Changed
+
+- Reviewed-PR local CI now explains itself when it cannot run. A missing contract names the
+  open folder and the file it looked for, so a different repository open in the editor reads
+  as "this is not that repository" rather than "your contract is broken". A disabled contract
+  says whether the patcher wrote it that way (no supported lockfile, no commands) or a person
+  switched it off, and what to do about each.
+- When the reviewed-PR workflow still has a run waiting on GitHub, the command lists each one
+  in plain words (which PR, how long it has waited, whether anything ever picked it up) and
+  offers to cancel them after a modal confirmation that names every run, instead of stopping
+  with a list of run ids. The cancel is scoped to hand-dispatched runs of AtlasMind's own
+  workflow on the trusted branch and is recorded, not performed, under dry run.
+- If the isolated runner container fails before it claims the job, AtlasMind cancels the one
+  run it dispatched, publishes an `error` status naming the cause, and says so. Previously the
+  run stayed queued and blocked the next attempt until somebody found it on the Actions page.
+
 ## [0.516.9] - 2026-11-23
 
 ### Changed
