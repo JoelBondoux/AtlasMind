@@ -19,6 +19,48 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.524.0 -- Plainer words, one local CI output channel
+
+"Where checks can run", "this computer, lent to one job", "GitHub's free minutes", "Proves Linux
+only". The reviewed-PR command and the dashboard runner now share the **AtlasMind Local CI** channel,
+with a Show output button on the card. The local CI guide opens with a two-routes table, and an
+exploratory charter for the Pipeline page is on record.
+
+---
+
+## v0.523.0 -- A ranked Needs-you card and a helped checkout
+
+The card at the top of Pipeline is the first item of a declared ranking — a blocked pull request
+this folder can run, one it cannot run yet, a dead runner, an old failure — absent when nothing
+needs you. Checking out the trusted branch is a confirmed button that refuses on a dirty tree.
+
+---
+
+## v0.522.0 -- Runners & rules in four sections
+
+What can run a check, where each kind goes, where opted-in workflows run this month, and how much
+of this computer CI may use — numbered, each with a one-line definition, the detail behind
+**Show advanced**.
+
+---
+
+## v0.521.0 -- Pipeline tiles and chips explain themselves
+
+Each tile carries a line saying what you do there; Rules becomes **Runners & rules**. The setup
+and free-minutes chips get a visible sentence each, and a runner card with remembered readings
+says "inspected yesterday" instead of "not-inspected".
+
+---
+
+## v0.520.0 -- The runner card names why the container died
+
+A declared rule table reads the last lines the runner printed: TLS interception by antivirus
+or a proxy, a full Docker disk, a missing image, a rejected registration token, a duplicate
+runner name, or unknown with the exit code. The card opens the guide, the image setting or the
+output, and never suggests turning certificate checking off.
+
+---
+
 ## v0.519.0 -- Pull requests judged against the checks their base requires
 
 A required check nobody has posted is not in GitHub's rollup, so a pull request blocked on

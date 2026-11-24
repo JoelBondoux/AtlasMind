@@ -399,7 +399,18 @@ describe('Pipeline Studio progressive workflow', () => {
     expect(WEBVIEW_SCRIPT).toContain("const PIPELINE_SECTIONS = ['activity', 'canvas', 'tests', 'rules', 'setup']");
     expect(WEBVIEW_SCRIPT).toContain("label: 'Activity'");
     expect(WEBVIEW_SCRIPT).toContain("label: 'Canvas'");
-    expect(WEBVIEW_SCRIPT).toContain("label: 'Rules'");
+    expect(WEBVIEW_SCRIPT).toContain("label: 'Runners & rules'");
+    // Each tile says what a person does there; the metric alone named a
+    // subsystem, and nothing said which tile held the runner controls.
+    expect(WEBVIEW_SCRIPT).toContain("description: 'Runs, failures, live output'");
+    expect(WEBVIEW_SCRIPT).toContain("description: \"Where checks run · this computer's setup · limits\"");
+    expect(WEBVIEW_SCRIPT).toContain('<small class="ci-tab-desc">${escapeHtml(tab.description || \'\')}</small>');
+    // The chips get a visible sentence each, not a tooltip.
+    expect(WEBVIEW_SCRIPT).toContain('class="ci-studio-explain"');
+    expect(WEBVIEW_SCRIPT).toContain("GitHub's free-minutes allowance has not been read this session.");
+    expect(WEBVIEW_SCRIPT).toContain('Trusted-branch route: workflow ${workflowReady');
+    // A remembered inspection reads as such on the badge, not as "not-inspected".
+    expect(WEBVIEW_SCRIPT).toContain("? 'inspected today' : rememberedInspection.ageDays === 1 ? 'inspected yesterday'");
     expect(WEBVIEW_SCRIPT).toContain('Next: ${escapeHtml(focus.title)}');
     expect(WEBVIEW_SCRIPT).toContain('role="tablist" aria-label="Pipeline views"');
     // A tab id persisted by the eight-tab layout must still land somewhere real.
@@ -571,7 +582,7 @@ describe('Pipeline Studio progressive workflow', () => {
     // the far right behind a lone chevron — the whole of setup, presented as a
     // right-aligned footnote. The span/small pair is what those rules target.
     expect(WEBVIEW_SCRIPT).toContain('<summary><span>${escapeHtml(needsSetup');
-    expect(WEBVIEW_SCRIPT).toContain('Borrowed machine — setup, capacity and safety detail');
+    expect(WEBVIEW_SCRIPT).toContain('This computer, lent to one job — setup, capacity and safety detail');
     expect(css).toContain('.ci-runner-drawer > summary {');
   });
 
@@ -1579,9 +1590,14 @@ describe('Rules — setup is findable, and optional stays optional', () => {
     expect(executors).toContain("${drawerOpen ? ' open' : ''}");
     expect(executors).toContain('the next step, and what is blocking it');
     expect(executors).toContain('ci-executors-setup');
-    // Leading the view, not sitting under the grid.
-    expect(rules).toContain('runnerNeedsYou ? executors + intro : intro + executors');
-    expect(rules).toContain("runnerNeedsYou ? executorsCard : ''");
+    // Leading the view, not sitting under the grid: the executors are section 1
+    // of four, each with a one-line definition, and the grid is advanced detail.
+    expect(rules).toContain("section(1, 'What can run a check'");
+    expect(rules.indexOf("section(1, 'What can run a check'")).toBeLessThan(rules.indexOf("section(2, 'Where each kind of check goes'"));
+    expect(rules).toContain("section(3, 'Where opted-in workflows run this month'");
+    expect(rules).toContain("section(4, 'How much of this computer CI may use'");
+    expect(rules).toContain("'Show advanced: routing grid, dry run, switch detail, fine-tuned limits'");
+    expect(WEBVIEW_SCRIPT).toContain("action === 'pipeline-rules-advanced'");
   });
 
   /**

@@ -6,6 +6,83 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.524.0] - 2026-11-24
+
+### Changed
+
+- Plain words on the Pipeline page: *Where checks can run* instead of *Executors*, *this computer,
+  lent to one job* instead of *borrowed machine*, *GitHub's free minutes* instead of *hosted
+  allowance*, and *Proves Linux only* (with the reason on hover) instead of *Linux container
+  evidence*. The reviewed-PR approval modal opens with one sentence saying what is being approved
+  and that nothing is merged.
+- One output channel for local CI. The reviewed-PR command and the dashboard's runner wrote to two
+  channels, so the lines a person needed were in whichever one they had not opened. Both now write
+  to **AtlasMind Local CI** (`src/views/localCiOutputChannel.ts`), and the reviewed-PR card has a
+  **Show output** button.
+- `docs/local-ci-and-safe-runners.md` opens with a table telling the two local routes apart, and
+  `wiki/Configuration.md` says that the reviewed-PR route takes its workflow and trusted branch from
+  the committed contract rather than from `workflowFile` and `trustedBranch`.
+- An exploratory test charter — a novice getting one pull request mergeable from the Pipeline page
+  with no help — is recorded in `project_memory/operations/exploratory-charters.md`, with the
+  2026-11-23 session logged against it.
+
+## [0.523.0] - 2026-11-24
+
+### Added
+
+- The Pipeline page's **Needs you** card is now ranked by a declared table
+  (`src/core/pipelineAttention.ts`): a pull request blocked on the AtlasMind check with this
+  folder ready to run it, then one this folder cannot run yet (offering the folder's own next
+  step), then a pull request blocked on a check nothing here posts, then a runner container that
+  died with a recognised cause, then the last classified CI failure. One lead, one button, the
+  rest counted; absent when nothing needs a person.
+- **Check out the trusted branch** is offered rather than stated. The reviewed-PR card and the
+  Needs-you card carry a confirmed checkout of the branch the committed contract names, re-read
+  host-side; it is refused while the working tree has uncommitted changes, is `git checkout` and
+  nothing else, and the run command's refusal now names the command by hand.
+
+## [0.522.0] - 2026-11-24
+
+### Changed
+
+- Runners & rules is four numbered sections, each with a one-line definition: **What can run a
+  check** (the executors), **Where each kind of check goes** (the committed routing file),
+  **Where opted-in workflows run this month** (the runner switch and GitHub's free minutes), and
+  **How much of this computer CI may use** (the share slider). The simple view shows section 1
+  whole and one summary line for each of the others; **Show advanced** expands the routing grid,
+  the dry run, the switch detail and the fine-tuned CPU and memory caps. The choice is remembered
+  per editor. Previously the four ideas sat in one undifferentiated column with "Create the
+  routing file…" at the bottom reading as the page's conclusion.
+
+## [0.521.0] - 2026-11-24
+
+### Changed
+
+- Pipeline tiles say what you do there: *Runs, failures, live output*; *Workflow files and how
+  they connect*; *What the test reports prove*; and **Runners & rules** (renamed from Rules),
+  *Where checks run · this computer's setup · limits*. The metric stays as a third line.
+- The two status chips get a visible sentence each instead of a tooltip: which three steps the
+  setup count means (or that the reviewed-PR route is ready), and that GitHub's free-minutes
+  allowance has not been read this session, with a **Check now** button. The chips now say
+  "free minutes" rather than "allowance".
+- The runner card's badge reads *inspected yesterday* rather than *not-inspected* when its
+  readings are remembered from an earlier inspection, with the promise that everything is
+  re-checked before anything starts.
+
+## [0.520.0] - 2026-11-24
+
+### Added
+
+- When the local CI runner container dies, the runner card names the cause in plain words.
+  A declared rule table (`src/core/localCiFailureHints.ts`) reads the redacted tail of the
+  container's output: TLS interception by antivirus or a proxy (`PartialChain`, `unable to
+  get local issuer certificate`), a full Docker disk, a missing image, a rejected registration
+  token, a duplicate runner name, or unknown with the exit code. The card offers the
+  step-by-step guide, the image setting and the runner output; it never suggests turning
+  certificate checking off. The image in use is shown on the card's header line.
+- `docs/local-ci-and-safe-runners.md` gains a troubleshooting section with a stable anchor for
+  the TLS case, which the card links to.
+
 ## [0.519.0] - 2026-11-24
 
 ### Added

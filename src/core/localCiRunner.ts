@@ -1,3 +1,4 @@
+import { classifyLocalCiFailure, type LocalCiFailureHint } from './localCiFailureHints.js';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
@@ -255,6 +256,12 @@ export interface LocalCiRunnerSnapshot {
   queuedRun?: LocalCiQueuedRun;
   containerName?: string;
   lastOutput?: string;
+  /**
+   * Why the last container died, from a declared rule table over its final
+   * output lines. Present only while `lifecycle` is `failed`; cleared when a
+   * new container starts, so a stale cause cannot explain a new failure.
+   */
+  failureHint?: LocalCiFailureHint;
   updatedAt: string;
 }
 
@@ -905,6 +912,12 @@ export class LocalCiRunnerManager {
   private operationRunning = false;
   private startedDesktop = false;
   private stopRequested = false;
+  /**
+   * The last lines the container printed, redacted, for the failure reader.
+   * Bounded; kept on the manager rather than the snapshot so the page never
+   * receives a log, only the one line a rule matched.
+   */
+  private recentOutput: string[] = [];
   private runnerProcess: ChildProcessWithoutNullStreams | undefined;
   /**
    * A `docker logs --follow` reader for a container started in an earlier
@@ -1637,6 +1650,7 @@ export class LocalCiRunnerManager {
         continue;
       }
       this.log(`[runner] ${line.slice(0, 1000)}`);
+      this.rememberOutputLine(line);
       if (/Running job:/i.test(line) && this.snapshot.lifecycle !== 'running') {
         this.update({ lifecycle: 'running', message: 'The queued CI job is running on this machine.', lastOutput: line.slice(0, 240) });
       } else if (/Listening for Jobs|Waiting for a job/i.test(line) && this.snapshot.lifecycle === 'starting') {
@@ -1647,17 +1661,31 @@ export class LocalCiRunnerManager {
     }
   }
 
+  private rememberOutputLine(line: string): void {
+    this.recentOutput.push(line.slice(0, 1000));
+    if (this.recentOutput.length > 200) {
+      this.recentOutput.splice(0, this.recentOutput.length - 200);
+    }
+  }
+
   private attachRunnerOutput(
     child: ChildProcessWithoutNullStreams,
     containerName: string,
     configuration: LocalCiRunnerConfiguration,
   ): void {
+    // A fresh container gets a fresh tail: the cause of the last failure must
+    // not be read off output this one never printed.
+    this.recentOutput = [];
+    if (this.snapshot.failureHint) {
+      this.update({ failureHint: undefined }, false);
+    }
     const consume = (chunk: Buffer | string): void => this.consumeRunnerLine(chunk);
     child.stdout.on('data', consume);
     child.stderr.on('data', consume);
     child.on('error', error => {
       const detail = safeFailure(error);
       this.log(`[runner error] ${detail}`);
+      this.rememberOutputLine(detail);
       this.update({ lifecycle: 'failed', message: detail, blockers: [detail] });
     });
     child.on('close', code => {
@@ -1731,14 +1759,22 @@ export class LocalCiRunnerManager {
     const stopped = this.stopRequested;
     this.stopRequested = false;
     const cleanExit = code === 0;
+    // Name the cause while the output is still at hand. The hint is a declared
+    // rule over the redacted tail; the page shows it beside the exit code so a
+    // TLS interception reads as "antivirus is re-signing HTTPS" rather than as
+    // a .NET stack trace in an output channel.
+    const failureHint = stopped || cleanExit ? undefined : classifyLocalCiFailure(this.recentOutput, code);
     this.update({
       lifecycle: stopped ? 'ready' : cleanExit ? 'finished' : 'failed',
       message: stopped
         ? 'The local runner was stopped on your request. Check GitHub for the state of the job it was serving.'
         : cleanExit
           ? 'The ephemeral runner finished and removed its registration. Refresh CI to read the job verdict.'
-          : `The runner process exited with code ${String(code)}. Open the AtlasMind Local CI output for details.`,
+          : failureHint && failureHint.kind !== 'unknown'
+            ? `${failureHint.title}. The runner process exited with code ${String(code)}; the AtlasMind Local CI output has the detail.`
+            : `The runner process exited with code ${String(code)}. Open the AtlasMind Local CI output for details.`,
       ...(stopped || cleanExit ? { blockers: [] } : { blockers: [`Runner process exited with code ${String(code)}.`] }),
+      failureHint,
     });
     await this.applyShutdownPolicy(configuration.shutdownPolicy);
   }

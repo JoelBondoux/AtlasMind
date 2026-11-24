@@ -305,6 +305,8 @@ export function buildReviewedPrApprovalCopy(
     approveLabel: `Approve ${candidate.headSha.slice(0, 12)}`,
     fingerprint,
     detail: [
+      `You are approving one exact commit of PR #${candidate.number} to run on this computer, in a throwaway Linux container. A pass posts the ${config.statusContext} check on that commit; nothing is merged.`,
+      '',
       `Repository: ${config.repository}`,
       `PR: #${candidate.number} — ${candidate.title}`,
       `Author: ${candidate.author}`,

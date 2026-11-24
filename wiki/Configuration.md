@@ -246,6 +246,11 @@ starts anything.
 | `atlasmind.ci.localRunner.image` | pinned official digest | Auto-pulls only immutable digests and runs a resolved image id |
 | `atlasmind.ci.localRunner.maxCpus` | `8` | Caps CPU after the host reserve (25%, ≥2 CPUs, measured on the real machine, not the Docker/WSL VM) and the testing resource share |
 | `atlasmind.ci.localRunner.maxMemoryGb` | `16` | Caps memory after the host reserve (25%, ≥8 GB, measured on the real machine, not the Docker/WSL VM) and the testing resource share; disables container swap |
+
+The **reviewed-PR** route (`/localci review`) does not read `workflowFile` or `trustedBranch`: it takes the
+workflow and the trusted base branch from the committed `.atlasmind/local-ci.json`, so a repository is only
+ever run against the workflow its own contract names. `enabled`, `image`, the resource caps and the shutdown
+policy apply to both routes.
 | `atlasmind.testing.resourceShare` | `50` | The sliding scale for local test execution: what percentage of the computer tests may use. One value read by auto-verify, the test-run skill, "Run here" and the local CI container; the OS always keeps at least 25% (≥2 CPUs / 8 GB) |
 | `atlasmind.ci.localRunner.shutdownPolicy` | `ifStartedByAtlasMind` | Close Desktop only when AtlasMind opened it, never close it, or close whenever no other container is running |
 | `atlasmind.ci.runnerSwitch.mode` | `off` | Where opted-in workflows run: `off`, `auto` (GitHub while the allowance lasts, this computer once GitHub refuses for billing), `hosted` or `local`. Works through the `ATLASMIND_CI_RUNNER` repository variable; pull requests from other repositories and bot-started runs always stay on GitHub |
