@@ -196,11 +196,13 @@ dismiss the gate. CI is the reviewer instead.
 
 ### Releasing
 
-Use the **Release — promote develop to main** workflow. Once that PR merges, run `npm run tag:release` —
-the tag push triggers the publish workflow, which does the actual publishing.
+Use the **Release — promote develop to main** workflow. Once that PR merges, run `npm run tag:release`.
+The tag does not publish by itself: the next scheduled publish window (10:30 or 22:00 UK) runs the
+release gate and publishes the release only if every check passes. See
+[releasing](https://github.com/JoelBondoux/AtlasMind/blob/main/docs/releasing.md).
 
-`publish:release` publishes only; it does **not** tag. The two were chained until v0.184.0, and that
-chain made CI publish twice.
+`publish:release` runs the gate and publishes only if it passes; it does **not** tag. There is no
+way to publish around the gate.
 
 CI authenticates to the Marketplace through Microsoft Entra ID rather than a token, so there's no
 Marketplace secret in the repository. **Marketplace — verify publishing identity** checks that credential

@@ -7,6 +7,7 @@
  */
 
 import {
+  REVIEWED_PR_LOCAL_CI_CONFIG_PATH,
   REVIEWED_PR_LOCAL_CI_MARKER,
   REVIEWED_PR_LOCAL_CI_STATUS_CONTEXT,
   REVIEWED_PR_LOCAL_CI_WORKFLOW_FILE,
@@ -124,7 +125,19 @@ export function parseReviewedPrLocalCiConfig(raw: string): ReviewedPrConfigRead 
     return { ok: false, reason: 'The local-CI contract is not an AtlasMind schema version 1 file.' };
   }
   if (object['enabled'] !== true) {
-    return { ok: false, reason: 'The repository local-CI contract is disabled. Review its detected commands before enabling it.' };
+    // Two different facts hide behind `enabled: false`. The patcher writes a
+    // disabled contract when it could not detect a deterministic install and
+    // says so in `detection.detail`; a person can also switch one off. The
+    // reason names which, because the fix differs: declare commands, or just
+    // re-enable it.
+    const detail = boundedText(objectOf(object['detection'])?.['detail'], 500);
+    const commands = Array.isArray(object['commands']) ? object['commands'].length : 0;
+    return {
+      ok: false,
+      reason: commands === 0
+        ? `The local-CI contract is disabled because it declares no commands${detail ? ` (${detail})` : ''}. Declare safe shell-free commands in it and set "enabled": true, or patch the repository again once a supported lockfile exists.`
+        : 'The local-CI contract is disabled ("enabled": false). Review its commands, then set "enabled": true and commit the change.',
+    };
   }
 
   const repository = boundedText(object['repository'], 200);
@@ -292,6 +305,8 @@ export function buildReviewedPrApprovalCopy(
     approveLabel: `Approve ${candidate.headSha.slice(0, 12)}`,
     fingerprint,
     detail: [
+      `You are approving one exact commit of PR #${candidate.number} to run on this computer, in a throwaway Linux container. A pass posts the ${config.statusContext} check on that commit; nothing is merged.`,
+      '',
       `Repository: ${config.repository}`,
       `PR: #${candidate.number} — ${candidate.title}`,
       `Author: ${candidate.author}`,
@@ -338,6 +353,135 @@ export function buildReviewedPrStatusArgs(
     args.push('-f', `target_url=${targetUrl.slice(0, 500)}`);
   }
   return args;
+}
+
+/**
+ * Where the contract was looked for, said with the folder and the file.
+ *
+ * The parser above cannot know the path, and its reason used to be shown bare.
+ * With a different repository open in VS Code that read as "your contract is
+ * broken" when the truth was "this is not that repository" — the folder is the
+ * first thing a person needs to see.
+ */
+export function describeReviewedPrContractProblem(input: {
+  folderName: string;
+  root: string;
+  missing?: boolean;
+  reason?: string;
+}): string {
+  const where = `${input.folderName} (${input.root})`;
+  if (input.missing) {
+    return `No local-CI contract exists in ${where}: ${REVIEWED_PR_LOCAL_CI_CONFIG_PATH} is absent. This folder is not patched for reviewed-PR local CI. Open the repository you meant to run, or patch this one first.`;
+  }
+  return `Cannot run from ${where}: ${input.reason ?? 'the local-CI contract could not be read.'} File: ${REVIEWED_PR_LOCAL_CI_CONFIG_PATH}.`;
+}
+
+/** A dispatch of the reviewed-PR workflow that GitHub still lists as waiting or running. */
+export interface WaitingReviewedPrWorkflowRun {
+  databaseId: number;
+  headSha: string;
+  status: 'queued' | 'pending' | 'in_progress';
+  event: string;
+  displayTitle: string;
+  /** When GitHub created the run, as it reported it. Absent when the listing omitted it. */
+  createdAt?: string;
+}
+
+/** Parse the bounded JSON returned by `gh run list` for the reviewed-PR workflow. */
+export function parseReviewedPrWaitingRuns(raw: string): WaitingReviewedPrWorkflowRun[] {
+  try {
+    const rows = JSON.parse(raw) as unknown;
+    if (!Array.isArray(rows)) {
+      return [];
+    }
+    return rows.slice(0, 100).flatMap(row => {
+      const value = objectOf(row);
+      if (!value) {
+        return [];
+      }
+      const databaseId = value['databaseId'];
+      const headSha = boundedText(value['headSha'], 40).toLowerCase();
+      const status = value['status'];
+      const event = boundedText(value['event'], 40);
+      const displayTitle = boundedText(value['displayTitle'], 300);
+      const createdAt = boundedText(value['createdAt'], 40);
+      if (typeof databaseId !== 'number' || !Number.isSafeInteger(databaseId) || databaseId < 1
+        || !SHA.test(headSha)
+        || (status !== 'queued' && status !== 'pending' && status !== 'in_progress')) {
+        return [];
+      }
+      return [{
+        databaseId,
+        headSha,
+        status,
+        event,
+        displayTitle,
+        ...(createdAt && Number.isFinite(Date.parse(createdAt)) ? { createdAt } : {}),
+      }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The PR and head SHA a reviewed-PR run was dispatched for, read back from the
+ * title AtlasMind's own workflow gives it. Any other title is not one of ours.
+ */
+export function parseReviewedPrRunTitle(displayTitle: string): { number: number; headSha: string } | undefined {
+  const match = /^AtlasMind local CI PR #(\d{1,9}) @ ([a-f0-9]{40})$/.exec(displayTitle.trim());
+  if (!match) {
+    return undefined;
+  }
+  return { number: Number(match[1]), headSha: match[2]! };
+}
+
+/**
+ * A waiting run that nothing has picked up for this long is stale. A one-job
+ * runner claims its job within seconds of registering, so half an hour of
+ * waiting means no runner ever came — the usual leftover of a container that
+ * died before it registered.
+ */
+export const STALE_REVIEWED_PR_WAIT_MS = 30 * 60 * 1000;
+
+export interface WaitingReviewedPrRunDescription {
+  /** One line naming the run and the PR it was for. */
+  label: string;
+  /** How long it has waited and whether anything picked it up. */
+  description: string;
+  stale: boolean;
+}
+
+function describeAge(ms: number): string {
+  const minutes = Math.max(0, Math.round(ms / 60_000));
+  if (minutes < 60) {
+    return `${minutes} min`;
+  }
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) {
+    return `${hours} h`;
+  }
+  return `${Math.round(hours / 24)} d`;
+}
+
+/** Plain words for one waiting run, so a dialog can list it rather than its id. */
+export function describeWaitingReviewedPrRun(run: WaitingReviewedPrWorkflowRun, now: number): WaitingReviewedPrRunDescription {
+  const parsed = parseReviewedPrRunTitle(run.displayTitle);
+  const label = parsed
+    ? `Run ${run.databaseId} · PR #${parsed.number} @ ${parsed.headSha.slice(0, 12)}`
+    : `Run ${run.databaseId}${run.displayTitle ? ` · ${run.displayTitle}` : ''}`;
+  const created = run.createdAt ? Date.parse(run.createdAt) : Number.NaN;
+  const ageMs = Number.isFinite(created) ? now - created : undefined;
+  const age = ageMs === undefined ? 'age unknown' : describeAge(ageMs);
+  if (run.status === 'in_progress') {
+    return { label, description: `running now · started ${age} ago`, stale: false };
+  }
+  const stale = ageMs !== undefined && ageMs >= STALE_REVIEWED_PR_WAIT_MS;
+  return {
+    label,
+    description: `waiting ${age} · ${stale ? 'never picked up — stale' : 'no runner has picked it up yet'}`,
+    stale,
+  };
 }
 
 export function parseReviewedPrRunReading(raw: string): ReviewedPrRunReading {

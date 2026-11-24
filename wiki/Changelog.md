@@ -19,6 +19,91 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.524.0 -- Plainer words, one local CI output channel
+
+"Where checks can run", "this computer, lent to one job", "GitHub's free minutes", "Proves Linux
+only". The reviewed-PR command and the dashboard runner now share the **AtlasMind Local CI** channel,
+with a Show output button on the card. The local CI guide opens with a two-routes table, and an
+exploratory charter for the Pipeline page is on record.
+
+---
+
+## v0.523.0 -- A ranked Needs-you card and a helped checkout
+
+The card at the top of Pipeline is the first item of a declared ranking — a blocked pull request
+this folder can run, one it cannot run yet, a dead runner, an old failure — absent when nothing
+needs you. Checking out the trusted branch is a confirmed button that refuses on a dirty tree.
+
+---
+
+## v0.522.0 -- Runners & rules in four sections
+
+What can run a check, where each kind goes, where opted-in workflows run this month, and how much
+of this computer CI may use — numbered, each with a one-line definition, the detail behind
+**Show advanced**.
+
+---
+
+## v0.521.0 -- Pipeline tiles and chips explain themselves
+
+Each tile carries a line saying what you do there; Rules becomes **Runners & rules**. The setup
+and free-minutes chips get a visible sentence each, and a runner card with remembered readings
+says "inspected yesterday" instead of "not-inspected".
+
+---
+
+## v0.520.0 -- The runner card names why the container died
+
+A declared rule table reads the last lines the runner printed: TLS interception by antivirus
+or a proxy, a full Docker disk, a missing image, a rejected registration token, a duplicate
+runner name, or unknown with the exit code. The card opens the guide, the image setting or the
+output, and never suggests turning certificate checking off.
+
+---
+
+## v0.519.0 -- Pull requests judged against the checks their base requires
+
+A required check nobody has posted is not in GitHub's rollup, so a pull request blocked on
+`AtlasMind/local-ci` read as green. The row now says "blocked · required check … not posted" and
+offers the reviewed-PR run; Pipeline opens with a strip of pull requests waiting for a check only
+this computer posts. A base branch GitHub would not answer for reads as not read, never as clear.
+
+---
+
+## v0.518.0 -- The Pipeline page knows where reviewed-PR local CI stands
+
+The reviewed-PR card reads the open folder — unpatched, disabled, patched but not ready, or
+ready — and its primary button is the step that would otherwise fail first. Rules lists the
+reviewed-PR route as its own executor beside the renamed **Lend this computer to
+trusted-branch pushes**, with a short explainer telling the two apart.
+
+---
+
+## v0.517.0 -- Reviewed-PR local CI says what is wrong and clears its own queue
+
+A missing contract names the open folder and the file it looked for; a disabled one says whether
+the patcher wrote it that way or somebody switched it off. Runs left waiting on GitHub are listed
+in plain words and can be cancelled after a confirmation that names each one. A runner that fails
+before claiming its job cancels the run it dispatched and publishes an error status.
+
+---
+
+## v0.516.9 -- Gated, scheduled Marketplace publishing
+
+A release is published only after the release gate passes: full local CI, the security suite,
+npm audit, a secret scan of the packaged VSIX and an install-and-activate smoke test. Two
+windows a day (10:30 and 22:00 UK) publish the newest release that passes, at most two a day.
+A tag push no longer publishes on its own.
+
+---
+
+## v0.516.8 -- Published baseline refreshed
+
+The README and maintained product facts now name v0.516.7 as the last Marketplace publication,
+after the tag-triggered workflow successfully published the reviewed dependency and security fixes.
+
+---
+
 ## v0.516.7 -- Historical secret-scan findings reviewed
 
 The follow-up review also accepts PR #276's ESLint 10.14.0 rule and dependency fixes.

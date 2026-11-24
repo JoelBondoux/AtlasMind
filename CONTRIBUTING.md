@@ -95,7 +95,7 @@ authoritative — the bullets here name values, they do not restate rules.
 - This repository runs the **`solo` profile**: required CI plus PR-only merges on `main`, and **zero required approvals**. That is a deliberate choice, not an omission — see the specification's §8.
 - Merge feature work into `develop` when CI checks pass.
 - Promote `develop` into `main` only for an intentional release, via the `Release — promote develop to main` workflow.
-- For a normal release, run `npm run tag:release` after the release PR merges and let CI publish. **Do not run `npm run publish:release`** — it publishes *and* pushes the tag, and the tag push makes CI publish again. Use `npm run publish:pre-release` only for explicit opt-in pre-release cuts.
+- For a normal release, run `npm run tag:release` after the release PR merges. The next scheduled publish window runs the release gate and publishes the release only if it passes, at most twice a UK day; see [docs/releasing.md](docs/releasing.md). `npm run release:gate` checks a tagged checkout without publishing.
 
 ### Issues and Project Tracking
 - Create bugs and features using the issue templates under `.github/ISSUE_TEMPLATE/`.

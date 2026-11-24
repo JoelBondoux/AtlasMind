@@ -664,7 +664,12 @@ when another container runs or inventory cannot be read, and never manages an or
 repository patch commits a fixed controller on a trusted base branch. AtlasMind refuses drafts and forks,
 shows one exact current head SHA, re-reads it after approval, and dispatches a manual workflow whose run
 name includes that PR and SHA. It snapshots the queue first and gives the newly created run id to the
-runner, so a neighbouring dispatch with the same base SHA cannot be claimed. The workflow takes inputs
+runner, so a neighbouring dispatch with the same base SHA cannot be claimed. If that queue is not empty,
+AtlasMind shows each waiting run in plain words and cancels them only after a confirmation that names every
+one; a runner that dies before claiming its job cancels the single run AtlasMind dispatched and publishes an
+error status rather than leaving it queued. The only other write these surfaces make is a confirmed
+`git checkout` of the trusted base branch the committed contract names, refused while the working tree has
+uncommitted changes. The workflow takes inputs
 through environment variables rather than interpolating them into shell source; candidate commands are
 argv pairs and shell executables are rejected. The job receives no repository/environment secret, host
 mount or Docker socket, but it does retain outbound network access for GitHub and dependency installation.

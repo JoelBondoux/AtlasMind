@@ -42,6 +42,7 @@ AtlasMind is built for indie developers, freelancers, and small teams who want t
 ## Maintained Pages
 
 - domain/product-facts.md — verified chat execution and model-routing behavior.
+- operations/exploratory-charters.md — session-based exploratory test charters and their logs.
 
 ## Imported References
 - architecture/project-overview.md

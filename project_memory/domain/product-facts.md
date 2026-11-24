@@ -35,7 +35,9 @@ Evidence: `src/core/orchestrator.ts`, `src/core/modelRouter.ts`, `src/providers/
 
 ## Published release
 
-v0.516.4 was published on 2026-11-03 through the tag-triggered Marketplace workflow
-([run 41550779260](https://github.com/JoelBondoux/AtlasMind/actions/runs/41550779260)).
-Release PR #274 merged as `b6fb7ac5bae7fa9c926be038a5bc0a5001121be6`; the annotated release tag
-points to that exact main commit. The published-baseline source follow-up is version 0.516.5.
+v0.516.7 was published on 2026-11-03 through the tag-triggered Marketplace workflow
+([run 41580392168](https://github.com/JoelBondoux/AtlasMind/actions/runs/41580392168)).
+Release PR #277 merged as `a143f3cea4368971a2a443ca3a6efabae9a714d2`; the annotated release tag
+points to that exact main commit. The public Marketplace VSIX was downloaded and verified as
+version 0.516.7, including ACP SDK 2.2.0 and MCP SDK 1.32.2, without project memory, tests or
+test-results. The published-baseline source follow-up is version 0.516.8.

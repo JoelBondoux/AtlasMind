@@ -27,9 +27,9 @@ A rule that asks for otherwise is reported as an error and is not acted on.
 | Rule | Workload | Prefers | Falls back to | If the allowance is gone |
 |---|---|---|---|---|
 | `fast-feedback-here` | Fast feedback | Run here | GitHub-hosted runners | use the fallback |
-| `full-suite-hosted` | Full test suite | GitHub-hosted runners | Lend this computer to GitHub | use the fallback |
-| `packaging-hosted` | Packaging and release artifacts | GitHub-hosted runners | Lend this computer to GitHub | use the fallback |
-| `security-scan-hosted` | Security and dependency scanning | GitHub-hosted runners | Lend this computer to GitHub | use the fallback |
+| `full-suite-hosted` | Full test suite | GitHub-hosted runners | Lend this computer to trusted-branch pushes | use the fallback |
+| `packaging-hosted` | Packaging and release artifacts | GitHub-hosted runners | Lend this computer to trusted-branch pushes | use the fallback |
+| `security-scan-hosted` | Security and dependency scanning | GitHub-hosted runners | Lend this computer to trusted-branch pushes | use the fallback |
 | `platform-matrix-hosted` | Platform matrix | GitHub-hosted runners | — | stop |
 | `untrusted-hosted-only` | Contributions not yet reviewed | GitHub-hosted runners | — | stop |
 

@@ -1,9 +1,11 @@
-name: Release — publish Marketplace from tag
+name: Release — publish Marketplace from tag (manual, gated)
 
+# Not triggered by a tag push any more (2026-11-23). Releases reach the
+# Marketplace through the release gate, normally from the scheduled publish
+# windows on the maintainer's machine (scripts/release-gate/, docs/releasing.md),
+# at most twice a UK day. This workflow is the hosted fallback for one tag, and
+# it runs the same gate: nothing here can publish without it passing.
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       tag:
@@ -84,22 +86,20 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Check publish rights before attempting to publish
-        # The guard that was missing. A dead credential used to surface as a failure
-        # *during* the publish — the run that produced `TF400813 … not authorized`
-        # for 0.208.0 had already packaged the extension before finding out. This
-        # asks the question first, costs a second, and consumes no version number.
-        #
-        # `vsce verify-pat` is named for the PAT era; with `--azure-credential` it
-        # verifies the Entra identity instead.
-        run: npx @vscode/vsce verify-pat JoelBondoux --azure-credential
+      - name: Install the VS Code CLI for the gate's install check
+        # The gate installs the packaged VSIX into a throwaway VS Code profile
+        # (`code --install-extension`), CLI only. Without it the gate fails closed.
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/vscode.tar.gz" "https://update.code.visualstudio.com/latest/linux-x64/stable"
+          tar -xzf "$RUNNER_TEMP/vscode.tar.gz" -C "$RUNNER_TEMP"
+          echo "ATLASMIND_GATE_CODE_CLI=$RUNNER_TEMP/VSCode-linux-x64/bin/code" >> "$GITHUB_ENV"
 
-      - name: Publish to Visual Studio Marketplace
-        # Not `publish:release`. That script is the local emergency path and uses
-        # whatever credential `vsce login` stored in the OS keychain; adding
-        # `--azure-credential` to it would break publishing from a developer
-        # machine. Two paths, two scripts, neither pretending to be the other.
-        run: npm run publish:release:ci
+      - name: Run the release gate and publish only if it passes
+        # Full local CI, the security suite, npm audit (high+), a secret scan of
+        # the VSIX, an install and an activation smoke test, the daily limit and
+        # `vsce verify-pat`, then a publish of the exact VSIX
+        # that passed. Fails closed; there is no bypass option.
+        run: node scripts/release-gate/release-gate.mjs --publish --azure-credential
 
       - name: Create GitHub release
         env:

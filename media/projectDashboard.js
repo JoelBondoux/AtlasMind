@@ -625,6 +625,10 @@
       routing: Boolean(persistedWebviewState.pipelineOverlays && persistedWebviewState.pipelineOverlays.routing),
       delivery: Boolean(persistedWebviewState.pipelineOverlays && persistedWebviewState.pipelineOverlays.delivery),
     },
+    /** Whether the two-route explainer on Rules was dismissed on this machine. */
+    pipelineRoutesExplainerDismissed: Boolean(persistedWebviewState.pipelineRoutesExplainerDismissed),
+    /** Whether Runners & rules shows its advanced half (grid, dry run, switch detail, fine-tuned limits). */
+    pipelineRulesAdvanced: Boolean(persistedWebviewState.pipelineRulesAdvanced),
     /** The workflow node whose panel is open, if any. Never persisted. */
     pipelineNode: null,
     /** Visual layout only. Moving a node never edits a workflow file. */
@@ -2381,6 +2385,23 @@
         pipelineSection: state.pipelineSection,
         pipelineNodePositions: {},
       });
+      render();
+      return;
+    }
+    if (action === 'pipeline-local-ci-checkout') {
+      vscode.postMessage({ type: 'checkoutReviewedPrTrustedBranch' });
+      return;
+    }
+    if (action === 'pipeline-rules-advanced') {
+      state.pipelineRulesAdvanced = !state.pipelineRulesAdvanced;
+      vscode.setState({ ...(vscode.getState() || {}), pipelineRulesAdvanced: state.pipelineRulesAdvanced });
+      refocusAfterRender = 'button[data-action="pipeline-rules-advanced"]';
+      render();
+      return;
+    }
+    if (action === 'pipeline-dismiss-routes-explainer') {
+      state.pipelineRoutesExplainerDismissed = true;
+      vscode.setState({ ...(vscode.getState() || {}), pipelineRoutesExplainerDismissed: true });
       render();
       return;
     }
@@ -9347,13 +9368,18 @@
    * verdict is withheld while anything is still running, because "green so far"
    * is how a merge happens early.
    */
-  function pullRequestCiState(pr) {
+  function pullRequestCiState(pr, gap, reviewedPr) {
     const checks = pr.statusChecks;
+    // What the base branch *requires* comes first, because it is the one fact
+    // that decides whether the branch can merge and it is not in the rollup: a
+    // required check nobody posted does not appear among the checks that ran.
+    // GitHub refuses the merge over it; the row used to read "2 checks green".
+    const required = renderRequiredCheckGap(gap, reviewedPr);
     if (!Array.isArray(checks)) {
-      return { tag: '<span class="tag wf-unknown">checks not read</span>', actions: '' };
+      return { tag: required.tag + '<span class="tag wf-unknown">checks not read</span>', actions: required.actions };
     }
     if (checks.length === 0) {
-      return { tag: '<span class="tag tag-warn">no checks</span>', actions: '' };
+      return { tag: required.tag + '<span class="tag tag-warn">no checks</span>', actions: required.actions };
     }
     const failing = checks.filter(check => pullRequestCheckOutcome(check) === 'failed');
     const running = checks.filter(check => pullRequestCheckOutcome(check) === 'running');
@@ -9361,36 +9387,188 @@
       const named = failing.slice(0, 2).map(check => check.name).filter(Boolean).join(', ');
       const linked = failing.find(check => check.url);
       return {
-        tag: `<span class="tag tag-critical">${escapeHtml(`${failing.length} check${failing.length === 1 ? '' : 's'} failing`)}</span>`,
-        actions: (named ? `<span class="list-meta">${escapeHtml(named)}${failing.length > 2 ? ` +${failing.length - 2}` : ''}</span>` : '')
+        tag: required.tag + `<span class="tag tag-critical">${escapeHtml(`${failing.length} check${failing.length === 1 ? '' : 's'} failing`)}</span>`,
+        actions: required.actions + (named ? `<span class="list-meta">${escapeHtml(named)}${failing.length > 2 ? ` +${failing.length - 2}` : ''}</span>` : '')
           + (linked ? `<button type="button" class="action-link" data-action="external-url" data-payload="${escapeAttr(linked.url)}">Open the failing check</button>` : '')
           + '<button type="button" class="action-link" data-action="page" data-payload="pipeline" title="The Pipeline page classifies the failure and names the job, the step and the failing test">Read the failure on Pipeline</button>',
       };
     }
     if (running.length) {
       return {
-        tag: `<span class="tag">${escapeHtml(`${running.length} of ${checks.length} running`)}</span>`,
-        actions: '',
+        tag: required.tag + `<span class="tag">${escapeHtml(`${running.length} of ${checks.length} running`)}</span>`,
+        actions: required.actions,
       };
     }
-    return { tag: `<span class="tag tag-good">${escapeHtml(`${checks.length} check${checks.length === 1 ? '' : 's'} green`)}</span>`, actions: '' };
+    return { tag: required.tag + `<span class="tag tag-good">${escapeHtml(`${checks.length} check${checks.length === 1 ? '' : 's'} green`)}</span>`, actions: required.actions };
   }
 
-  function renderReviewedPrLocalCiCard(compact = false) {
-    return `<article class="panel-card ci-command-deck">
+  /**
+   * One tag and, where there is one, one action for a pull request's
+   * required-check gap. Only the blocking states and "not read" produce a tag:
+   * a satisfied requirement adds nothing the green rollup does not already say,
+   * and a base branch that requires nothing is not news on every row.
+   */
+  function renderRequiredCheckGap(gap, reviewedPr) {
+    if (!gap || gap.state === 'satisfied' || gap.state === 'no-required') {
+      return { tag: '', actions: '' };
+    }
+    if (gap.state === 'unknown') {
+      return { tag: `<span class="tag wf-unknown" title="${escapeAttr(gap.summary || '')}">required checks not read</span>`, actions: '' };
+    }
+    if (gap.state === 'waiting') {
+      return { tag: `<span class="tag" title="${escapeAttr(gap.summary || '')}">${escapeHtml(`waiting on ${(gap.pending || []).length} required`)}</span>`, actions: '' };
+    }
+    if (gap.state === 'blocked-failing') {
+      return { tag: `<span class="tag tag-critical" title="${escapeAttr(gap.summary || '')}">${escapeHtml(`blocked · required ${(gap.failing || []).slice(0, 1).join('')} failed`)}</span>`, actions: '' };
+    }
+    const missing = gap.missing || [];
+    const named = missing.slice(0, 1).join('') + (missing.length > 1 ? ` +${missing.length - 1}` : '');
+    // The AtlasMind check names its action: only a reviewed-PR run posts it, so
+    // the button is the run when this folder is ready and the setup when not.
+    const ready = reviewedPr && reviewedPr.contract === 'enabled' && reviewedPr.runnable;
+    const action = gap.localCiMissing
+      ? (ready
+        ? '<button type="button" class="action-link primary" data-action="pipeline-local-ci-review">Run reviewed PR…</button>'
+        : '<button type="button" class="action-link" data-action="page" data-payload="pipeline" title="Only a reviewed-PR local CI run posts this check. The Pipeline page says what this folder still needs.">Set up reviewed-PR local CI</button>')
+      : '';
+    return {
+      tag: `<span class="tag tag-critical" title="${escapeAttr(gap.summary || '')}">${escapeHtml(`blocked · required check ${named} not posted`)}</span>`,
+      actions: action,
+    };
+  }
+
+  /**
+   * One button per attention action. Every id here is one the webview already
+   * posts; the host decides what each means, and the checkout and run paths
+   * re-read the contract before acting.
+   */
+  function renderAttentionAction(item, reviewedPr) {
+    const label = escapeHtml(item.actionLabel || '');
+    switch (item.action) {
+      case 'review': return `<button type="button" class="action-link primary" data-action="pipeline-local-ci-review">${label}</button>`;
+      case 'patch':
+      case 'repatch': return `<button type="button" class="action-link primary" data-action="pipeline-local-ci-patch">${label}</button>`;
+      case 'open-contract': return `<button type="button" class="action-link primary" data-action="file" data-payload="${escapeAttr((reviewedPr && reviewedPr.contractPath) || '.atlasmind/local-ci.json')}">${label}</button>`;
+      case 'checkout-trusted-branch': return `<button type="button" class="action-link primary" data-action="pipeline-local-ci-checkout">${label}</button>`;
+      case 'commit-managed-files': return `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr((reviewedPr && reviewedPr.contractPath) || '.atlasmind/local-ci.json')}">Open the contract</button><span class="list-meta">Commit the managed files on ${escapeHtml((reviewedPr && reviewedPr.trustedBaseBranch) || 'the trusted branch')} first.</span>`;
+      case 'runner-output': return `<button type="button" class="action-link primary" data-action="pipeline-runner-output">${label}</button>`;
+      case 'open-activity': return `<button type="button" class="action-link" data-action="pipeline-section" data-payload="activity">${label}</button>`;
+      case 'open-pull-requests': return `<button type="button" class="action-link" data-action="page" data-payload="pullRequests">${label}</button>`;
+      default: return '';
+    }
+  }
+
+  /**
+   * The Needs-you card at the top of Pipeline: the host's ranked lead, one
+   * button, the rest counted. Absent when nothing needs a person, which is what
+   * lets it mean something on the day it has something to say.
+   */
+  function renderPipelineNeedsYou(attention, reviewedPr) {
+    const lead = attention && attention.lead;
+    if (!lead) {
+      return '';
+    }
+    const others = Math.max(0, ((attention.items || []).length) - 1);
+    return `<div class="inline-notice critical ci-needs-you" data-attention-rule="${escapeAttr(lead.rule || '')}">
+      <p class="card-kicker">Needs you${others ? ` · ${escapeHtml(String(others))} more below` : ''}</p>
+      <strong>${escapeHtml(lead.title || '')}</strong>
+      <p class="stat-detail">${escapeHtml(lead.detail || '')}</p>
+      <div class="tag-row">
+        ${renderAttentionAction(lead, reviewedPr)}
+        ${(lead.pullRequests || []).length ? '<button type="button" class="action-link" data-action="page" data-payload="pullRequests">Open Pull Requests</button>' : ''}
+      </div>
+    </div>`;
+  }
+
+  /**
+   * The reviewed-PR route's card, driven by the host's reading of the folder.
+   *
+   * It used to render two hard-coded buttons with "Patch repository" primary
+   * whatever the repository held — on a patched repository the blue button led
+   * to a branch picker and "already has the current patch", and on an
+   * undetectable stack it would write a *disabled* contract, the state that
+   * produced the unexplained refusal this replaced. Now the primary button is
+   * the step the run command would otherwise fail on first, from the state's
+   * declared next-action table, and the folder and contract path are on the
+   * card so a wrong repository reads as a wrong repository.
+   *
+   * The webview still posts only the two allowlisted ids (`patch` / `review`)
+   * or a workspace-relative path to open; nothing here chooses a command.
+   */
+  function renderReviewedPrLocalCiCard(compact, reviewedPr) {
+    const rp = reviewedPr || { contract: 'unknown', folderName: '', contractPath: '.atlasmind/local-ci.json', blockers: [], nextAction: 'review' };
+    const contract = rp.contract || 'unknown';
+    const tone = contract === 'enabled' && rp.runnable ? 'tag-good'
+      : contract === 'enabled' ? 'tag-warn'
+        : contract === 'absent' ? ''
+          : contract === 'unknown' ? 'wf-unknown' : 'tag-critical';
+    const stateLabel = contract === 'enabled' && rp.runnable ? 'ready'
+      : contract === 'enabled' ? 'patched · not ready'
+        : contract === 'absent' ? 'not patched'
+          : contract === 'disabled' ? 'contract disabled'
+            : contract === 'invalid' ? 'contract unreadable'
+              : 'not read';
+    const patchButton = (label, primary) => `<button type="button" class="dashboard-button ${primary ? 'dashboard-button-primary' : 'dashboard-button-secondary'}" data-action="pipeline-local-ci-patch">${escapeHtml(label)}</button>`;
+    const reviewButton = (label, primary) => `<button type="button" class="dashboard-button ${primary ? 'dashboard-button-primary' : 'dashboard-button-secondary'}" data-action="pipeline-local-ci-review">${escapeHtml(label)}</button>`;
+    const openContract = `<button type="button" class="dashboard-button dashboard-button-secondary" data-action="file" data-payload="${escapeAttr(rp.contractPath || '.atlasmind/local-ci.json')}">Open the contract</button>`;
+    // One primary per state, from the declared table. A secondary is offered
+    // only where it is a sensible second thing to do, never as a fallback.
+    let actions;
+    let instruction = '';
+    switch (rp.nextAction) {
+      case 'patch':
+        actions = patchButton('Patch this repository…', true);
+        break;
+      case 'open-contract':
+        actions = `<button type="button" class="dashboard-button dashboard-button-primary" data-action="file" data-payload="${escapeAttr(rp.contractPath || '.atlasmind/local-ci.json')}">Open the contract to fix it</button>${patchButton('Re-patch…', false)}`;
+        break;
+      case 'commit-managed-files':
+        actions = openContract + reviewButton('Run reviewed PR…', false);
+        instruction = `Commit the managed files on ${escapeHtml(rp.trustedBaseBranch || 'the trusted branch')} first, then run. The run command refuses while they are uncommitted.`;
+        break;
+      case 'checkout-trusted-branch':
+        actions = `<button type="button" class="dashboard-button dashboard-button-primary" data-action="pipeline-local-ci-checkout">Check out ${escapeHtml(rp.trustedBaseBranch || 'the trusted branch')}…</button>` + reviewButton('Run reviewed PR…', false);
+        instruction = `The run reads the committed contract from <code>${escapeHtml(rp.trustedBaseBranch || 'the trusted branch')}</code>. Current branch: <code>${escapeHtml(rp.currentBranch || 'detached')}</code>. AtlasMind asks first and refuses while the working tree has uncommitted changes; by hand it is <code>git checkout ${escapeHtml(rp.trustedBaseBranch || '')}</code>.`;
+        break;
+      case 'repatch':
+        actions = patchButton('Re-patch to refresh the managed files…', true) + openContract;
+        break;
+      default:
+        actions = reviewButton('Run reviewed PR…', true) + patchButton('Re-check the patch', false);
+    }
+    const facts = contract === 'enabled'
+      ? `<div class="tag-row ci-reviewed-pr-facts">
+          <span class="tag" title="The repository the committed contract names">${escapeHtml(rp.repository || '')}</span>
+          <span class="tag" title="Pull requests into this branch are eligible">into ${escapeHtml(rp.trustedBaseBranch || '')}</span>
+          <span class="tag" title="The commit status a pass posts">${escapeHtml(rp.statusContext || 'AtlasMind/local-ci')}</span>
+          <span class="tag" title="Shell-free commands the contract declares">${escapeHtml(String(rp.commandCount || 0))} command${rp.commandCount === 1 ? '' : 's'}</span>
+          ${rp.onTrustedBranch === undefined ? '<span class="tag wf-unknown">branch not checked</span>' : rp.onTrustedBranch ? '' : `<span class="tag tag-warn">on ${escapeHtml(rp.currentBranch || 'detached')}</span>`}
+          ${rp.managedFilesClean === undefined ? '<span class="tag wf-unknown">files not checked</span>' : rp.managedFilesClean ? '' : '<span class="tag tag-warn">uncommitted changes</span>'}
+        </div>`
+      : '';
+    const blockers = (rp.blockers || []).length > 1
+      ? `<ul class="ci-caution-list">${rp.blockers.slice(1, 5).map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
+      : '';
+    return `<article class="panel-card ci-command-deck ci-reviewed-pr-card ci-reviewed-pr-${escapeAttr(contract)}">
       <div class="ci-section-heading">
         <div>
-          <p class="card-kicker">Reviewed pull requests · local execution</p>
-          <h3>${compact ? 'Run this PR on local CI' : 'Run an approved exact SHA on this computer'}</h3>
-          <p class="stat-detail">Patch a repository once, then choose an open same-repository PR and approve its current head commit. Codex, Claude, another proprietary agent interface, AtlasMind, and human-authored branches all use the same identity-and-SHA boundary.</p>
+          <p class="card-kicker">Reviewed pull requests · this computer${rp.folderName ? ` · <code>${escapeHtml(rp.folderName)}</code>` : ''}</p>
+          <h3>${escapeHtml(compact ? (rp.headline || 'Run this PR on local CI') : (rp.headline || 'Run one reviewed pull request on this computer'))}</h3>
+          <p class="stat-detail">${escapeHtml(rp.detail || 'Patch a repository once, then choose an open same-repository PR and approve its current head commit.')}</p>
         </div>
-        <span class="tag">Linux container evidence</span>
+        <span class="tag ${tone}">${escapeHtml(stateLabel)}</span>
       </div>
-      <div class="tag-row">
-        <button type="button" class="dashboard-button dashboard-button-primary" data-action="pipeline-local-ci-patch">Patch repository</button>
-        <button type="button" class="dashboard-button dashboard-button-secondary" data-action="pipeline-local-ci-review">Run reviewed PR</button>
-      </div>
-      <p class="stat-detail">Chat shortcuts: <code>/localci patch</code> and <code>/localci review</code>. A new commit invalidates the prior approval; forks, drafts, repository/environment secrets, host mounts, and the Docker socket remain refused. The job keeps outbound network access for GitHub and dependency installation, so review the diff: Docker is defence in depth, not a safety guarantee.</p>
+      ${facts}
+      ${blockers}
+      ${instruction ? `<p class="stat-detail ci-reviewed-pr-instruction">${instruction}</p>` : ''}
+      <div class="tag-row">${actions}<button type="button" class="action-link" data-action="pipeline-runner-output" title="The AtlasMind Local CI output: every dispatch, queue check and container line from this session">Show output</button></div>
+      <details class="ci-progressive-details">
+        <summary>What this does and does not do</summary>
+        <div class="ci-progressive-details-body">
+          <p class="stat-detail">You approve one exact commit of one open pull request into the trusted branch. AtlasMind dispatches the repository's manual workflow for that commit, lends this computer as a one-job container, and posts the <code>${escapeHtml(rp.statusContext || 'AtlasMind/local-ci')}</code> check on the commit with the result. Codex, Claude, another proprietary agent interface, AtlasMind, and human-authored branches all use the same identity-and-SHA boundary.</p>
+          <p class="stat-detail">A new commit invalidates the prior approval; forks, drafts, repository/environment secrets, host mounts, and the Docker socket remain refused. The job keeps outbound network access for GitHub and dependency installation, so review the diff: Docker is defence in depth, not a safety guarantee. Contract: <code>${escapeHtml(rp.contractPath || '.atlasmind/local-ci.json')}</code>. Chat shortcuts: <code>/localci patch</code> and <code>/localci review</code>.</p>
+        </div>
+      </details>
     </article>`;
   }
 
@@ -9403,6 +9581,9 @@
     // about. Absent and empty are different facts here: one offers the button,
     // the other says the review left no line comments.
     const reviewComments = wf.reviewComments || {};
+    // Per open pull request: what its base branch requires, judged host-side.
+    const requiredCheckGaps = Array.isArray(wf.requiredCheckGaps) ? wf.requiredCheckGaps : [];
+    const reviewedPrForRows = (snapshot.delivery || {}).reviewedPrLocalCi;
 
     const intro = renderPageIntro({
       kicker: 'Stage 4',
@@ -9426,7 +9607,7 @@
       return `${pageSectionOpen('pullRequests')}
         ${intro}
         ${notice}
-        ${renderReviewedPrLocalCiCard(true)}
+        ${renderReviewedPrLocalCiCard(true, (snapshot.delivery || {}).reviewedPrLocalCi)}
         <div class="dashboard-empty"><div>
           <strong>Pull requests have not been loaded</strong>
           <p class="section-copy">A pull request is where a change stops being private: the point CI runs, the point a second pair of eyes can see it, and the durable record of why the change looked right at the time. Even working alone it is worth opening one — CI is the reviewer.</p>
@@ -9445,7 +9626,8 @@
         const changesRequested = submitted.some(r => r.verdict === 'changes-requested');
         const approved = submitted.some(r => r.verdict === 'approved');
         const size = (pr.additions || 0) + (pr.deletions || 0);
-        const ciState = pullRequestCiState(pr);
+        const gap = requiredCheckGaps.find(entry => entry.number === pr.number);
+        const ciState = pullRequestCiState(pr, gap, reviewedPrForRows);
         return `
           <div class="recent-item" data-dashboard-focus-kind="pull-request" data-dashboard-focus-id="${escapeAttr(String(pr.number))}">
             <div class="row-head">
@@ -9489,7 +9671,7 @@
       <div class="tag-row">
         ${renderRefreshAction('issues-refresh', 'Refresh GitHub activity', refreshBusy, { busyLabel: 'Refreshing GitHub…', cadence: true })}
       </div>
-      ${renderReviewedPrLocalCiCard(true)}
+      ${renderReviewedPrLocalCiCard(true, (snapshot.delivery || {}).reviewedPrLocalCi)}
       <article class="panel-card">
         <p class="card-kicker">In flight</p>
         <div class="stack-list">${list}</div>
@@ -10986,46 +11168,68 @@
     const failing = (testing.policyCoverage && testing.policyCoverage.report && testing.policyCoverage.report.failures) || 0;
     const running = records.filter(build => build.status === 'running').length;
 
+    // Each tile says what a person does there, in a static second line. The
+    // metric alone ("5 workflows", "not set") named a subsystem, and nothing on
+    // the page said which tile held the runner controls — the owner had to ask.
     const tabs = [
       {
         id: 'activity',
         label: 'Activity',
+        description: 'Runs, failures, live output',
         meta: running ? `${running} running` : records.length ? `${records.length} recent` : runs.length ? `${runs.length} runs` : 'nothing yet',
         tone: running ? 'warn' : '',
       },
-      { id: 'canvas', label: 'Canvas', meta: `${(delivery.workflows || []).length} workflow${(delivery.workflows || []).length === 1 ? '' : 's'}` },
+      {
+        id: 'canvas',
+        label: 'Canvas',
+        description: 'Workflow files and how they connect',
+        meta: `${(delivery.workflows || []).length} workflow${(delivery.workflows || []).length === 1 ? '' : 's'}`,
+      },
       {
         id: 'tests',
         label: 'Tests',
+        description: 'What the test reports prove',
         meta: failing ? `${failing} failing` : testing.policyCoverage && testing.policyCoverage.report ? 'passing' : 'no report',
         tone: failing ? 'bad' : '',
       },
       {
         id: 'rules',
-        label: 'Rules',
-        meta: routing.configPresent ? `${(routing.decisions || []).length} decided` : 'not set',
+        label: 'Runners & rules',
+        description: "Where checks run · this computer's setup · limits",
+        meta: setup && setup.route === 'reviewed-pr' ? 'reviewed-PR ready'
+          : routing.configPresent ? `${(routing.decisions || []).length} decided` : 'routing not set',
       },
     ];
 
     const creditTone = routing.creditState === 'exhausted' ? 'bad' : routing.creditState === 'remaining' ? 'good' : '';
-    const creditLabel = routing.creditState === 'exhausted' ? 'allowance spent'
-      : routing.creditState === 'remaining' ? 'allowance ok'
-        : 'allowance not read';
+    const creditLabel = routing.creditState === 'exhausted' ? 'free minutes spent'
+      : routing.creditState === 'remaining' ? 'free minutes left'
+        : 'free minutes not read';
+    // The chips get a sentence each, visible rather than in a tooltip nobody
+    // hovers on a touchpad: which three steps the setup count means, and what
+    // the allowance chip is about, with the one action that resolves it.
+    const creditSentence = routing.creditState === 'unknown' || !routing.creditState
+      ? "GitHub's free-minutes allowance has not been read this session."
+      : `GitHub's free minutes: ${routing.creditSentence || routing.creditState}.`;
 
     return `<div class="ci-studio-bar">
       <div class="ci-studio-tabs" role="tablist" aria-label="Pipeline views">
         ${tabs.map(tab => `<button type="button" role="tab" data-action="pipeline-section" data-payload="${escapeAttr(tab.id)}"
           aria-selected="${activeSection === tab.id ? 'true' : 'false'}" class="${activeSection === tab.id ? 'active' : ''}">
-          <span>${escapeHtml(tab.label)}</span><small class="${escapeAttr(tab.tone || '')}">${escapeHtml(tab.meta)}</small>
+          <span>${escapeHtml(tab.label)}</span><small class="ci-tab-desc">${escapeHtml(tab.description || '')}</small><small class="${escapeAttr(tab.tone || '')}">${escapeHtml(tab.meta)}</small>
         </button>`).join('')}
       </div>
       <div class="ci-studio-status">
         <button type="button" class="ci-status-chip ${setup.complete ? 'good' : 'warn'}" data-action="pipeline-section" data-payload="setup"
-          title="${escapeAttr(setup.complete ? 'Local CI setup is complete. Open the checklist.' : `${setup.done} of ${setup.total} setup steps done`)}">
-          ${escapeHtml(setup.complete ? 'setup ✓' : `setup ${setup.done}/${setup.total}`)}
+          title="${escapeAttr(setup.chipTitle || (setup.complete ? 'Local CI setup is complete. Open the checklist.' : `${setup.done} of ${setup.total} setup steps done`))}">
+          ${escapeHtml(setup.chipLabel || (setup.complete ? 'setup ✓' : `setup ${setup.done}/${setup.total}`))}
         </button>
-        <span class="ci-status-chip ${escapeAttr(creditTone)}" title="${escapeAttr(routing.creditSentence || 'The hosted allowance has not been checked.')}">${escapeHtml(creditLabel)}</span>
+        <span class="ci-status-chip ${escapeAttr(creditTone)}" title="${escapeAttr(routing.creditSentence || "GitHub's free-minutes allowance has not been checked.")}">${escapeHtml(creditLabel)}</span>
       </div>
+    </div>
+    <div class="ci-studio-explain">
+      <span>${escapeHtml(setup.chipSentence || '')}</span>
+      <span>${escapeHtml(creditSentence)}${routing.creditState === 'unknown' || !routing.creditState ? '<button type="button" class="action-link" data-action="pipeline-refresh-credit">Check now</button>' : ''}</span>
     </div>`;
   }
 
@@ -11038,19 +11242,40 @@
    * something has run, because queueing and lending are per-run steps that
    * reset with every commit.
    */
-  function pipelineSetupState(runner, buildRecords, runs) {
+  function pipelineSetupState(runner, buildRecords, runs, reviewedPr) {
     const workflowReady = Boolean(runner && runner.workflowReview && runner.workflowReview.state === 'ok');
     const machineReady = Boolean(runner && runner.enabled)
       && ['ready', 'starting', 'waiting', 'running', 'finished'].includes(runner && runner.lifecycle);
     const hasRun = (buildRecords || []).length > 0 || (runs || []).length > 0;
     const done = [workflowReady, machineReady, hasRun].filter(Boolean).length;
+    // Two routes share this computer and this chip. The trusted-branch route
+    // is "started" once its workflow has been looked at or its permission
+    // turned on; until then a repository patched for reviewed PRs is set up
+    // for the route it uses, and the chip says which route it is talking about
+    // rather than a bare "setup 1/3" that reads as unfinished.
+    const trustedRouteStarted = Boolean(runner && (runner.workflowReview || runner.enabled));
+    const reviewedPrReady = Boolean(reviewedPr && reviewedPr.contract === 'enabled' && reviewedPr.runnable);
+    const trustedComplete = workflowReady && machineReady && hasRun;
+    const route = trustedRouteStarted || !reviewedPrReady ? 'trusted-branch' : 'reviewed-pr';
     return {
       workflowReady,
       machineReady,
       hasRun,
       done,
       total: 3,
-      complete: workflowReady && machineReady && hasRun,
+      trustedRouteStarted,
+      reviewedPrReady,
+      route,
+      trustedComplete,
+      complete: trustedComplete || (route === 'reviewed-pr' && reviewedPrReady),
+      chipLabel: route === 'reviewed-pr' ? 'reviewed-PR ready' : trustedComplete ? 'trusted route ✓' : `trusted route ${done}/3`,
+      chipTitle: route === 'reviewed-pr'
+        ? 'This repository is patched and ready for reviewed-PR local CI. The trusted-branch route has not been set up, and nothing routes work to it.'
+        : trustedComplete ? 'Trusted-branch local CI setup is complete. Open the checklist.' : `${done} of 3 trusted-branch setup steps done`,
+      // The visible sentence under the bar: which three steps the count means.
+      chipSentence: route === 'reviewed-pr'
+        ? `Reviewed-PR route: contract ✓ · on ${(reviewedPr && reviewedPr.trustedBaseBranch) || 'the trusted branch'} ✓ · files committed ✓. The trusted-branch route is not set up and nothing routes work to it.`
+        : `Trusted-branch route: workflow ${workflowReady ? '✓' : '✗'} · this computer ${machineReady ? '✓' : '✗'} · first run ${hasRun ? '✓' : '✗'}.`,
     };
   }
 
@@ -11163,7 +11388,7 @@
             ${steps.map(step => `<div class="ci-journey-list-row${step.done ? ' done' : ''}"><span class="ci-step-marker" aria-hidden="true">${step.done ? '✓' : '·'}</span><div><strong>${escapeHtml(step.title)}</strong><p>${escapeHtml(step.detail)}</p></div><span class="tag ${step.done ? 'tag-good' : ''}">${step.done ? 'Done' : 'Per-run'}</span></div>`).join('')}
           </div>
           <p class="stat-detail">Queueing and lending are per-run steps — they reset with every commit and do not mean setup regressed.</p>
-          <div class="tag-row"><button type="button" class="action-link" data-action="pipeline-section" data-payload="activity">Open Activity</button><button type="button" class="action-link" data-action="pipeline-section" data-payload="rules">Rules</button></div>
+          <div class="tag-row"><button type="button" class="action-link" data-action="pipeline-section" data-payload="activity">Open Activity</button><button type="button" class="action-link" data-action="pipeline-section" data-payload="rules">Runners &amp; rules</button></div>
         </details>
       </article>`;
     }
@@ -11214,7 +11439,7 @@
 
   const CI_ROUTE_COST_LABELS = {
     'local-only': 'Your machine only',
-    'hosted-allowance': 'Uses hosted allowance',
+    'hosted-allowance': "Uses GitHub's free minutes",
     'external-account': 'Third-party account',
   };
 
@@ -11253,7 +11478,8 @@
    * The runner switch and this computer's local CI limits, under the allowance
    * row. Everything here is a request: the host validates, clamps and writes.
    */
-  function renderCiRunnerSwitch(runnerSwitch) {
+  function renderCiRunnerSwitch(runnerSwitch, options) {
+    const advanced = Boolean(options && options.advanced);
     if (!runnerSwitch) {
       return '';
     }
@@ -11289,32 +11515,46 @@
       todo.push('<li>No local runner chosen yet. Pick Automatic or Always this computer again to name it.</li>');
     }
 
-    const limits = runnerSwitch.resources || {};
-    const share = Number(limits.resourceShare) || 50;
-    return `<div class="ci-rules-switch" style="margin-top:12px">
+    // The mode buttons are the simple view: one choice, visible. The to-do list
+    // and the switched-workflow roster are detail, shown when asked for or when
+    // something is actually missing.
+    return `<div class="ci-rules-switch">
       <p class="card-kicker">Where CI runs</p>
       <h3 style="margin:2px 0 4px">${escapeHtml(where)}</h3>
       <p class="list-meta">${escapeHtml(why)}</p>
       <div class="tag-row">${buttons}</div>
       ${runnerSwitch.mode !== 'off' ? '<div class="tag-row"><button type="button" class="action-link" data-action="pipeline-switch-mode" data-payload="off">Stop managing this</button></div>' : ''}
       ${todo.length ? `<ul class="list-meta" style="margin:8px 0 0 16px">${todo.join('')}</ul>` : ''}
-      ${following.length ? `<p class="list-meta">Switched workflows: ${escapeHtml(following.join(', '))}.</p>` : ''}
-      <label style="display:block;margin-top:14px">
-        <span class="card-kicker">How much of this computer local CI may use</span>
+      ${advanced && following.length ? `<p class="list-meta">Switched workflows: ${escapeHtml(following.join(', '))}.</p>` : ''}
+    </div>`;
+  }
+
+  /**
+   * Section 4: how much of this computer CI may use. The slider is the whole
+   * simple view; the exact CPU and memory caps are the advanced one.
+   */
+  function renderCiResourceLimits(runnerSwitch, options) {
+    if (!runnerSwitch) {
+      return '<p class="section-copy">Limits are read once the runner switch has been read.</p>';
+    }
+    const advanced = Boolean(options && options.advanced);
+    const limits = runnerSwitch.resources || {};
+    const share = Number(limits.resourceShare) || 50;
+    return `<div class="ci-rules-limits">
+      <label style="display:block">
         <span style="display:flex;gap:10px;align-items:center">
           <input type="range" min="10" max="90" step="5" value="${escapeAttr(String(share))}"
             data-ci-limit="resourceShare" aria-label="Share of this computer for local CI" style="flex:1">
           <strong data-ci-share-label>${escapeHtml(String(share))}%</strong>
         </span>
       </label>
-      <p class="list-meta">Saved as you move it. A quarter of the computer always stays free for you.</p>
-      <details class="ci-progressive-details">
-        <summary><span>Fine-tune limits</span></summary>
+      <p class="list-meta">Saved as you move it.</p>
+      ${advanced ? `<div class="ci-rules-limits-fine">
         <label style="display:inline-flex;gap:6px;align-items:center;margin-right:14px">Max CPUs
           <input type="number" min="2" max="128" step="1" value="${escapeAttr(String(limits.maxCpus))}" data-ci-limit="maxCpus" style="width:5em"> cores</label>
         <label style="display:inline-flex;gap:6px;align-items:center">Max memory
           <input type="number" min="4" max="512" step="1" value="${escapeAttr(String(limits.maxMemoryGb))}" data-ci-limit="maxMemoryGb" style="width:5em"> GB</label>
-      </details>
+      </div>` : ''}
     </div>`;
   }
 
@@ -11482,7 +11722,7 @@
     return `<div class="ci-studio-stack">${failingBand}${coverageBand}${missingBand}</div>`;
   }
 
-  function renderPipelineRules(routes, routing, runnerCard, setup) {
+  function renderPipelineRules(routes, routing, runnerCard, setup, reviewedPr) {
     const help = renderInfoHelp('pipeline.rules', {
       label: 'the routing grid',
       why: 'Each row is a kind of check; each column is somewhere it could run. The marks are your policy: one preferred route, fallbacks in order, and locked squares the policy refuses whatever anybody clicks. Nothing here executes — a rule decides where work is recommended to go, and running it is still a separate, confirmed act.',
@@ -11497,9 +11737,16 @@
     // leads with it: somebody arriving from the journey's "prepare this
     // computer" step is here to finish setup, not to read a policy grid.
     const runnerEntry = (routes || []).find(entry => (entry.route || {}).id === 'local-runner');
+    // No routing file still means undecided rather than unwanted — except on a
+    // repository already patched and ready for reviewed PRs whose trusted-branch
+    // route nobody has touched. There the trusted checklist is a chore for a
+    // route not in use, and letting it take the page over is how this view
+    // opened on "Write the trusted workflow…" for a fully patched repository.
+    const trustedRouteUntouched = Boolean(setup && setup.route === 'reviewed-pr' && !setup.trustedRouteStarted);
+    const undecidedCountsAsUsed = !trustedRouteUntouched;
     const runnerReferenced = ((routing.matrix || []).some(row => (row.cells || []).some(cell =>
       cell.routeId === 'local-runner' && (cell.state === 'preferred' || cell.state === 'fallback'))))
-      || !(routing.matrix || []).length;
+      || (!(routing.matrix || []).length && undecidedCountsAsUsed);
     const needsSetup = Boolean(runnerEntry
       && runnerReferenced
       && runnerEntry.status !== 'available'
@@ -11519,28 +11766,30 @@
 
     const creditTone = routing.creditState === 'exhausted' ? 'tag-warn' : routing.creditState === 'remaining' ? 'tag-good' : '';
     const creditRow = `<div class="ci-rules-credit">
-      <span class="tag ${creditTone}">${escapeHtml(routing.creditState || 'unknown')}</span>
-      <span>${escapeHtml(routing.creditSentence || 'The hosted allowance has not been checked.')}</span>
-      <button type="button" class="action-link" data-action="pipeline-refresh-credit">Check the allowance</button>
-    </div>${renderCiRunnerSwitch(routing.runnerSwitch)}`;
+      <span class="tag ${creditTone}">${escapeHtml(routing.creditState === 'remaining' ? 'free minutes left' : routing.creditState === 'exhausted' ? 'free minutes spent' : 'not read')}</span>
+      <span>${escapeHtml(routing.creditSentence || "GitHub's free-minutes allowance has not been checked.")}</span>
+      <button type="button" class="action-link" data-action="pipeline-refresh-credit">Check the free minutes</button>
+    </div>`;
+    const advanced = Boolean(state.pipelineRulesAdvanced);
+    const executorsCard = renderRulesExecutors(routes, runnerCard, { needsSetup, needsFirstRun, matrix: routing.matrix, reviewedPr, undecidedCountsAsUsed });
 
+    // Section 2 in its two states. With no file, the card says so and offers to
+    // create one; nothing is seeded on render.
+    let routingCard = '';
+    let dryRunCard = '';
     if (!routing.configPresent) {
-      const intro = `<article class="panel-card">
+      routingCard = `<article class="panel-card">
           <div class="ci-section-heading">
             <div>
-              <p class="card-kicker">Rules</p>
+              <p class="card-kicker">Where each kind of check goes</p>
               <h3>No routing file yet</h3>
               <p class="section-copy">${escapeHtml(routing.notice || 'Nothing records where each kind of check should run. AtlasMind can write a starting set for you to review and commit — creating it runs nothing.')}</p>
             </div>${help.button}
           </div>
           ${help.panel}
-          ${creditRow}
           <div class="tag-row"><button type="button" class="action-link primary" data-action="pipeline-create-routing">Create the routing file…</button></div>
         </article>`;
-      const executors = renderRulesExecutors(routes, runnerCard, { needsSetup, needsFirstRun, matrix: routing.matrix });
-      return `<div class="ci-studio-stack">${runnerNeedsYou ? executors + intro : intro + executors}</div>`;
-    }
-
+    } else {
     const matrix = routing.matrix || [];
     const columns = matrix.length ? matrix[0].cells : [];
     const headers = columns.map(cell => `<th scope="col" title="${escapeAttr(cell.routeLabel)}">${escapeHtml(cell.routeLabel)}</th>`).join('');
@@ -11569,7 +11818,7 @@
         ${cells}
         <td class="ci-cell-exhaust">
           <button type="button" class="action-link" data-action="pipeline-route-exhaust" data-payload="${escapeAttr(row.workloadId)}"
-            title="${escapeAttr(row.onCreditExhausted === 'block' ? 'Stops when the hosted allowance runs out. Click to use the fallback instead.' : 'Uses the fallback when the hosted allowance runs out. Click to stop instead.')}">
+            title="${escapeAttr(row.onCreditExhausted === 'block' ? "Stops when GitHub's free minutes run out. Click to use the fallback instead." : "Uses the fallback when GitHub's free minutes run out. Click to stop instead.")}">
             ${escapeHtml(row.onCreditExhausted === 'block' ? 'stop' : 'fall back')}
           </button>
         </td>
@@ -11591,43 +11840,67 @@
       </div>
     </div>`).join('');
 
-    // With a routing file present the executors card also leads while the
-    // borrowed machine needs somebody — arriving from the journey to finish
-    // setup or to queue the first job should not start under a policy grid.
-    const executorsCard = renderRulesExecutors(routes, runnerCard, { needsSetup, needsFirstRun, matrix: routing.matrix });
-    return `<div class="ci-studio-stack">
-      ${runnerNeedsYou ? executorsCard : ''}
-      <article class="panel-card">
-        <div class="ci-section-heading">
-          <div>
-            <p class="card-kicker">Rules · <code>${escapeHtml(routing.configPath || '')}</code></p>
-            <h3>Where each kind of check goes</h3>
-            <p class="section-copy">Your policy, whole. One preferred route per row, fallbacks numbered in the order they are tried, and locked squares the policy refuses. Click a square to change it; nothing runs as a result.</p>
-          </div>${help.button}
-        </div>
-        ${help.panel}
-        ${errors.length ? `<div class="inline-notice critical"><strong>${errors.length} rule${errors.length === 1 ? '' : 's'} cannot be acted on</strong><ul class="ci-caution-list">${errors.map(problem => `<li>${escapeHtml(problem.message)}</li>`).join('')}</ul></div>` : ''}
-        <div class="ci-matrix-wrap">
-          <table class="ci-matrix">
-            <thead><tr><th scope="col">Kind of check</th>${headers}<th scope="col" title="What this rule does when the hosted allowance runs out">allowance gone</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-        <div class="ci-matrix-key">
-          <span><b>●</b> preferred</span><span><b>○</b> fallback, in order</span><span><b>+</b> allowed, unused</span>
-          <span><b>✕</b> locked by policy</span><span><b>·</b> no adapter</span><span class="ci-cell-unusable-key">outlined — allowed, but not usable on this machine right now</span>
-        </div>
-        ${warnings.length ? `<details class="ci-progressive-details"><summary>${warnings.length} note${warnings.length === 1 ? '' : 's'} about the routing file</summary><ul class="ci-caution-list">${warnings.map(problem => `<li>${escapeHtml(problem.message)}</li>`).join('')}</ul></details>` : ''}
-        <div class="tag-row"><button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(routing.configPath || '')}">Open the file</button></div>
-      </article>
+      // Indented one level: the grid and the dry run are the advanced half of
+      // section 2, built here and shown below the summary when asked for.
+      routingCard = `      <article class="panel-card">
+          <div class="ci-section-heading">
+            <div>
+              <p class="card-kicker">Where each kind of check goes · <code>${escapeHtml(routing.configPath || '')}</code></p>
+              <h3>Where each kind of check goes</h3>
+              <p class="section-copy">Your policy, whole. One preferred route per row, fallbacks numbered in the order they are tried, and locked squares the policy refuses. Click a square to change it; nothing runs as a result.</p>
+            </div>${help.button}
+          </div>
+          ${help.panel}
+          ${errors.length ? `<div class="inline-notice critical"><strong>${errors.length} rule${errors.length === 1 ? '' : 's'} cannot be acted on</strong><ul class="ci-caution-list">${errors.map(problem => `<li>${escapeHtml(problem.message)}</li>`).join('')}</ul></div>` : ''}
+          <div class="ci-matrix-wrap">
+            <table class="ci-matrix">
+              <thead><tr><th scope="col">Kind of check</th>${headers}<th scope="col" title="What this rule does when GitHub's free minutes run out">allowance gone</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+          <div class="ci-matrix-key">
+            <span><b>●</b> preferred</span><span><b>○</b> fallback, in order</span><span><b>+</b> allowed, unused</span>
+            <span><b>✕</b> locked by policy</span><span><b>·</b> no adapter</span><span class="ci-cell-unusable-key">outlined — allowed, but not usable on this machine right now</span>
+          </div>
+          ${warnings.length ? `<details class="ci-progressive-details"><summary>${warnings.length} note${warnings.length === 1 ? '' : 's'} about the routing file</summary><ul class="ci-caution-list">${warnings.map(problem => `<li>${escapeHtml(problem.message)}</li>`).join('')}</ul></details>` : ''}
+          <div class="tag-row"><button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(routing.configPath || '')}">Open the file</button></div>
+        </article>`;
+      dryRunCard = `      <article class="panel-card">
+          <div class="ci-section-heading"><div><p class="card-kicker">Dry run</p><h3>If checks ran right now</h3></div></div>
+          <div class="ci-rules-decisions">${decisions || '<p class="section-copy">The routing file declares no rules yet.</p>'}</div>
+        </article>`;
+    }
 
-      <article class="panel-card">
-        <div class="ci-section-heading"><div><p class="card-kicker">Dry run</p><h3>If checks ran right now</h3></div></div>
-        ${creditRow}
-        <div class="ci-rules-decisions">${decisions || '<p class="section-copy">The routing file declares no rules yet.</p>'}</div>
-      </article>
+    // Four numbered sections, each with a one-line definition, in the order a
+    // person meets them: what can run a check, where each kind goes, where the
+    // opted-in workflows run this month, how much of this computer CI may use.
+    // The page used to stack executors, a routing file, a repository variable
+    // and a laptop slider as one undifferentiated column, with "Create the
+    // routing file…" at the bottom reading as the page's conclusion. The simple
+    // view shows section 1 whole and one summary line for each of 2–4; Show
+    // advanced expands them. Which is which is a per-editor convenience, so it
+    // lives in webview state.
+    const section = (number, title, definition, body, options) => `<section class="ci-rules-section${options && options.collapsed ? ' collapsed' : ''}" aria-label="${escapeAttr(title)}">
+      <div class="ci-rules-section-head">
+        <span class="ci-rules-section-number" aria-hidden="true">${escapeHtml(String(number))}</span>
+        <div><h3>${escapeHtml(title)}</h3><p class="stat-detail">${escapeHtml(definition)}</p></div>
+        ${options && options.summary ? `<span class="ci-rules-section-summary">${options.summary}</span>` : ''}
+      </div>
+      ${body}
+    </section>`;
+    const routingSummary = routing.configPresent
+      ? `${escapeHtml(`${(routing.decisions || []).length} kind${(routing.decisions || []).length === 1 ? '' : 's'} of check decided`)} <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(routing.configPath || '')}">Open the file</button>`
+      : 'No routing file yet <button type="button" class="action-link primary" data-action="pipeline-create-routing">Create…</button>';
+    const switchBody = renderCiRunnerSwitch(routing.runnerSwitch, { advanced });
+    const limitsBody = renderCiResourceLimits(routing.runnerSwitch, { advanced });
+    const toggle = `<div class="tag-row ci-rules-advanced-toggle"><button type="button" class="action-link" data-action="pipeline-rules-advanced" aria-expanded="${advanced ? 'true' : 'false'}">${advanced ? 'Hide advanced' : 'Show advanced: routing grid, dry run, switch detail, fine-tuned limits'}</button></div>`;
 
-      ${runnerNeedsYou ? '' : executorsCard}
+    return `<div class="ci-studio-stack ci-rules-sections">
+      ${section(1, 'What can run a check', 'Each row is a place a check could run, and whether it is ready.', executorsCard)}
+      ${section(2, 'Where each kind of check goes', 'A committed file your team reviews. Creating it runs nothing.', advanced || !routing.configPresent ? routingCard + (advanced ? dryRunCard : '') : '', { summary: routingSummary, collapsed: !advanced && routing.configPresent })}
+      ${section(3, 'Where opted-in workflows run this month', 'One repository variable. Pull requests from other repositories always stay on GitHub.', creditRow + switchBody)}
+      ${section(4, 'How much of this computer CI may use', 'A quarter of the computer always stays free for you.', limitsBody)}
+      ${toggle}
     </div>`;
   }
 
@@ -11650,6 +11923,53 @@
    * is ready hid the command from exactly the visit it exists for, so the
    * first-run state keeps it open too. It closes for good once a job has run.
    */
+  /**
+   * The reviewed-PR route as one executor row: status from the contract, one
+   * button — the same next action the card offers, so the two cannot disagree.
+   */
+  function renderReviewedPrExecutorRow(reviewedPr) {
+    const rp = reviewedPr || { contract: 'unknown', blockers: [], nextAction: 'review' };
+    const ready = rp.contract === 'enabled' && rp.runnable;
+    const tone = ready ? 'tag-good' : rp.contract === 'enabled' ? 'tag-warn' : rp.contract === 'absent' ? '' : rp.contract === 'unknown' ? 'wf-unknown' : 'tag-critical';
+    const label = ready ? 'ready'
+      : rp.contract === 'enabled' ? 'needs you'
+        : rp.contract === 'absent' ? 'not patched'
+          : rp.contract === 'unknown' ? 'not read' : 'contract problem';
+    const action = rp.nextAction === 'patch' || rp.nextAction === 'repatch'
+      ? `<button type="button" class="action-link${rp.nextAction === 'patch' ? '' : ' primary'}" data-action="pipeline-local-ci-patch">${rp.nextAction === 'patch' ? 'Patch this repository…' : 'Re-patch…'}</button>`
+      : rp.nextAction === 'open-contract'
+        ? `<button type="button" class="action-link primary" data-action="file" data-payload="${escapeAttr(rp.contractPath || '.atlasmind/local-ci.json')}">Open the contract</button>`
+        : `<button type="button" class="action-link${ready ? ' primary' : ''}" data-action="pipeline-local-ci-review">Run reviewed PR…</button>`;
+    const detail = ready
+      ? `One pull request into ${rp.trustedBaseBranch || 'the trusted branch'}, one approved commit, one container run; a pass posts ${rp.statusContext || 'AtlasMind/local-ci'} on that commit.`
+      : (rp.blockers || [])[0] || rp.detail || 'Patch a repository once, then approve one PR commit at a time.';
+    return `<div class="ci-executor-row ci-executor-reviewed-pr${rp.contract === 'enabled' && !ready ? ' needs-setup' : ''}">
+      <span class="tag ${tone}">${escapeHtml(label)}</span>
+      <div>
+        <strong>Run a reviewed pull request here</strong>
+        <p class="stat-detail">${escapeHtml(detail)}</p>
+      </div>
+      ${action}
+    </div>`;
+  }
+
+  /**
+   * Two lines telling the two local routes apart, shown until dismissed on
+   * this machine. A per-editor convenience, so it lives in webview state rather
+   * than in anything committed; dismissing it hides words, not controls.
+   */
+  function renderLocalCiRoutesExplainer() {
+    if (state.pipelineRoutesExplainerDismissed) {
+      return '';
+    }
+    return `<div class="inline-notice ci-routes-explainer">
+      <strong>Two ways to use this computer for CI</strong>
+      <p class="stat-detail"><strong>Reviewed PR:</strong> you approve one commit of one pull request, and AtlasMind posts the <code>AtlasMind/local-ci</code> check on that commit. <strong>Trusted-branch pushes:</strong> every push to the trusted branch queues a job you can lend this computer to.</p>
+      <p class="stat-detail">They use different workflow files. Setting one up does not set up the other.</p>
+      <div class="tag-row"><button type="button" class="action-link" data-action="pipeline-dismiss-routes-explainer">Got it</button></div>
+    </div>`;
+  }
+
   function renderRulesExecutors(routes, runnerCard, options) {
     const needsSetup = Boolean(options && options.needsSetup);
     // Ready but never run. The drawer stays open in this state too, because the
@@ -11679,7 +11999,10 @@
       // is exactly when somebody is setting up — an empty rule set means
       // undecided, not unwanted.
       const core = route.necessity === 'core';
-      const used = referenced.has(route.id) || (core && referenced.size === 0);
+      // `undecidedCountsAsUsed` is false only when the reviewed-PR route is
+      // ready and the trusted-branch route untouched (see renderPipelineRules).
+      const undecidedCountsAsUsed = !options || options.undecidedCountsAsUsed !== false;
+      const used = referenced.has(route.id) || (core && referenced.size === 0 && undecidedCountsAsUsed);
       const tone = entry.status === 'available' ? 'tag-good'
         : entry.status === 'unimplemented' ? ''
           : used ? 'tag-warn' : '';
@@ -11721,24 +12044,32 @@
       </div>`;
     }).join('');
 
+    // The reviewed-PR route is not a routing-grid route — nothing is routed to
+    // it; a person chooses one PR — so it is not in `routes`. It still runs on
+    // this computer, and a list of "what can run a check on this machine" that
+    // left it out was the list that sent people to the wrong checklist.
+    const reviewedPrRow = renderReviewedPrExecutorRow(options && options.reviewedPr);
+    const explainer = renderLocalCiRoutesExplainer();
+
     return `<article class="panel-card${drawerOpen ? ' ci-executors-setup' : ''}">
+      ${explainer}
       <div class="ci-section-heading">
         <div>
-          <p class="card-kicker">Executors${needsSetup ? ' · needs you' : needsFirstRun ? ' · next: first run' : ''}</p>
-          <h3>${escapeHtml(needsSetup ? 'Finish setting up the borrowed machine'
-            : needsFirstRun ? 'The borrowed machine is ready — queue one trusted job'
+          <p class="card-kicker">Where checks can run${needsSetup ? ' · needs you' : needsFirstRun ? ' · next: first run' : ''}</p>
+          <h3>${escapeHtml(needsSetup ? 'Finish setting up this computer for trusted-branch jobs'
+            : needsFirstRun ? 'This computer is ready — queue one trusted job'
               : 'What can run a check on this machine')}</h3>
           ${needsSetup ? '<p class="stat-detail">The next action and everything blocking it are below, open. Nothing here starts a runner — every step still asks first.</p>' : ''}
           ${needsFirstRun ? '<p class="stat-detail">The queue command and the start plan are below, open, until one job has actually run. Queueing runs nothing on this machine — lending it to the job still asks first.</p>' : ''}
         </div>
       </div>
-      <div class="ci-executor-list">${rows || '<p class="section-copy">No executors were assessed.</p>'}</div>
+      <div class="ci-executor-list">${reviewedPrRow}${rows || '<p class="section-copy">No executors were assessed.</p>'}</div>
       <details class="ci-progressive-details ci-runner-drawer"${drawerOpen ? ' open' : ''}>
         <summary><span>${escapeHtml(needsSetup
-          ? 'Borrowed machine — the next step, and what is blocking it'
+          ? 'This computer, lent to one job — the next step, and what is blocking it'
           : needsFirstRun
-            ? 'Borrowed machine — the queue command and the start plan'
-            : 'Borrowed machine — setup, capacity and safety detail')}</span><small>${escapeHtml(needsSetup
+            ? 'This computer, lent to one job — the queue command and the start plan'
+            : 'This computer, lent to one job — setup, capacity and safety detail')}</span><small>${escapeHtml(needsSetup
               ? 'Open — action needed'
               : needsFirstRun
                 ? 'Open — nothing has run yet'
@@ -12839,7 +13170,7 @@
 
     let body;
     if (!records.length) {
-      body = '<p class="section-copy">Nothing has run through AtlasMind on this machine yet. <strong>Rules</strong> shows where checks can run.</p>';
+      body = '<p class="section-copy">Nothing has run through AtlasMind on this machine yet. <strong>Runners &amp; rules</strong> shows where checks can run.</p>';
     } else if (!ordered.length) {
       body = `<p class="section-copy">No build matches this filter. ${escapeHtml(String(records.length))} build${records.length === 1 ? ' is' : 's are'} recorded in total.</p>`;
     } else if (grouped) {
@@ -13340,6 +13671,26 @@
         : queueIssue.kind === 'duplicates' ? 'Cancel every duplicate, queue exactly once, then check again.'
           : 'Queue the trusted workflow, wait for GitHub to accept it, then check again.';
     }
+    // Why the last container died, in words — from the runner's declared rule
+    // table, never guessed here. Shown only while the lifecycle is `failed`,
+    // because the hint describes that container and no other. The buttons are
+    // the existing host-owned paths: the help id resolves to a URL on the host,
+    // and the setting opens through `openSettingKey`.
+    const failureHint = runner.lifecycle === 'failed' ? runner.failureHint : undefined;
+    const failureHintCard = failureHint
+      ? `<div class="inline-notice critical ci-runner-failure-hint">
+          <strong>${escapeHtml(failureHint.title || 'The runner container stopped')}</strong>
+          <p class="stat-detail">${escapeHtml(failureHint.body || '')}</p>
+          ${failureHint.avoid ? `<p class="stat-detail"><strong>${escapeHtml(failureHint.avoid)}</strong></p>` : ''}
+          ${failureHint.matchedLine ? `<code class="ci-runner-failure-line" title="The output line that decided this">${escapeHtml(failureHint.matchedLine)}</code>` : ''}
+          <div class="tag-row">
+            ${failureHint.helpId ? `<button type="button" class="action-link primary" data-action="pipeline-setup-help" data-payload="${escapeAttr(failureHint.helpId)}">${failureHint.kind === 'tls-inspection' ? 'Open the step-by-step guide ↗' : 'Open the troubleshooting guide ↗'}</button>` : ''}
+            ${failureHint.settingKey ? `<button type="button" class="action-link" data-action="setting" data-payload="${escapeAttr(failureHint.settingKey)}">Open the image setting</button>` : ''}
+            <button type="button" class="action-link" data-action="pipeline-runner-output">Open runner output</button>
+          </div>
+          ${failureHint.kind === 'tls-inspection' ? `<p class="list-meta">Image in use: <code title="${escapeAttr(runner.image || '')}">${escapeHtml(shortenMiddle(runner.image || '—', 54))}</code>. After building the derived image, this line should name its tag.</p>` : ''}
+        </div>`
+      : '';
     const runnerWarningsPanel = runnerWarnings.length ? `<details class="ci-progressive-details ci-runner-notes"><summary>Show ${runnerWarnings.length} operator note${runnerWarnings.length === 1 ? '' : 's'}</summary><div class="ci-progressive-details-body"><ul class="ci-caution-list">${runnerWarnings.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div></details>` : '';
     const runnerCard = `
       <article class="panel-card ci-runner-card">
@@ -13347,10 +13698,14 @@
           <div>
             <p class="card-kicker">Trusted local CI · temporary runner</p>
             <strong>${escapeHtml(runner.message || 'Local runner has not been inspected.')}</strong>
-            <div class="list-meta">GitHub Actions → Docker · ${escapeHtml(runner.evidenceLabel || 'Linux container evidence')}</div>
+            <div class="list-meta">GitHub Actions → Docker · <span title="Runs in a Linux container even on Windows or macOS; it is not a Windows or macOS test result.">Proves Linux only</span> · image <code title="${escapeAttr(runner.image || '')}">${escapeHtml(shortenMiddle(runner.image || '—', 40))}</code></div>
           </div>
-          <span class="tag ${runnerTone}">${escapeHtml(runner.lifecycle || 'not inspected')}</span>
+          <span class="tag ${runnerTone}" title="${escapeAttr(rememberedInspection && runner.lifecycle === 'not-inspected' ? 'These readings are remembered from your last inspection. AtlasMind re-checks everything before it starts anything.' : '')}">${escapeHtml(
+            rememberedInspection && runner.lifecycle === 'not-inspected'
+              ? (rememberedInspection.ageDays === 0 ? 'inspected today' : rememberedInspection.ageDays === 1 ? 'inspected yesterday' : `inspected ${rememberedInspection.ageDays} days ago`)
+              : (runner.lifecycle || 'not inspected'))}</span>
         </div>
+        ${failureHintCard}
         <section class="ci-runner-focus" aria-label="Next local runner action">
           <div><p class="card-kicker">Next action</p><h3>${escapeHtml(runnerFocusTitle)}</h3><p class="section-copy">${escapeHtml(runnerFocusDetail)}</p></div>
           <div class="ci-runner-progress" role="list" aria-label="Local runner setup progress">${runnerProgressSteps.map((step, index) => `<div role="listitem" class="${step.done ? 'done' : index === runnerProgressCurrent ? 'current' : ''}"><span aria-hidden="true">${step.done ? '✓' : index + 1}</span><small>${escapeHtml(step.label)}</small></div>`).join('')}</div>
@@ -13408,8 +13763,8 @@
       // have already finished.
       summary: intel
         ? `${runs.length} recent run${runs.length === 1 ? '' : 's'} on this branch${completed > 0 ? `, ${Math.round(((counts.passing || 0) / completed) * 100)}% passing` : ''}.${
-          intel.loadedAt ? ` Read ${relativeLabel(intel.loadedAt)}.` : ''}${delivery.ciScopeLabel ? ` Hosted-run details cover ${delivery.ciScopeLabel}; the inventory below labels every declared component.` : ''} Watch it in Activity, understand it on the Canvas, verify it in Tests, decide where it runs in Rules.`
-        : 'Watch what runs in Activity, understand the shape of it on the Canvas, verify what the tests prove, and decide where work goes in Rules.',
+          intel.loadedAt ? ` Read ${relativeLabel(intel.loadedAt)}.` : ''}${delivery.ciScopeLabel ? ` Hosted-run details cover ${delivery.ciScopeLabel}; the inventory below labels every declared component.` : ''} Watch it in Activity, understand it on the Canvas, verify it in Tests, decide where it runs in Runners & rules.`
+        : 'Watch what runs in Activity, understand the shape of it on the Canvas, verify what the tests prove, and decide where work goes in Runners & rules.',
       chips: report ? [{ label: report.classification, tone: report.classification === 'unknown' ? 'warn' : 'critical' }] : [],
     });
     const runRows = runs.slice(0, 15).map(run => `
@@ -13422,7 +13777,8 @@
         <div class="list-meta">${escapeHtml(run.displayTitle || '')}</div>
       </div>`).join('');
     const buildRecords = (delivery.builds && delivery.builds.records) || [];
-    const reviewedPrLocalCiCard = renderReviewedPrLocalCiCard(false);
+    const reviewedPr = delivery.reviewedPrLocalCi || { contract: 'unknown', blockers: [], nextAction: 'review' };
+    const reviewedPrLocalCiCard = renderReviewedPrLocalCiCard(false, reviewedPr);
     // The setup view. Only the journey and what blocks it — the capability grid
     // and the duplicated results block that used to sit here were a second,
     // worse navigation system competing with the tabs, and the run history they
@@ -13437,7 +13793,7 @@
     // straight back once it is not. An explicit tab choice always wins — a
     // persisted id from the old eight-tab layout is remapped rather than
     // dropped, so nobody lands on a view that no longer exists.
-    const setup = pipelineSetupState(runner, buildRecords, runs);
+    const setup = pipelineSetupState(runner, buildRecords, runs, reviewedPr);
     const chosen = PIPELINE_SECTION_ALIASES[state.pipelineSection] || state.pipelineSection;
     if (!PIPELINE_SECTIONS.includes(chosen) && !PIPELINE_SECTIONS.includes(state.pipelineSectionDefault)) {
       state.pipelineSectionDefault = setup.complete ? 'activity' : 'setup';
@@ -13456,12 +13812,13 @@
         stages: (delivery.stages && delivery.stages.stages) || [],
       })}${managerCard}${renderPipelinePackages(delivery)}</div>`,
       tests: renderPipelineTests(snapshot.testing || {}),
-      rules: renderPipelineRules(delivery.routes || [], delivery.routing || {}, runnerCard, setup),
+      rules: renderPipelineRules(delivery.routes || [], delivery.routing || {}, runnerCard, setup, reviewedPr),
     }[pipelineSection] || renderPipelineActivity(snapshot, { intel, runs, delivery, refreshBusy, fetchFailure, report, taxonomyHelp });
 
     return `${pageSectionOpen('pipeline')}
       ${intro}
       ${componentCiScopeCard}
+      ${renderPipelineNeedsYou(delivery.attention, reviewedPr)}
       ${reviewedPrLocalCiCard}
       ${renderPipelineTabs(snapshot, runs, pipelineSection, setup)}
       <div class="ci-studio-view" role="tabpanel" aria-label="${escapeAttr(pipelineSection)} pipeline view">${sectionContent}</div>

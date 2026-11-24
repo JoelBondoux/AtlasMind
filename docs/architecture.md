@@ -83,6 +83,25 @@ organisation-owned repository, which has no owner account, the contract pins one
 `reviewedPrLocalCiCommands.ts` re-reads the PR after approval, identifies the newly dispatched workflow
 run by its unique run id and input-derived title, and passes that id into `LocalCiRunnerManager`. The base
 branch supplies the controller at `github.sha`; the proposed SHA supplies only the candidate checkout.
+Runs already waiting on GitHub are listed in plain words and cancelled only after a confirmation that names
+each one; a runner that ends before finishing cancels the single run it dispatched and publishes an error
+status, so AtlasMind's own queue cannot block its next attempt. A missing or unreadable contract is
+reported with the open folder and the file it looked for. `reviewedPrLocalCiState.ts` derives, from the
+contract, the two managed files, their git status and the current branch, where the route stands in the open
+folder (absent, disabled, invalid, enabled; runnable or blocked, with the run command's own refusals) and the
+one next action from a declared table; the dashboard collects it beside `delivery.localRunner` so the card
+and the Rules executor row offer the step that would otherwise fail first. `requiredCheckGap.ts` judges each
+open pull request against the checks its base branch requires — read from branch protection and rulesets
+on the repository refresh, unioned — keeping missing, failing, pending, none-required and not-read apart,
+and naming the reviewed-PR run as the action when the missing check is `AtlasMind/local-ci`.
+`localCiFailureHints.ts` is a declared rule table over the last lines a runner container printed, applied by
+`localCiRunner.ts` on a non-zero exit: TLS interception, a full disk, a missing image, a rejected registration
+token, a duplicate runner name, or unknown with the exit code. Each hint carries a host-owned help id and the
+setting that holds the fix, never a URL and never a suggestion to disable verification; the runner card
+renders it only while the lifecycle is `failed`. `pipelineAttention.ts` orders what needs a person on the
+Pipeline page from those derived states by a published table — a pull request blocked on the AtlasMind check
+with the folder ready, one the folder cannot run yet, one blocked on another check, a runner that died with a
+known cause, the last classified failure — one lead, the rest counted, absent when nothing does.
 The producer name is never a trust signal, so Codex, Claude, other agent interfaces and humans follow the
 same route. The job retains outbound network access for GitHub and dependency installation, so the
 container is defence in depth and explicit code review remains the authorisation boundary.
