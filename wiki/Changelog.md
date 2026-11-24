@@ -19,6 +19,14 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.523.0 -- A ranked Needs-you card and a helped checkout
+
+The card at the top of Pipeline is the first item of a declared ranking — a blocked pull request
+this folder can run, one it cannot run yet, a dead runner, an old failure — absent when nothing
+needs you. Checking out the trusted branch is a confirmed button that refuses on a dirty tree.
+
+---
+
 ## v0.522.0 -- Runners & rules in four sections
 
 What can run a check, where each kind goes, where opted-in workflows run this month, and how much

@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.523.0] - 2026-11-24
+
+### Added
+
+- The Pipeline page's **Needs you** card is now ranked by a declared table
+  (`src/core/pipelineAttention.ts`): a pull request blocked on the AtlasMind check with this
+  folder ready to run it, then one this folder cannot run yet (offering the folder's own next
+  step), then a pull request blocked on a check nothing here posts, then a runner container that
+  died with a recognised cause, then the last classified CI failure. One lead, one button, the
+  rest counted; absent when nothing needs a person.
+- **Check out the trusted branch** is offered rather than stated. The reviewed-PR card and the
+  Needs-you card carry a confirmed checkout of the branch the committed contract names, re-read
+  host-side; it is refused while the working tree has uncommitted changes, is `git checkout` and
+  nothing else, and the run command's refusal now names the command by hand.
+
 ## [0.522.0] - 2026-11-24
 
 ### Changed

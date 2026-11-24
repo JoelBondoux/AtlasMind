@@ -2388,6 +2388,10 @@
       render();
       return;
     }
+    if (action === 'pipeline-local-ci-checkout') {
+      vscode.postMessage({ type: 'checkoutReviewedPrTrustedBranch' });
+      return;
+    }
     if (action === 'pipeline-rules-advanced') {
       state.pipelineRulesAdvanced = !state.pipelineRulesAdvanced;
       vscode.setState({ ...(vscode.getState() || {}), pipelineRulesAdvanced: state.pipelineRulesAdvanced });
@@ -9434,25 +9438,44 @@
   }
 
   /**
-   * The pull requests nothing on this computer has run yet, as one strip at
-   * the top of Pipeline. It is empty when nothing needs you, which is what
-   * lets it mean something on the day it has a row.
+   * One button per attention action. Every id here is one the webview already
+   * posts; the host decides what each means, and the checkout and run paths
+   * re-read the contract before acting.
    */
-  function renderRequiredCheckStrip(gaps, reviewedPr) {
-    const blocked = (gaps || []).filter(gap => gap.state === 'blocked-missing' && gap.localCiMissing);
-    if (!blocked.length) {
+  function renderAttentionAction(item, reviewedPr) {
+    const label = escapeHtml(item.actionLabel || '');
+    switch (item.action) {
+      case 'review': return `<button type="button" class="action-link primary" data-action="pipeline-local-ci-review">${label}</button>`;
+      case 'patch':
+      case 'repatch': return `<button type="button" class="action-link primary" data-action="pipeline-local-ci-patch">${label}</button>`;
+      case 'open-contract': return `<button type="button" class="action-link primary" data-action="file" data-payload="${escapeAttr((reviewedPr && reviewedPr.contractPath) || '.atlasmind/local-ci.json')}">${label}</button>`;
+      case 'checkout-trusted-branch': return `<button type="button" class="action-link primary" data-action="pipeline-local-ci-checkout">${label}</button>`;
+      case 'commit-managed-files': return `<button type="button" class="action-link" data-action="file" data-payload="${escapeAttr((reviewedPr && reviewedPr.contractPath) || '.atlasmind/local-ci.json')}">Open the contract</button><span class="list-meta">Commit the managed files on ${escapeHtml((reviewedPr && reviewedPr.trustedBaseBranch) || 'the trusted branch')} first.</span>`;
+      case 'runner-output': return `<button type="button" class="action-link primary" data-action="pipeline-runner-output">${label}</button>`;
+      case 'open-activity': return `<button type="button" class="action-link" data-action="pipeline-section" data-payload="activity">${label}</button>`;
+      case 'open-pull-requests': return `<button type="button" class="action-link" data-action="page" data-payload="pullRequests">${label}</button>`;
+      default: return '';
+    }
+  }
+
+  /**
+   * The Needs-you card at the top of Pipeline: the host's ranked lead, one
+   * button, the rest counted. Absent when nothing needs a person, which is what
+   * lets it mean something on the day it has something to say.
+   */
+  function renderPipelineNeedsYou(attention, reviewedPr) {
+    const lead = attention && attention.lead;
+    if (!lead) {
       return '';
     }
-    const ready = reviewedPr && reviewedPr.contract === 'enabled' && reviewedPr.runnable;
-    const rows = blocked.slice(0, 5).map(gap => `<li>#${escapeHtml(String(gap.number))} into ${escapeHtml(gap.baseBranch || '')} — <span class="list-meta">${escapeHtml(gap.summary || '')}</span></li>`).join('');
-    return `<div class="inline-notice critical ci-required-check-strip">
-      <strong>Needs you · ${escapeHtml(String(blocked.length))} pull request${blocked.length === 1 ? '' : 's'} waiting for a check only this computer posts</strong>
-      <ul class="ci-caution-list">${rows}${blocked.length > 5 ? `<li>+${blocked.length - 5} more on Pull Requests</li>` : ''}</ul>
+    const others = Math.max(0, ((attention.items || []).length) - 1);
+    return `<div class="inline-notice critical ci-needs-you" data-attention-rule="${escapeAttr(lead.rule || '')}">
+      <p class="card-kicker">Needs you${others ? ` · ${escapeHtml(String(others))} more below` : ''}</p>
+      <strong>${escapeHtml(lead.title || '')}</strong>
+      <p class="stat-detail">${escapeHtml(lead.detail || '')}</p>
       <div class="tag-row">
-        ${ready
-          ? '<button type="button" class="action-link primary" data-action="pipeline-local-ci-review">Run reviewed PR…</button>'
-          : `<span class="list-meta">${escapeHtml(reviewedPr && reviewedPr.headline ? reviewedPr.headline : 'This folder is not ready to run a reviewed PR.')}</span>`}
-        <button type="button" class="action-link" data-action="page" data-payload="pullRequests">Open Pull Requests</button>
+        ${renderAttentionAction(lead, reviewedPr)}
+        ${(lead.pullRequests || []).length ? '<button type="button" class="action-link" data-action="page" data-payload="pullRequests">Open Pull Requests</button>' : ''}
       </div>
     </div>`;
   }
@@ -9504,8 +9527,8 @@
         instruction = `Commit the managed files on ${escapeHtml(rp.trustedBaseBranch || 'the trusted branch')} first, then run. The run command refuses while they are uncommitted.`;
         break;
       case 'checkout-trusted-branch':
-        actions = reviewButton('Run reviewed PR…', false);
-        instruction = `Check out <code>${escapeHtml(rp.trustedBaseBranch || 'the trusted branch')}</code> first — the run reads the committed contract from that branch. Current branch: <code>${escapeHtml(rp.currentBranch || 'detached')}</code>.`;
+        actions = `<button type="button" class="dashboard-button dashboard-button-primary" data-action="pipeline-local-ci-checkout">Check out ${escapeHtml(rp.trustedBaseBranch || 'the trusted branch')}…</button>` + reviewButton('Run reviewed PR…', false);
+        instruction = `The run reads the committed contract from <code>${escapeHtml(rp.trustedBaseBranch || 'the trusted branch')}</code>. Current branch: <code>${escapeHtml(rp.currentBranch || 'detached')}</code>. AtlasMind asks first and refuses while the working tree has uncommitted changes; by hand it is <code>git checkout ${escapeHtml(rp.trustedBaseBranch || '')}</code>.`;
         break;
       case 'repatch':
         actions = patchButton('Re-patch to refresh the managed files…', true) + openContract;
@@ -13795,7 +13818,7 @@
     return `${pageSectionOpen('pipeline')}
       ${intro}
       ${componentCiScopeCard}
-      ${renderRequiredCheckStrip(wf.requiredCheckGaps, reviewedPr)}
+      ${renderPipelineNeedsYou(delivery.attention, reviewedPr)}
       ${reviewedPrLocalCiCard}
       ${renderPipelineTabs(snapshot, runs, pipelineSection, setup)}
       <div class="ci-studio-view" role="tabpanel" aria-label="${escapeAttr(pipelineSection)} pipeline view">${sectionContent}</div>

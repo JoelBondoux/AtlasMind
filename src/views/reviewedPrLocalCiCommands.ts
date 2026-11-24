@@ -657,7 +657,7 @@ export async function runReviewedPullRequestOnLocalCi(): Promise<void> {
     }
     const currentBranch = await git(root, ['branch', '--show-current']);
     if (currentBranch !== activeConfig.trustedBaseBranch) {
-      throw new Error(`Check out the trusted base branch ${activeConfig.trustedBaseBranch} before lending this machine. The current branch is ${currentBranch || 'detached'}.`);
+      throw new Error(`Check out the trusted base branch ${activeConfig.trustedBaseBranch} before lending this machine. The current branch is ${currentBranch || 'detached'}. By hand: git checkout ${activeConfig.trustedBaseBranch}; or use the Pipeline card's Check out button, which refuses while the working tree has uncommitted changes.`);
     }
     const managedDirty = await git(root, [
       'status', '--porcelain', '--', REVIEWED_PR_LOCAL_CI_CONFIG_PATH, REVIEWED_PR_LOCAL_CI_RUNNER_PATH, REVIEWED_PR_LOCAL_CI_WORKFLOW_PATH,

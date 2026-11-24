@@ -107,13 +107,38 @@ describe('reviewed-PR local-CI surfaces', () => {
     expect(dashboard).toContain('function renderRequiredCheckGap(gap, reviewedPr)');
     expect(dashboard).toContain('blocked · required check ${named} not posted');
     expect(dashboard).toContain('required checks not read');
-    expect(dashboard).toContain('function renderRequiredCheckStrip(gaps, reviewedPr)');
-    expect(dashboard).toContain('renderRequiredCheckStrip(wf.requiredCheckGaps, reviewedPr)');
-    expect(dashboard).toContain("gap.state === 'blocked-missing' && gap.localCiMissing");
+    // The Needs-you card is the host's ranked lead, rendered once at the top of Pipeline.
+    expect(dashboard).toContain('function renderPipelineNeedsYou(attention, reviewedPr)');
+    expect(dashboard).toContain('renderPipelineNeedsYou(delivery.attention, reviewedPr)');
+    expect(dashboardHost).toContain('attention: derivePipelineAttention({');
+    expect(dashboardHost).toContain('attention: PipelineAttention;');
     // Derived host-side from GitHub's own answers, never inferred in the browser.
     expect(dashboardHost).toContain('requiredCheckGaps?: RequiredCheckGap[];');
     expect(dashboardHost).toContain('deriveRequiredCheckGaps(input.pullRequests, input.requiredChecks ?? {}');
     expect(dashboardHost).toContain("`repos/${slug}/rules/branches/${ref}`");
     expect(dashboardHost).toContain("`repos/${slug}/branches/${ref}/protection`");
+  });
+
+  /**
+   * "Check out dev" is now helped, not stated: the branch comes from the
+   * committed contract re-read host-side, the switch is confirmed and refused
+   * on a dirty working tree, and the webview posts no payload.
+   */
+  it('offers a confirmed checkout of the trusted branch that the host derives and guards', () => {
+    expect(dashboard).toContain("vscode.postMessage({ type: 'checkoutReviewedPrTrustedBranch' })");
+    expect(dashboard).toContain('data-action="pipeline-local-ci-checkout"');
+    expect(dashboardHost).toContain("| { type: 'checkoutReviewedPrTrustedBranch' }");
+    expect(dashboardHost).toContain("|| candidate['type'] === 'checkoutReviewedPrTrustedBranch'");
+    const handler = dashboardHost.slice(
+      dashboardHost.indexOf('private async handleCheckoutReviewedPrTrustedBranch('),
+      dashboardHost.indexOf('private async handleCreateCiRoutingConfig('),
+    );
+    expect(handler).toContain('collectReviewedPrLocalCiState(workspaceRoot, currentBranch)');
+    expect(handler).toContain("runGit(workspaceRoot, ['status', '--porcelain'])");
+    expect(handler).toContain('Not switching:');
+    expect(handler).toContain('modal: true');
+    expect(handler).toContain("runGit(workspaceRoot, ['checkout', state.trustedBaseBranch, '--'])");
+    // The branch is never taken from the message.
+    expect(handler).not.toContain('message.payload');
   });
 });

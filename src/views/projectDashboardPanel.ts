@@ -555,6 +555,7 @@ import {
   type RequiredCheckGap,
   type RequiredCheckReading,
 } from '../core/requiredCheckGap.js';
+import { derivePipelineAttention, type PipelineAttention } from '../core/pipelineAttention.js';
 import {
   ACT_COMMAND,
   ACT_DOCS_URL,
@@ -1469,6 +1470,12 @@ type ProjectDashboardMessage =
    */
   | { type: 'workOnCiFailure' }
   | { type: 'showLocalCiOutput' }
+  /**
+   * Check out the reviewed-PR contract's trusted base branch. No payload: the
+   * host re-reads the contract and takes the branch from it, never from the
+   * webview, and refuses on a dirty working tree.
+   */
+  | { type: 'checkoutReviewedPrTrustedBranch' }
   | { type: 'copyLocalCiQueueCommand' }
   | { type: 'sendLocalCiQueueCommandToTerminal' }
   /**
@@ -3666,6 +3673,13 @@ interface DashboardSnapshot {
      * that would otherwise fail first instead of a fixed "Patch repository".
      */
     reviewedPrLocalCi: ReviewedPrLocalCiState;
+    /**
+     * What on the Pipeline page needs a person, ranked by a declared table:
+     * one lead card, absent when nothing does. Derived from the required-check
+     * gaps, the reviewed-PR state, the runner's failure hint and the classified
+     * CI failure, so the card and the pages it points at cannot disagree.
+     */
+    attention: PipelineAttention;
     /**
      * Every route a check could run on, and whether it can here.
      *
@@ -6563,6 +6577,9 @@ export class ProjectDashboardPanel {
       }
       case 'createCiRoutingConfig':
         await this.handleCreateCiRoutingConfig();
+        return;
+      case 'checkoutReviewedPrTrustedBranch':
+        await this.handleCheckoutReviewedPrTrustedBranch();
         return;
       case 'refreshCiCredit':
         await this.handleRefreshCiCredit();
@@ -9660,6 +9677,70 @@ export class ProjectDashboardPanel {
    * into somebody's repository because they opened a tab would be putting words
    * in their mouth. The modal names the path and what the seed says.
    */
+  /**
+   * Check out the trusted base branch the reviewed-PR contract names.
+   *
+   * "Check out dev before lending this machine" was stated and not helped; a
+   * novice does not know how. The branch comes from the committed contract,
+   * re-read now — never from the message — and the switch is refused on any
+   * uncommitted change, because `git checkout` carrying changes across branches
+   * is how somebody loses track of what they were working on. Confirmed, and
+   * graded an effect by the dashboard's git guard, so a dry run records it.
+   */
+  private async handleCheckoutReviewedPrTrustedBranch(): Promise<void> {
+    const workspaceRoot = defaultWorkspaceRootPath();
+    if (!workspaceRoot) {
+      void vscode.window.showWarningMessage('Open the patched repository folder first.');
+      return;
+    }
+    const currentBranch = await runGit(workspaceRoot, ['branch', '--show-current']).then(value => value.trim()).catch(() => undefined);
+    const state = await collectReviewedPrLocalCiState(workspaceRoot, currentBranch);
+    if (state.contract !== 'enabled' || !state.trustedBaseBranch) {
+      void vscode.window.showInformationMessage(state.headline);
+      return;
+    }
+    if (state.onTrustedBranch) {
+      void vscode.window.showInformationMessage(`Already on ${state.trustedBaseBranch}.`);
+      return;
+    }
+    const dirty = await runGit(workspaceRoot, ['status', '--porcelain']).then(value => value.trim()).catch(() => undefined);
+    if (dirty === undefined) {
+      void vscode.window.showWarningMessage('Git could not report the working tree, so AtlasMind will not switch branches.');
+      return;
+    }
+    if (dirty.length > 0) {
+      const changed = dirty.split(/\r?\n/).filter(Boolean).length;
+      void vscode.window.showWarningMessage(
+        `Not switching: ${changed} uncommitted change${changed === 1 ? '' : 's'} in ${state.folderName}. Commit or stash them, then check out ${state.trustedBaseBranch}.`,
+      );
+      return;
+    }
+    const choice = await vscode.window.showWarningMessage(
+      `Check out ${state.trustedBaseBranch}?`,
+      {
+        modal: true,
+        detail: [
+          `Folder: ${state.folderName}`,
+          `Current branch: ${currentBranch || 'detached'}`,
+          `Target: ${state.trustedBaseBranch} (the trusted base branch named in ${state.contractPath})`,
+          '',
+          'The working tree is clean. Nothing is fetched, pulled or pushed; this is `git checkout` and nothing else.',
+        ].join('\n'),
+      },
+      `Check out ${state.trustedBaseBranch}`,
+    );
+    if (choice !== `Check out ${state.trustedBaseBranch}`) {
+      return;
+    }
+    try {
+      await runGit(workspaceRoot, ['checkout', state.trustedBaseBranch, '--']);
+      void vscode.window.showInformationMessage(`Checked out ${state.trustedBaseBranch}. Run reviewed PR when you are ready.`);
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Could not check out ${state.trustedBaseBranch}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    await this.syncState();
+  }
+
   private async handleCreateCiRoutingConfig(): Promise<void> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceRoot) {
@@ -18761,6 +18842,7 @@ export function isProjectDashboardMessage(message: unknown): message is ProjectD
     || candidate['type'] === 'stopLocalCiRunner'
     || candidate['type'] === 'clearLocalCiStrays'
     || candidate['type'] === 'showLocalCiOutput'
+    || candidate['type'] === 'checkoutReviewedPrTrustedBranch'
     || candidate['type'] === 'copyLocalCiQueueCommand'
     || candidate['type'] === 'sendLocalCiQueueCommandToTerminal'
     || candidate['type'] === 'queueLocalCiWorkflowRun'
@@ -21471,6 +21553,47 @@ async function collectDashboardSnapshot(
   // on a render path would be paying for the same bytes to say the same thing.
   const archetypeEvidence = await collectArchetypeEvidence(workspaceRoot);
 
+  const guidedWorkflowSnapshot = withObservedDelta(atlas, workspaceRoot, buildGuidedWorkflowSnapshot({
+    sessionApprovalMode: atlas.toolApprovalManager.getApprovalMode?.()
+      ?? (atlas.toolApprovalManager.isAutopilot() ? 'bypass' : 'ask'),
+    configuration,
+    gitSnapshot,
+    // Detection reads dependency names the package snapshot already loaded, so
+    // this adds no I/O. Absent evidence means "we did not look", which the
+    // surface reports as such rather than as "generic project".
+    ...(archetypeEvidence === undefined ? {} : { archetypeEvidence }),
+    packageVersion: packageSnapshot.version,
+    ciWorkflowCount: workflowSnapshot.length,
+    testing: testingSnapshot,
+    issues: dashboardIssues,
+    ...(pullRequests === undefined ? {} : { pullRequests }),
+    requiredChecks,
+    ...(reviewedPrLocalCi.statusContext === undefined ? {} : { localCiStatusContext: reviewedPrLocalCi.statusContext }),
+    ...(ci === undefined ? {} : { ci }),
+    changelogPresent,
+    ...(workflowConfigManager?.getConfig() === undefined
+      ? {} : { workflowConfig: workflowConfigManager!.getConfig()! }),
+    ...(workflowConfigManager?.getNotice() === undefined
+      ? {} : { workflowConfigNotice: workflowConfigManager!.getNotice()! }),
+    knownAgentIds: agents.map(agent => agent.id),
+    hasDebtRegister: (debt?.register.entries.length ?? 0) > 0 || debt?.register.lastScanAt !== undefined,
+    ...(latestCiConclusion === undefined ? {} : {
+      ciStatus: latestCiConclusion === 'success' ? 'pass' as const
+        : latestCiConclusion === 'failure' ? 'fail' as const
+          : latestCiConclusion === 'pending' ? 'pending' as const : 'none' as const,
+    }),
+    staleDocumentCount: documentsSnapshot.reviewDueCount,
+    ...(auditLedger === undefined ? {} : {
+      auditSummary: auditLedger.getSummary(),
+      auditRecent: auditLedger.getFile().records.slice(0, 25),
+    }),
+    ...(changelog === undefined ? {} : { changelog }),
+    ...(commitsSinceTag === undefined ? {} : { commitsSinceTag }),
+    prTemplatePresent,
+    codeownersPresent,
+    issueTemplateCount,
+    commitSeries: buildDailySeries(gitSnapshot.commitDates, SERIES_DAY_RANGE),
+  }), observedScope);
   const snapshot: Omit<DashboardSnapshot, 'attention' | 'workAssignments' | 'vitalFiles'> = {
     generatedAt: new Date().toISOString(),
     ssotPresent: ssotSnapshot.totalFiles > 0 || memoryEntries.length > 0,
@@ -21664,47 +21787,7 @@ async function collectDashboardSnapshot(
       now: Date.now(),
     }),
     githubLinks: buildGithubLinksSnapshot(gitSnapshot.remoteUrl ?? dashboardIssues.repoSlug),
-    guidedWorkflow: withObservedDelta(atlas, workspaceRoot, buildGuidedWorkflowSnapshot({
-      sessionApprovalMode: atlas.toolApprovalManager.getApprovalMode?.()
-        ?? (atlas.toolApprovalManager.isAutopilot() ? 'bypass' : 'ask'),
-      configuration,
-      gitSnapshot,
-      // Detection reads dependency names the package snapshot already loaded, so
-      // this adds no I/O. Absent evidence means "we did not look", which the
-      // surface reports as such rather than as "generic project".
-      ...(archetypeEvidence === undefined ? {} : { archetypeEvidence }),
-      packageVersion: packageSnapshot.version,
-      ciWorkflowCount: workflowSnapshot.length,
-      testing: testingSnapshot,
-      issues: dashboardIssues,
-      ...(pullRequests === undefined ? {} : { pullRequests }),
-      requiredChecks,
-      ...(reviewedPrLocalCi.statusContext === undefined ? {} : { localCiStatusContext: reviewedPrLocalCi.statusContext }),
-      ...(ci === undefined ? {} : { ci }),
-      changelogPresent,
-      ...(workflowConfigManager?.getConfig() === undefined
-        ? {} : { workflowConfig: workflowConfigManager!.getConfig()! }),
-      ...(workflowConfigManager?.getNotice() === undefined
-        ? {} : { workflowConfigNotice: workflowConfigManager!.getNotice()! }),
-      knownAgentIds: agents.map(agent => agent.id),
-      hasDebtRegister: (debt?.register.entries.length ?? 0) > 0 || debt?.register.lastScanAt !== undefined,
-      ...(latestCiConclusion === undefined ? {} : {
-        ciStatus: latestCiConclusion === 'success' ? 'pass' as const
-          : latestCiConclusion === 'failure' ? 'fail' as const
-            : latestCiConclusion === 'pending' ? 'pending' as const : 'none' as const,
-      }),
-      staleDocumentCount: documentsSnapshot.reviewDueCount,
-      ...(auditLedger === undefined ? {} : {
-        auditSummary: auditLedger.getSummary(),
-        auditRecent: auditLedger.getFile().records.slice(0, 25),
-      }),
-      ...(changelog === undefined ? {} : { changelog }),
-      ...(commitsSinceTag === undefined ? {} : { commitsSinceTag }),
-      prTemplatePresent,
-      codeownersPresent,
-      issueTemplateCount,
-      commitSeries: buildDailySeries(gitSnapshot.commitDates, SERIES_DAY_RANGE),
-    }), observedScope),
+    guidedWorkflow: guidedWorkflowSnapshot,
     issues: dashboardIssues,
     security: {
       toolApprovalMode,
@@ -21736,6 +21819,12 @@ async function collectDashboardSnapshot(
         enablement: readLocalCiRunnerEnablement(),
       },
       reviewedPrLocalCi,
+      attention: derivePipelineAttention({
+        ...(guidedWorkflowSnapshot.requiredCheckGaps === undefined ? {} : { requiredCheckGaps: guidedWorkflowSnapshot.requiredCheckGaps }),
+        reviewedPr: reviewedPrLocalCi,
+        ...(localRunner === undefined ? {} : { runner: { lifecycle: localRunner.lifecycle, ...(localRunner.failureHint ? { failureHint: localRunner.failureHint } : {}) } }),
+        ...(ci?.report === undefined ? {} : { ciFailure: { classification: ci.report.classification, jobName: ci.report.jobName, stepName: ci.report.stepName } }),
+      }),
       builds: buildsSnapshot,
       routing: routingSnapshot,
       routes: routeAvailability,
