@@ -9355,13 +9355,18 @@
    * verdict is withheld while anything is still running, because "green so far"
    * is how a merge happens early.
    */
-  function pullRequestCiState(pr) {
+  function pullRequestCiState(pr, gap, reviewedPr) {
     const checks = pr.statusChecks;
+    // What the base branch *requires* comes first, because it is the one fact
+    // that decides whether the branch can merge and it is not in the rollup: a
+    // required check nobody posted does not appear among the checks that ran.
+    // GitHub refuses the merge over it; the row used to read "2 checks green".
+    const required = renderRequiredCheckGap(gap, reviewedPr);
     if (!Array.isArray(checks)) {
-      return { tag: '<span class="tag wf-unknown">checks not read</span>', actions: '' };
+      return { tag: required.tag + '<span class="tag wf-unknown">checks not read</span>', actions: required.actions };
     }
     if (checks.length === 0) {
-      return { tag: '<span class="tag tag-warn">no checks</span>', actions: '' };
+      return { tag: required.tag + '<span class="tag tag-warn">no checks</span>', actions: required.actions };
     }
     const failing = checks.filter(check => pullRequestCheckOutcome(check) === 'failed');
     const running = checks.filter(check => pullRequestCheckOutcome(check) === 'running');
@@ -9369,19 +9374,78 @@
       const named = failing.slice(0, 2).map(check => check.name).filter(Boolean).join(', ');
       const linked = failing.find(check => check.url);
       return {
-        tag: `<span class="tag tag-critical">${escapeHtml(`${failing.length} check${failing.length === 1 ? '' : 's'} failing`)}</span>`,
-        actions: (named ? `<span class="list-meta">${escapeHtml(named)}${failing.length > 2 ? ` +${failing.length - 2}` : ''}</span>` : '')
+        tag: required.tag + `<span class="tag tag-critical">${escapeHtml(`${failing.length} check${failing.length === 1 ? '' : 's'} failing`)}</span>`,
+        actions: required.actions + (named ? `<span class="list-meta">${escapeHtml(named)}${failing.length > 2 ? ` +${failing.length - 2}` : ''}</span>` : '')
           + (linked ? `<button type="button" class="action-link" data-action="external-url" data-payload="${escapeAttr(linked.url)}">Open the failing check</button>` : '')
           + '<button type="button" class="action-link" data-action="page" data-payload="pipeline" title="The Pipeline page classifies the failure and names the job, the step and the failing test">Read the failure on Pipeline</button>',
       };
     }
     if (running.length) {
       return {
-        tag: `<span class="tag">${escapeHtml(`${running.length} of ${checks.length} running`)}</span>`,
-        actions: '',
+        tag: required.tag + `<span class="tag">${escapeHtml(`${running.length} of ${checks.length} running`)}</span>`,
+        actions: required.actions,
       };
     }
-    return { tag: `<span class="tag tag-good">${escapeHtml(`${checks.length} check${checks.length === 1 ? '' : 's'} green`)}</span>`, actions: '' };
+    return { tag: required.tag + `<span class="tag tag-good">${escapeHtml(`${checks.length} check${checks.length === 1 ? '' : 's'} green`)}</span>`, actions: required.actions };
+  }
+
+  /**
+   * One tag and, where there is one, one action for a pull request's
+   * required-check gap. Only the blocking states and "not read" produce a tag:
+   * a satisfied requirement adds nothing the green rollup does not already say,
+   * and a base branch that requires nothing is not news on every row.
+   */
+  function renderRequiredCheckGap(gap, reviewedPr) {
+    if (!gap || gap.state === 'satisfied' || gap.state === 'no-required') {
+      return { tag: '', actions: '' };
+    }
+    if (gap.state === 'unknown') {
+      return { tag: `<span class="tag wf-unknown" title="${escapeAttr(gap.summary || '')}">required checks not read</span>`, actions: '' };
+    }
+    if (gap.state === 'waiting') {
+      return { tag: `<span class="tag" title="${escapeAttr(gap.summary || '')}">${escapeHtml(`waiting on ${(gap.pending || []).length} required`)}</span>`, actions: '' };
+    }
+    if (gap.state === 'blocked-failing') {
+      return { tag: `<span class="tag tag-critical" title="${escapeAttr(gap.summary || '')}">${escapeHtml(`blocked · required ${(gap.failing || []).slice(0, 1).join('')} failed`)}</span>`, actions: '' };
+    }
+    const missing = gap.missing || [];
+    const named = missing.slice(0, 1).join('') + (missing.length > 1 ? ` +${missing.length - 1}` : '');
+    // The AtlasMind check names its action: only a reviewed-PR run posts it, so
+    // the button is the run when this folder is ready and the setup when not.
+    const ready = reviewedPr && reviewedPr.contract === 'enabled' && reviewedPr.runnable;
+    const action = gap.localCiMissing
+      ? (ready
+        ? '<button type="button" class="action-link primary" data-action="pipeline-local-ci-review">Run reviewed PR…</button>'
+        : '<button type="button" class="action-link" data-action="page" data-payload="pipeline" title="Only a reviewed-PR local CI run posts this check. The Pipeline page says what this folder still needs.">Set up reviewed-PR local CI</button>')
+      : '';
+    return {
+      tag: `<span class="tag tag-critical" title="${escapeAttr(gap.summary || '')}">${escapeHtml(`blocked · required check ${named} not posted`)}</span>`,
+      actions: action,
+    };
+  }
+
+  /**
+   * The pull requests nothing on this computer has run yet, as one strip at
+   * the top of Pipeline. It is empty when nothing needs you, which is what
+   * lets it mean something on the day it has a row.
+   */
+  function renderRequiredCheckStrip(gaps, reviewedPr) {
+    const blocked = (gaps || []).filter(gap => gap.state === 'blocked-missing' && gap.localCiMissing);
+    if (!blocked.length) {
+      return '';
+    }
+    const ready = reviewedPr && reviewedPr.contract === 'enabled' && reviewedPr.runnable;
+    const rows = blocked.slice(0, 5).map(gap => `<li>#${escapeHtml(String(gap.number))} into ${escapeHtml(gap.baseBranch || '')} — <span class="list-meta">${escapeHtml(gap.summary || '')}</span></li>`).join('');
+    return `<div class="inline-notice critical ci-required-check-strip">
+      <strong>Needs you · ${escapeHtml(String(blocked.length))} pull request${blocked.length === 1 ? '' : 's'} waiting for a check only this computer posts</strong>
+      <ul class="ci-caution-list">${rows}${blocked.length > 5 ? `<li>+${blocked.length - 5} more on Pull Requests</li>` : ''}</ul>
+      <div class="tag-row">
+        ${ready
+          ? '<button type="button" class="action-link primary" data-action="pipeline-local-ci-review">Run reviewed PR…</button>'
+          : `<span class="list-meta">${escapeHtml(reviewedPr && reviewedPr.headline ? reviewedPr.headline : 'This folder is not ready to run a reviewed PR.')}</span>`}
+        <button type="button" class="action-link" data-action="page" data-payload="pullRequests">Open Pull Requests</button>
+      </div>
+    </div>`;
   }
 
   /**
@@ -9485,6 +9549,9 @@
     // about. Absent and empty are different facts here: one offers the button,
     // the other says the review left no line comments.
     const reviewComments = wf.reviewComments || {};
+    // Per open pull request: what its base branch requires, judged host-side.
+    const requiredCheckGaps = Array.isArray(wf.requiredCheckGaps) ? wf.requiredCheckGaps : [];
+    const reviewedPrForRows = (snapshot.delivery || {}).reviewedPrLocalCi;
 
     const intro = renderPageIntro({
       kicker: 'Stage 4',
@@ -9527,7 +9594,8 @@
         const changesRequested = submitted.some(r => r.verdict === 'changes-requested');
         const approved = submitted.some(r => r.verdict === 'approved');
         const size = (pr.additions || 0) + (pr.deletions || 0);
-        const ciState = pullRequestCiState(pr);
+        const gap = requiredCheckGaps.find(entry => entry.number === pr.number);
+        const ciState = pullRequestCiState(pr, gap, reviewedPrForRows);
         return `
           <div class="recent-item" data-dashboard-focus-kind="pull-request" data-dashboard-focus-id="${escapeAttr(String(pr.number))}">
             <div class="row-head">
@@ -13627,6 +13695,7 @@
     return `${pageSectionOpen('pipeline')}
       ${intro}
       ${componentCiScopeCard}
+      ${renderRequiredCheckStrip(wf.requiredCheckGaps, reviewedPr)}
       ${reviewedPrLocalCiCard}
       ${renderPipelineTabs(snapshot, runs, pipelineSection, setup)}
       <div class="ci-studio-view" role="tabpanel" aria-label="${escapeAttr(pipelineSection)} pipeline view">${sectionContent}</div>

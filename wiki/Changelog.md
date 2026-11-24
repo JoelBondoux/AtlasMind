@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.519.0 -- Pull requests judged against the checks their base requires
+
+A required check nobody has posted is not in GitHub's rollup, so a pull request blocked on
+`AtlasMind/local-ci` read as green. The row now says "blocked · required check … not posted" and
+offers the reviewed-PR run; Pipeline opens with a strip of pull requests waiting for a check only
+this computer posts. A base branch GitHub would not answer for reads as not read, never as clear.
+
+---
+
 ## v0.518.0 -- The Pipeline page knows where reviewed-PR local CI stands
 
 The reviewed-PR card reads the open folder — unpatched, disabled, patched but not ready, or

@@ -176,6 +176,8 @@ number looks like.
 | Low commit-convention conformance | Automatic version bumps and changelogs can't be trusted, because both are derived from those prefixes |
 | Long time to first review | Work is queued, not slow. Usually scheduling rather than capacity |
 | Repeated flaky failures | The most corrosive one. Once a red build might mean nothing, people stop reading red builds |
+| **blocked · required check … not posted** on a pull request | The base branch requires a check that nothing has produced yet. GitHub's own rollup only lists checks that ran, so this is the one fact it cannot show you. When the check is `AtlasMind/local-ci`, only a reviewed-PR local CI run on somebody's computer posts it, and the row offers that run |
+| required checks not read | AtlasMind could not read the base branch's protection or rulesets. Not read is not the same as nothing required |
 
 ### The four delivery measures
 

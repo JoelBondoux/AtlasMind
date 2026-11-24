@@ -549,6 +549,13 @@ import {
 } from '../core/localCiRepositoryPatch.js';
 import { deriveReviewedPrLocalCiState, type ReviewedPrLocalCiState } from '../core/reviewedPrLocalCiState.js';
 import {
+  deriveRequiredCheckGaps,
+  parseRequiredCheckReading,
+  requiredCheckBranchesToRead,
+  type RequiredCheckGap,
+  type RequiredCheckReading,
+} from '../core/requiredCheckGap.js';
+import {
   ACT_COMMAND,
   ACT_DOCS_URL,
   assessActFidelity,
@@ -3033,6 +3040,15 @@ interface DashboardGuidedWorkflowSnapshot {
    * read at all. The page shows it instead of an unexplained empty state.
    */
   pullRequestsNotice?: string;
+  /**
+   * Each open pull request judged against the checks its base branch requires.
+   *
+   * Absent until pull requests have been read. A gap whose base branch could
+   * not be read is `unknown`, never clear: the rollup lists the checks that
+   * ran, and a required check nobody posted is not in it — the one fact that
+   * decides whether the branch can merge.
+   */
+  requiredCheckGaps?: RequiredCheckGap[];
   /**
    * Line-level review comments, keyed by pull-request number.
    *
@@ -5593,6 +5609,13 @@ export class ProjectDashboardPanel {
    * exactly what happened here when a GraphQL 502 was being swallowed.
    */
   private pullRequestsNotice: string | undefined;
+  /**
+   * The checks each open pull request's base branch requires, keyed by branch.
+   * Read on the repository refresh beside the pull requests (two cheap `gh api`
+   * calls per distinct base, capped). A branch GitHub would not answer for is
+   * simply absent, which the gap derivation reports as unknown.
+   */
+  private requiredChecksState: Record<string, RequiredCheckReading> = {};
 
   /**
    * A `gh` failure in one short line, safe to render.
@@ -7346,7 +7369,7 @@ export class ProjectDashboardPanel {
   private async syncState(): Promise<void> {
     try {
       await this.refreshTrustedWorkflowReview();
-      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, this.localCiRunnerSnapshot(), this.ciRouting, this.ciCreditState, this.readCiBuildLedger(), this.advisoryState, this.portalRepoVisibility);
+      const snapshot = await collectDashboardSnapshot(this.atlas, this.ideationAttachments, this.issuesState, this.pullRequestsState, this.ciState, this.releaseState, this.workflowConfig, this.auditLedger, { register: this.debtManager.get(), scanning: this.debtScanning }, this.reviewCommentsState, this.taxonomyState, this.pullRequestsNotice, this.localCiRunnerSnapshot(), this.ciRouting, this.ciCreditState, this.readCiBuildLedger(), this.advisoryState, this.portalRepoVisibility, this.requiredChecksState);
       // Only keep polling while something is actually running. The schedule
       // itself decides when to stop, so this cannot become a permanent timer.
       this.scheduleCiBuildPoll(snapshot.delivery.builds.hasRunning);
@@ -8677,6 +8700,28 @@ export class ProjectDashboardPanel {
           // is one somebody retries forever.
           this.pullRequestsNotice = `GitHub could not be read: ${ProjectDashboardPanel.describeGhFailure(leanError ?? richError)}`;
         }
+      }
+
+      // What each open pull request's base branch *requires*, as opposed to
+      // what ran. Best-effort per branch: protection answers only an admin and
+      // only on a protected branch (404 otherwise), rulesets answer anyone who
+      // can read the repository, and the union is the requirement. A branch
+      // neither answers for is left out, so the page says "not read" rather
+      // than "requires nothing".
+      if (this.pullRequestsState) {
+        const readings: Record<string, RequiredCheckReading> = {};
+        for (const branch of requiredCheckBranchesToRead(this.pullRequestsState)) {
+          const ref = normalizeBranchRef(branch);
+          const [protectionRaw, rulesRaw] = await Promise.all([
+            runGh(workspaceRoot, ['api', `repos/${slug}/branches/${ref}/protection`]).catch(() => undefined),
+            runGh(workspaceRoot, ['api', `repos/${slug}/rules/branches/${ref}`]).catch(() => undefined),
+          ]);
+          const reading = parseRequiredCheckReading(branch, protectionRaw, rulesRaw);
+          if (reading) {
+            readings[branch] = reading;
+          }
+        }
+        this.requiredChecksState = readings;
       }
 
       // Published for the same reason, and here specifically because the run
@@ -19588,6 +19633,10 @@ function buildGuidedWorkflowSnapshot(input: {
   pullRequests?: readonly PullRequestRecord[];
   /** Why the pull-request read is incomplete, when it is. */
   pullRequestsNotice?: string;
+  /** What each open pull request's base branch requires, keyed by branch. Absent branches were not read. */
+  requiredChecks?: Record<string, RequiredCheckReading>;
+  /** The status the reviewed-PR route posts, so a missing one can name its action. */
+  localCiStatusContext?: string;
   /** Line-level review comments, by pull-request number, once fetched. */
   reviewComments?: Record<string, ReviewCommentRecord[]>;
   ci?: DashboardCiIntelligence;
@@ -19893,6 +19942,9 @@ function buildGuidedWorkflowSnapshot(input: {
     ...(prMetrics === undefined ? {} : { pullRequests: prMetrics }),
     ...(input.pullRequests === undefined ? {} : { pullRequestRecords: [...input.pullRequests] }),
     ...(input.pullRequestsNotice === undefined ? {} : { pullRequestsNotice: input.pullRequestsNotice }),
+    ...(input.pullRequests === undefined
+      ? {}
+      : { requiredCheckGaps: deriveRequiredCheckGaps(input.pullRequests, input.requiredChecks ?? {}, input.localCiStatusContext ?? 'AtlasMind/local-ci') }),
     ...(input.reviewComments === undefined ? {} : { reviewComments: input.reviewComments }),
     ...(input.ci === undefined ? {} : { ciIntelligence: input.ci }),
     archetype: {
@@ -20848,6 +20900,10 @@ async function collectDashboardSnapshot(
   // which `portalHosting` treats as public — the assumption that keeps a secret,
   // and the reason probing `gh` on a render path is not worth it.
   portalVisibility: RepositoryVisibility = 'unknown',
+  // What each open pull request's base branch requires, read by the panel on
+  // the repository refresh. Empty means nothing was read, which the derivation
+  // reports per pull request as unknown rather than as clear.
+  requiredChecks: Record<string, RequiredCheckReading> = {},
 ): Promise<DashboardSnapshot> {
   const firstWorkspaceFolder = defaultWorkspaceFolder();
   const ssotHome = ssotHomeRoot();
@@ -21617,6 +21673,8 @@ async function collectDashboardSnapshot(
       testing: testingSnapshot,
       issues: dashboardIssues,
       ...(pullRequests === undefined ? {} : { pullRequests }),
+      requiredChecks,
+      ...(reviewedPrLocalCi.statusContext === undefined ? {} : { localCiStatusContext: reviewedPrLocalCi.statusContext }),
       ...(ci === undefined ? {} : { ci }),
       changelogPresent,
       ...(workflowConfigManager?.getConfig() === undefined

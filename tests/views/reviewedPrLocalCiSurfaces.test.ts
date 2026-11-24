@@ -96,4 +96,24 @@ describe('reviewed-PR local-CI surfaces', () => {
     expect(participant).toContain("case 'localci-patch': await handleLocalCiCommand('patch'");
     expect(participant).toContain("case 'localci-review': await handleLocalCiCommand('review'");
   });
+
+  /**
+   * The rollup lists the checks that ran; a required check nobody posted is
+   * not in it. The row and the Pipeline strip read the host-derived gap, so a
+   * pull request blocked on AtlasMind/local-ci says so and offers the run.
+   */
+  it('shows a pull request blocked on an unposted required check and offers the reviewed-PR run', () => {
+    expect(dashboard).toContain('function pullRequestCiState(pr, gap, reviewedPr)');
+    expect(dashboard).toContain('function renderRequiredCheckGap(gap, reviewedPr)');
+    expect(dashboard).toContain('blocked · required check ${named} not posted');
+    expect(dashboard).toContain('required checks not read');
+    expect(dashboard).toContain('function renderRequiredCheckStrip(gaps, reviewedPr)');
+    expect(dashboard).toContain('renderRequiredCheckStrip(wf.requiredCheckGaps, reviewedPr)');
+    expect(dashboard).toContain("gap.state === 'blocked-missing' && gap.localCiMissing");
+    // Derived host-side from GitHub's own answers, never inferred in the browser.
+    expect(dashboardHost).toContain('requiredCheckGaps?: RequiredCheckGap[];');
+    expect(dashboardHost).toContain('deriveRequiredCheckGaps(input.pullRequests, input.requiredChecks ?? {}');
+    expect(dashboardHost).toContain("`repos/${slug}/rules/branches/${ref}`");
+    expect(dashboardHost).toContain("`repos/${slug}/branches/${ref}/protection`");
+  });
 });

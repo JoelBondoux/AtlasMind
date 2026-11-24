@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.519.0] - 2026-11-24
+
+### Added
+
+- Pull requests are judged against the checks their base branch **requires**, not only the
+  checks that ran. A new pure module (`src/core/requiredCheckGap.ts`) reads branch protection
+  and rulesets on the repository refresh and tells apart a required check nobody posted, one
+  that failed, one still pending, a base that requires none, and a base GitHub would not
+  answer for (reported as not read, never as clear). A pull request blocked on the
+  `AtlasMind/local-ci` status says so on its row and offers **Run reviewed PR…** when the open
+  folder is ready. Pipeline opens with a **Needs you** strip listing pull requests waiting for
+  a check only this computer posts; it is empty when nothing is.
+
 ## [0.518.0] - 2026-11-24
 
 ### Added
