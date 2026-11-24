@@ -49,14 +49,15 @@ import { runGhOrThrow } from '../core/ghClient.js';
 import { guardHostCommand } from '../core/dryRunHost.js';
 import { redactSecrets } from '../utils/secretRedactor.js';
 import { sanitizeTerminalOutput } from '../utils/terminalOutput.js';
+import { getLocalCiOutputChannel } from './localCiOutputChannel.js';
 
 const execFileAsync = promisify(execFile);
 const TERMINAL_RUNNER_STATES = new Set(['finished', 'failed', 'blocked', 'disabled']);
-let localCiOutput: vscode.OutputChannel | undefined;
 
 function outputChannel(): vscode.OutputChannel {
-  localCiOutput ??= vscode.window.createOutputChannel('AtlasMind: Reviewed PR Local CI');
-  return localCiOutput;
+  // The same channel the dashboard's runner writes to, so a dispatch and the
+  // container it led to read as one story.
+  return getLocalCiOutputChannel();
 }
 
 function workspaceRoot(): string | undefined {

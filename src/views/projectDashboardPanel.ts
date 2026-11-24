@@ -556,6 +556,7 @@ import {
   type RequiredCheckReading,
 } from '../core/requiredCheckGap.js';
 import { derivePipelineAttention, type PipelineAttention } from '../core/pipelineAttention.js';
+import { getLocalCiOutputChannel } from './localCiOutputChannel.js';
 import {
   ACT_COMMAND,
   ACT_DOCS_URL,
@@ -6014,8 +6015,8 @@ export class ProjectDashboardPanel {
       return undefined;
     }
     if (!this.localCiRunnerInstance) {
-      this.localCiOutput = vscode.window.createOutputChannel('AtlasMind Local CI');
-      this.context.subscriptions.push(this.localCiOutput);
+      // Shared with the reviewed-PR command, so one channel tells the whole story.
+      this.localCiOutput = getLocalCiOutputChannel();
       this.localCiRunnerInstance = new LocalCiRunnerManager(
         workspaceRoot,
         readLocalCiRunnerConfiguration(),

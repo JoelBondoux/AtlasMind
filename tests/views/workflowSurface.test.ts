@@ -582,7 +582,7 @@ describe('Pipeline Studio progressive workflow', () => {
     // the far right behind a lone chevron — the whole of setup, presented as a
     // right-aligned footnote. The span/small pair is what those rules target.
     expect(WEBVIEW_SCRIPT).toContain('<summary><span>${escapeHtml(needsSetup');
-    expect(WEBVIEW_SCRIPT).toContain('Borrowed machine — setup, capacity and safety detail');
+    expect(WEBVIEW_SCRIPT).toContain('This computer, lent to one job — setup, capacity and safety detail');
     expect(css).toContain('.ci-runner-drawer > summary {');
   });
 

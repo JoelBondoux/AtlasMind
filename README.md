@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.523.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.524.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,12 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.524.0
+
+Plainer words across the Pipeline page, one shared **AtlasMind Local CI** output channel with a
+Show output button on the reviewed-PR card, a two-routes table at the top of the local CI guide, and
+an exploratory test charter for getting a pull request mergeable with no help.
+
 ## What's new in 0.523.0
 
 Pipeline's Needs-you card is ranked by a declared table — a blocked pull request first, then a
@@ -189,12 +195,6 @@ trusted branch" is now a confirmed button that refuses on a dirty working tree.
 Runners & rules is now four numbered sections with a one-line definition each — what can run a
 check, where each kind goes, where opted-in workflows run this month, and how much of this computer
 CI may use — with the routing grid, dry run and fine-tuned limits behind **Show advanced**.
-
-## What's new in 0.521.0
-
-Pipeline tiles now say what you do on each (the Rules tile is **Runners & rules**: where checks
-run, this computer's setup, limits), the status chips explain themselves in a sentence, and a
-runner whose readings are remembered reads "inspected yesterday" rather than "not-inspected".
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.516.7**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in
@@ -377,7 +377,7 @@ recipe; **AtlasMind: Verify Buzz Persona Deployment** records which Buzz identit
 | `src/skills/` | Built-in tools and skill handlers |
 | `src/memory/` | Project memory: retrieval, scanning, redaction, persistence |
 | `src/chat/` | The chat participant and interaction protocol |
-| `src/views/` | Settings, dashboards, editors and sidebar surfaces, the Buzz revoke/restore commands (`buzzRevocationCommands.ts`), the Buzz persona recommend/prepare/verify commands (`buzzPersonaCommands.ts`), the Check Execution Sandbox report (`sandboxCheckCommand.ts`), the Connect Unsloth Studio and Manage Unsloth Models commands — the quant picker, confirmed download-and-load with cancel, unload and delete, each held by dry run (`unslothModelCommands.ts`), including the shared reviewed-PR local-CI action allowlist and host commands (`localCiSurfaceActions.ts`, `reviewedPrLocalCiCommands.ts`) and UI Studio's render host — a found surface shown as itself in a scripts-off panel or through the project's confirmed dev server (`uiSurfaceRenderHost.ts`) and its element-edit host — the page made selectable under AtlasMind's own nonce script, every edit confirmed before and after and held by dry run (`uiSurfaceEditHost.ts`) |
+| `src/views/` | Settings, dashboards, editors and sidebar surfaces, the Buzz revoke/restore commands (`buzzRevocationCommands.ts`), the Buzz persona recommend/prepare/verify commands (`buzzPersonaCommands.ts`), the Check Execution Sandbox report (`sandboxCheckCommand.ts`), the Connect Unsloth Studio and Manage Unsloth Models commands — the quant picker, confirmed download-and-load with cancel, unload and delete, each held by dry run (`unslothModelCommands.ts`), including the shared reviewed-PR local-CI action allowlist and host commands (`localCiSurfaceActions.ts`, `reviewedPrLocalCiCommands.ts`) and the one output channel both local CI routes write to (`localCiOutputChannel.ts`) and UI Studio's render host — a found surface shown as itself in a scripts-off panel or through the project's confirmed dev server (`uiSurfaceRenderHost.ts`) and its element-edit host — the page made selectable under AtlasMind's own nonce script, every edit confirmed before and after and held by dry run (`uiSurfaceEditHost.ts`) |
 | `src/utils/workspaceRoots.ts` | The one place AtlasMind asks VS Code which folders are open. Its default is exactly the first folder, as before; every other direct read is ceilinged per file by a ratchet test so the single-root tail can only shrink |
 | `src/acp/` and `src/cli/` | Subscription-agent sessions and the headless CLI |
 | `src/mcp/` and `src/ard/` | MCP servers and agentic resource discovery, including tool pinning and the tool-description scan — what a tool looked like when you agreed to it, and what happens when it changes (`mcpToolPins.ts`) |

@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.524.0] - 2026-11-24
+
+### Changed
+
+- Plain words on the Pipeline page: *Where checks can run* instead of *Executors*, *this computer,
+  lent to one job* instead of *borrowed machine*, *GitHub's free minutes* instead of *hosted
+  allowance*, and *Proves Linux only* (with the reason on hover) instead of *Linux container
+  evidence*. The reviewed-PR approval modal opens with one sentence saying what is being approved
+  and that nothing is merged.
+- One output channel for local CI. The reviewed-PR command and the dashboard's runner wrote to two
+  channels, so the lines a person needed were in whichever one they had not opened. Both now write
+  to **AtlasMind Local CI** (`src/views/localCiOutputChannel.ts`), and the reviewed-PR card has a
+  **Show output** button.
+- `docs/local-ci-and-safe-runners.md` opens with a table telling the two local routes apart, and
+  `wiki/Configuration.md` says that the reviewed-PR route takes its workflow and trusted branch from
+  the committed contract rather than from `workflowFile` and `trustedBranch`.
+- An exploratory test charter — a novice getting one pull request mergeable from the Pipeline page
+  with no help — is recorded in `project_memory/operations/exploratory-charters.md`, with the
+  2026-11-23 session logged against it.
+
 ## [0.523.0] - 2026-11-24
 
 ### Added

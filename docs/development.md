@@ -815,7 +815,9 @@ required-check gaps, the reviewed-PR state, the runner's hint and the classified
 computes it as `delivery.attention` after the guided-workflow snapshot, and `renderPipelineNeedsYou` shows the
 lead with one button. `handleCheckoutReviewedPrTrustedBranch` is the one git write the reviewed-PR surfaces
 make: the branch is re-read from the committed contract, the working tree must be clean, the switch is
-confirmed in a modal, and `runGit` grades it an effect so a dry run records it. Workflow inputs enter bash through environment variables rather than
+confirmed in a modal, and `runGit` grades it an effect so a dry run records it. `localCiOutputChannel.ts`
+is the one output channel ("AtlasMind Local CI") the dashboard's runner and the reviewed-PR command both
+write to; the card's **Show output** button reveals it through the existing `showLocalCiOutput` message. Workflow inputs enter bash through environment variables rather than
 source interpolation, and the candidate command contract rejects shell executables as well as composed
 command strings.
 

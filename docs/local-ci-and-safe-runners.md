@@ -6,6 +6,24 @@ simplest posture. A public repository can also use a GitHub-connected self-hoste
 on a protected branch, provided untrusted pull-request jobs cannot select it and the runner is isolated
 from personal data and long-lived credentials.
 
+## Two ways to use this computer
+
+Both routes run GitHub Actions jobs in a one-job Linux container on your machine. They are set up
+separately, use different workflow files, and setting one up does not set up the other.
+
+| | Reviewed pull request | Trusted-branch pushes |
+|---|---|---|
+| What runs | One commit of one open pull request you approve | Every push to the trusted branch, as it is queued |
+| How it starts | **Run reviewed PR** (Pipeline card, `/localci review`) | A push, or a manual queue of the trusted workflow |
+| Workflow file | `.github/workflows/atlasmind-reviewed-pr-local-ci.yml`, generated from `.atlasmind/local-ci.json` | `atlasmind.ci.localRunner.workflowFile` (default `trusted-local-ci.yml`) |
+| What you see on GitHub | The `AtlasMind/local-ci` commit status on that commit | The workflow run's own result |
+| Settings it reads | The committed contract (repository, trusted base branch, commands); the machine-scoped runner permission and image | `atlasmind.ci.localRunner.*`, including `workflowFile` and `trustedBranch` |
+| Where on the Pipeline page | The reviewed-PR card and the first executor row on Runners & rules | The "This computer, lent to one job" drawer on Runners & rules |
+
+The reviewed-PR route ignores `atlasmind.ci.localRunner.workflowFile` and `trustedBranch`: it takes both
+from the committed contract, so a repository cannot be run against a workflow its own contract did not
+name.
+
 ## Choose the right mode
 
 | Need | Use | Trust boundary |

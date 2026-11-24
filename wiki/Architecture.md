@@ -1066,7 +1066,7 @@ runner card names the cause and opens the guide or the image setting instead of 
 never suggests disabling certificate checks. `pipelineAttention.ts` ranks the Needs-you card from those
 derived states by a published table, one lead and the rest counted, absent when nothing needs a person; the
 reviewed-PR card's "Check out the trusted branch" is a confirmed `git checkout` of the branch the committed
-contract names, refused while the working tree is dirty.
+contract names, refused while the working tree is dirty. Both local CI routes write to one output channel (`localCiOutputChannel.ts`), so a dispatch and the container it led to read as one story.
 
 **A run outlives the editor, and the next session adopts it.** Closing VS Code leaves the container
 executing its job, which is kept on purpose: GitHub is waiting on real work, and killing it because a window

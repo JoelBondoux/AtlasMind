@@ -119,6 +119,8 @@ describe('reviewed PR local CI policy', () => {
     const copy = buildReviewedPrApprovalCopy(config(), candidate());
     expect(copy.approveLabel).toContain(SHA.slice(0, 12));
     expect(copy.detail).toContain(`Exact head SHA: ${SHA}`);
+    expect(copy.detail.split('\n')[0]).toContain('You are approving one exact commit of PR #42');
+    expect(copy.detail).toContain('nothing is merged');
     expect(copy.detail).toContain('Codex, Claude, another agentic service, and a human');
     expect(copy.detail).toContain('outbound network access');
     expect(copy.detail).toContain('not a substitute for reviewing');

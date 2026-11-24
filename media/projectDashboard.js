@@ -9561,7 +9561,7 @@
       ${facts}
       ${blockers}
       ${instruction ? `<p class="stat-detail ci-reviewed-pr-instruction">${instruction}</p>` : ''}
-      <div class="tag-row">${actions}</div>
+      <div class="tag-row">${actions}<button type="button" class="action-link" data-action="pipeline-runner-output" title="The AtlasMind Local CI output: every dispatch, queue check and container line from this session">Show output</button></div>
       <details class="ci-progressive-details">
         <summary>What this does and does not do</summary>
         <div class="ci-progressive-details-body">
@@ -11224,7 +11224,7 @@
           title="${escapeAttr(setup.chipTitle || (setup.complete ? 'Local CI setup is complete. Open the checklist.' : `${setup.done} of ${setup.total} setup steps done`))}">
           ${escapeHtml(setup.chipLabel || (setup.complete ? 'setup ✓' : `setup ${setup.done}/${setup.total}`))}
         </button>
-        <span class="ci-status-chip ${escapeAttr(creditTone)}" title="${escapeAttr(routing.creditSentence || 'The hosted allowance has not been checked.')}">${escapeHtml(creditLabel)}</span>
+        <span class="ci-status-chip ${escapeAttr(creditTone)}" title="${escapeAttr(routing.creditSentence || "GitHub's free-minutes allowance has not been checked.")}">${escapeHtml(creditLabel)}</span>
       </div>
     </div>
     <div class="ci-studio-explain">
@@ -11439,7 +11439,7 @@
 
   const CI_ROUTE_COST_LABELS = {
     'local-only': 'Your machine only',
-    'hosted-allowance': 'Uses hosted allowance',
+    'hosted-allowance': "Uses GitHub's free minutes",
     'external-account': 'Third-party account',
   };
 
@@ -11818,7 +11818,7 @@
         ${cells}
         <td class="ci-cell-exhaust">
           <button type="button" class="action-link" data-action="pipeline-route-exhaust" data-payload="${escapeAttr(row.workloadId)}"
-            title="${escapeAttr(row.onCreditExhausted === 'block' ? 'Stops when the hosted allowance runs out. Click to use the fallback instead.' : 'Uses the fallback when the hosted allowance runs out. Click to stop instead.')}">
+            title="${escapeAttr(row.onCreditExhausted === 'block' ? "Stops when GitHub's free minutes run out. Click to use the fallback instead." : "Uses the fallback when GitHub's free minutes run out. Click to stop instead.")}">
             ${escapeHtml(row.onCreditExhausted === 'block' ? 'stop' : 'fall back')}
           </button>
         </td>
@@ -11854,7 +11854,7 @@
           ${errors.length ? `<div class="inline-notice critical"><strong>${errors.length} rule${errors.length === 1 ? '' : 's'} cannot be acted on</strong><ul class="ci-caution-list">${errors.map(problem => `<li>${escapeHtml(problem.message)}</li>`).join('')}</ul></div>` : ''}
           <div class="ci-matrix-wrap">
             <table class="ci-matrix">
-              <thead><tr><th scope="col">Kind of check</th>${headers}<th scope="col" title="What this rule does when the hosted allowance runs out">allowance gone</th></tr></thead>
+              <thead><tr><th scope="col">Kind of check</th>${headers}<th scope="col" title="What this rule does when GitHub's free minutes run out">allowance gone</th></tr></thead>
               <tbody>${rows}</tbody>
             </table>
           </div>
@@ -12055,9 +12055,9 @@
       ${explainer}
       <div class="ci-section-heading">
         <div>
-          <p class="card-kicker">Executors${needsSetup ? ' · needs you' : needsFirstRun ? ' · next: first run' : ''}</p>
-          <h3>${escapeHtml(needsSetup ? 'Finish setting up the borrowed machine'
-            : needsFirstRun ? 'The borrowed machine is ready — queue one trusted job'
+          <p class="card-kicker">Where checks can run${needsSetup ? ' · needs you' : needsFirstRun ? ' · next: first run' : ''}</p>
+          <h3>${escapeHtml(needsSetup ? 'Finish setting up this computer for trusted-branch jobs'
+            : needsFirstRun ? 'This computer is ready — queue one trusted job'
               : 'What can run a check on this machine')}</h3>
           ${needsSetup ? '<p class="stat-detail">The next action and everything blocking it are below, open. Nothing here starts a runner — every step still asks first.</p>' : ''}
           ${needsFirstRun ? '<p class="stat-detail">The queue command and the start plan are below, open, until one job has actually run. Queueing runs nothing on this machine — lending it to the job still asks first.</p>' : ''}
@@ -12066,10 +12066,10 @@
       <div class="ci-executor-list">${reviewedPrRow}${rows || '<p class="section-copy">No executors were assessed.</p>'}</div>
       <details class="ci-progressive-details ci-runner-drawer"${drawerOpen ? ' open' : ''}>
         <summary><span>${escapeHtml(needsSetup
-          ? 'Borrowed machine — the next step, and what is blocking it'
+          ? 'This computer, lent to one job — the next step, and what is blocking it'
           : needsFirstRun
-            ? 'Borrowed machine — the queue command and the start plan'
-            : 'Borrowed machine — setup, capacity and safety detail')}</span><small>${escapeHtml(needsSetup
+            ? 'This computer, lent to one job — the queue command and the start plan'
+            : 'This computer, lent to one job — setup, capacity and safety detail')}</span><small>${escapeHtml(needsSetup
               ? 'Open — action needed'
               : needsFirstRun
                 ? 'Open — nothing has run yet'
@@ -13698,7 +13698,7 @@
           <div>
             <p class="card-kicker">Trusted local CI · temporary runner</p>
             <strong>${escapeHtml(runner.message || 'Local runner has not been inspected.')}</strong>
-            <div class="list-meta">GitHub Actions → Docker · ${escapeHtml(runner.evidenceLabel || 'Linux container evidence')} · image <code title="${escapeAttr(runner.image || '')}">${escapeHtml(shortenMiddle(runner.image || '—', 40))}</code></div>
+            <div class="list-meta">GitHub Actions → Docker · <span title="Runs in a Linux container even on Windows or macOS; it is not a Windows or macOS test result.">Proves Linux only</span> · image <code title="${escapeAttr(runner.image || '')}">${escapeHtml(shortenMiddle(runner.image || '—', 40))}</code></div>
           </div>
           <span class="tag ${runnerTone}" title="${escapeAttr(rememberedInspection && runner.lifecycle === 'not-inspected' ? 'These readings are remembered from your last inspection. AtlasMind re-checks everything before it starts anything.' : '')}">${escapeHtml(
             rememberedInspection && runner.lifecycle === 'not-inspected'

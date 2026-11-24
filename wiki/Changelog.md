@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.524.0 -- Plainer words, one local CI output channel
+
+"Where checks can run", "this computer, lent to one job", "GitHub's free minutes", "Proves Linux
+only". The reviewed-PR command and the dashboard runner now share the **AtlasMind Local CI** channel,
+with a Show output button on the card. The local CI guide opens with a two-routes table, and an
+exploratory charter for the Pipeline page is on record.
+
+---
+
 ## v0.523.0 -- A ranked Needs-you card and a helped checkout
 
 The card at the top of Pipeline is the first item of a declared ranking — a blocked pull request
