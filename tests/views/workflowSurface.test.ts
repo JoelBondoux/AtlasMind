@@ -399,7 +399,18 @@ describe('Pipeline Studio progressive workflow', () => {
     expect(WEBVIEW_SCRIPT).toContain("const PIPELINE_SECTIONS = ['activity', 'canvas', 'tests', 'rules', 'setup']");
     expect(WEBVIEW_SCRIPT).toContain("label: 'Activity'");
     expect(WEBVIEW_SCRIPT).toContain("label: 'Canvas'");
-    expect(WEBVIEW_SCRIPT).toContain("label: 'Rules'");
+    expect(WEBVIEW_SCRIPT).toContain("label: 'Runners & rules'");
+    // Each tile says what a person does there; the metric alone named a
+    // subsystem, and nothing said which tile held the runner controls.
+    expect(WEBVIEW_SCRIPT).toContain("description: 'Runs, failures, live output'");
+    expect(WEBVIEW_SCRIPT).toContain("description: \"Where checks run · this computer's setup · limits\"");
+    expect(WEBVIEW_SCRIPT).toContain('<small class="ci-tab-desc">${escapeHtml(tab.description || \'\')}</small>');
+    // The chips get a visible sentence each, not a tooltip.
+    expect(WEBVIEW_SCRIPT).toContain('class="ci-studio-explain"');
+    expect(WEBVIEW_SCRIPT).toContain("GitHub's free-minutes allowance has not been read this session.");
+    expect(WEBVIEW_SCRIPT).toContain('Trusted-branch route: workflow ${workflowReady');
+    // A remembered inspection reads as such on the badge, not as "not-inspected".
+    expect(WEBVIEW_SCRIPT).toContain("? 'inspected today' : rememberedInspection.ageDays === 1 ? 'inspected yesterday'");
     expect(WEBVIEW_SCRIPT).toContain('Next: ${escapeHtml(focus.title)}');
     expect(WEBVIEW_SCRIPT).toContain('role="tablist" aria-label="Pipeline views"');
     // A tab id persisted by the eight-tab layout must still land somewhere real.

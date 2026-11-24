@@ -881,7 +881,7 @@ states the question its target answers, because a bare page name is a link someb
 whether they wanted it. A pull request row leads with its check rollup for the same reason: the fact that
 decides whether a branch can merge belongs above the ones a reader can rarely act on.
 
-The Pipeline page presents four views — Activity, Canvas, Tests, Rules — named for what a person is doing.
+The Pipeline page presents four views — Activity, Canvas, Tests, Runners & rules — named for what a person is doing, each tile carrying a static line saying what you do there and a visible sentence under the bar explaining its chips.
 The canvas carries three switchable overlays rather than spawning sibling views: status painted from the
 same runs Activity reads, routing stated per kind of check, and the delivery stages a commit travels
 through after the gate. It edits nothing; the delivery stages are read-only because promotion has its own
@@ -894,7 +894,7 @@ The page is arranged for the person who finished setting it up, not the person s
 once anything has run and opens with the latest classified failure and a one-click handoff to a chat
 session (log fenced as untrusted content), the setup journey folds to one line when its durable steps are
 done, and routing rules are editable through a guided flow obeying the same rules as the decision engine.
-While setup is genuinely unfinished the borrowed-machine card leads the Rules view with its detail open,
+While setup is genuinely unfinished the borrowed-machine card leads the Runners & rules view with its detail open,
 because that is where the guided journey's "prepare this computer" step lands. Tests reads verdicts and
 Rules decides routing, and neither is a dead end: a declared policy row opens that policy's own card on
 the Testing page, expanded, since this page can say a policy is unevidenced while only that card can say

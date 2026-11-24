@@ -19,6 +19,14 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.521.0 -- Pipeline tiles and chips explain themselves
+
+Each tile carries a line saying what you do there; Rules becomes **Runners & rules**. The setup
+and free-minutes chips get a visible sentence each, and a runner card with remembered readings
+says "inspected yesterday" instead of "not-inspected".
+
+---
+
 ## v0.520.0 -- The runner card names why the container died
 
 A declared rule table reads the last lines the runner printed: TLS interception by antivirus

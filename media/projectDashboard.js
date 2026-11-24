@@ -11136,37 +11136,55 @@
     const failing = (testing.policyCoverage && testing.policyCoverage.report && testing.policyCoverage.report.failures) || 0;
     const running = records.filter(build => build.status === 'running').length;
 
+    // Each tile says what a person does there, in a static second line. The
+    // metric alone ("5 workflows", "not set") named a subsystem, and nothing on
+    // the page said which tile held the runner controls — the owner had to ask.
     const tabs = [
       {
         id: 'activity',
         label: 'Activity',
+        description: 'Runs, failures, live output',
         meta: running ? `${running} running` : records.length ? `${records.length} recent` : runs.length ? `${runs.length} runs` : 'nothing yet',
         tone: running ? 'warn' : '',
       },
-      { id: 'canvas', label: 'Canvas', meta: `${(delivery.workflows || []).length} workflow${(delivery.workflows || []).length === 1 ? '' : 's'}` },
+      {
+        id: 'canvas',
+        label: 'Canvas',
+        description: 'Workflow files and how they connect',
+        meta: `${(delivery.workflows || []).length} workflow${(delivery.workflows || []).length === 1 ? '' : 's'}`,
+      },
       {
         id: 'tests',
         label: 'Tests',
+        description: 'What the test reports prove',
         meta: failing ? `${failing} failing` : testing.policyCoverage && testing.policyCoverage.report ? 'passing' : 'no report',
         tone: failing ? 'bad' : '',
       },
       {
         id: 'rules',
-        label: 'Rules',
-        meta: routing.configPresent ? `${(routing.decisions || []).length} decided` : 'not set',
+        label: 'Runners & rules',
+        description: "Where checks run · this computer's setup · limits",
+        meta: setup && setup.route === 'reviewed-pr' ? 'reviewed-PR ready'
+          : routing.configPresent ? `${(routing.decisions || []).length} decided` : 'routing not set',
       },
     ];
 
     const creditTone = routing.creditState === 'exhausted' ? 'bad' : routing.creditState === 'remaining' ? 'good' : '';
-    const creditLabel = routing.creditState === 'exhausted' ? 'allowance spent'
-      : routing.creditState === 'remaining' ? 'allowance ok'
-        : 'allowance not read';
+    const creditLabel = routing.creditState === 'exhausted' ? 'free minutes spent'
+      : routing.creditState === 'remaining' ? 'free minutes left'
+        : 'free minutes not read';
+    // The chips get a sentence each, visible rather than in a tooltip nobody
+    // hovers on a touchpad: which three steps the setup count means, and what
+    // the allowance chip is about, with the one action that resolves it.
+    const creditSentence = routing.creditState === 'unknown' || !routing.creditState
+      ? "GitHub's free-minutes allowance has not been read this session."
+      : `GitHub's free minutes: ${routing.creditSentence || routing.creditState}.`;
 
     return `<div class="ci-studio-bar">
       <div class="ci-studio-tabs" role="tablist" aria-label="Pipeline views">
         ${tabs.map(tab => `<button type="button" role="tab" data-action="pipeline-section" data-payload="${escapeAttr(tab.id)}"
           aria-selected="${activeSection === tab.id ? 'true' : 'false'}" class="${activeSection === tab.id ? 'active' : ''}">
-          <span>${escapeHtml(tab.label)}</span><small class="${escapeAttr(tab.tone || '')}">${escapeHtml(tab.meta)}</small>
+          <span>${escapeHtml(tab.label)}</span><small class="ci-tab-desc">${escapeHtml(tab.description || '')}</small><small class="${escapeAttr(tab.tone || '')}">${escapeHtml(tab.meta)}</small>
         </button>`).join('')}
       </div>
       <div class="ci-studio-status">
@@ -11176,6 +11194,10 @@
         </button>
         <span class="ci-status-chip ${escapeAttr(creditTone)}" title="${escapeAttr(routing.creditSentence || 'The hosted allowance has not been checked.')}">${escapeHtml(creditLabel)}</span>
       </div>
+    </div>
+    <div class="ci-studio-explain">
+      <span>${escapeHtml(setup.chipSentence || '')}</span>
+      <span>${escapeHtml(creditSentence)}${routing.creditState === 'unknown' || !routing.creditState ? '<button type="button" class="action-link" data-action="pipeline-refresh-credit">Check now</button>' : ''}</span>
     </div>`;
   }
 
@@ -11218,6 +11240,10 @@
       chipTitle: route === 'reviewed-pr'
         ? 'This repository is patched and ready for reviewed-PR local CI. The trusted-branch route has not been set up, and nothing routes work to it.'
         : trustedComplete ? 'Trusted-branch local CI setup is complete. Open the checklist.' : `${done} of 3 trusted-branch setup steps done`,
+      // The visible sentence under the bar: which three steps the count means.
+      chipSentence: route === 'reviewed-pr'
+        ? `Reviewed-PR route: contract ✓ · on ${(reviewedPr && reviewedPr.trustedBaseBranch) || 'the trusted branch'} ✓ · files committed ✓. The trusted-branch route is not set up and nothing routes work to it.`
+        : `Trusted-branch route: workflow ${workflowReady ? '✓' : '✗'} · this computer ${machineReady ? '✓' : '✗'} · first run ${hasRun ? '✓' : '✗'}.`,
     };
   }
 
@@ -11330,7 +11356,7 @@
             ${steps.map(step => `<div class="ci-journey-list-row${step.done ? ' done' : ''}"><span class="ci-step-marker" aria-hidden="true">${step.done ? '✓' : '·'}</span><div><strong>${escapeHtml(step.title)}</strong><p>${escapeHtml(step.detail)}</p></div><span class="tag ${step.done ? 'tag-good' : ''}">${step.done ? 'Done' : 'Per-run'}</span></div>`).join('')}
           </div>
           <p class="stat-detail">Queueing and lending are per-run steps — they reset with every commit and do not mean setup regressed.</p>
-          <div class="tag-row"><button type="button" class="action-link" data-action="pipeline-section" data-payload="activity">Open Activity</button><button type="button" class="action-link" data-action="pipeline-section" data-payload="rules">Rules</button></div>
+          <div class="tag-row"><button type="button" class="action-link" data-action="pipeline-section" data-payload="activity">Open Activity</button><button type="button" class="action-link" data-action="pipeline-section" data-payload="rules">Runners &amp; rules</button></div>
         </details>
       </article>`;
     }
@@ -13071,7 +13097,7 @@
 
     let body;
     if (!records.length) {
-      body = '<p class="section-copy">Nothing has run through AtlasMind on this machine yet. <strong>Rules</strong> shows where checks can run.</p>';
+      body = '<p class="section-copy">Nothing has run through AtlasMind on this machine yet. <strong>Runners &amp; rules</strong> shows where checks can run.</p>';
     } else if (!ordered.length) {
       body = `<p class="section-copy">No build matches this filter. ${escapeHtml(String(records.length))} build${records.length === 1 ? ' is' : 's are'} recorded in total.</p>`;
     } else if (grouped) {
@@ -13601,7 +13627,10 @@
             <strong>${escapeHtml(runner.message || 'Local runner has not been inspected.')}</strong>
             <div class="list-meta">GitHub Actions → Docker · ${escapeHtml(runner.evidenceLabel || 'Linux container evidence')} · image <code title="${escapeAttr(runner.image || '')}">${escapeHtml(shortenMiddle(runner.image || '—', 40))}</code></div>
           </div>
-          <span class="tag ${runnerTone}">${escapeHtml(runner.lifecycle || 'not inspected')}</span>
+          <span class="tag ${runnerTone}" title="${escapeAttr(rememberedInspection && runner.lifecycle === 'not-inspected' ? 'These readings are remembered from your last inspection. AtlasMind re-checks everything before it starts anything.' : '')}">${escapeHtml(
+            rememberedInspection && runner.lifecycle === 'not-inspected'
+              ? (rememberedInspection.ageDays === 0 ? 'inspected today' : rememberedInspection.ageDays === 1 ? 'inspected yesterday' : `inspected ${rememberedInspection.ageDays} days ago`)
+              : (runner.lifecycle || 'not inspected'))}</span>
         </div>
         ${failureHintCard}
         <section class="ci-runner-focus" aria-label="Next local runner action">
@@ -13661,8 +13690,8 @@
       // have already finished.
       summary: intel
         ? `${runs.length} recent run${runs.length === 1 ? '' : 's'} on this branch${completed > 0 ? `, ${Math.round(((counts.passing || 0) / completed) * 100)}% passing` : ''}.${
-          intel.loadedAt ? ` Read ${relativeLabel(intel.loadedAt)}.` : ''}${delivery.ciScopeLabel ? ` Hosted-run details cover ${delivery.ciScopeLabel}; the inventory below labels every declared component.` : ''} Watch it in Activity, understand it on the Canvas, verify it in Tests, decide where it runs in Rules.`
-        : 'Watch what runs in Activity, understand the shape of it on the Canvas, verify what the tests prove, and decide where work goes in Rules.',
+          intel.loadedAt ? ` Read ${relativeLabel(intel.loadedAt)}.` : ''}${delivery.ciScopeLabel ? ` Hosted-run details cover ${delivery.ciScopeLabel}; the inventory below labels every declared component.` : ''} Watch it in Activity, understand it on the Canvas, verify it in Tests, decide where it runs in Runners & rules.`
+        : 'Watch what runs in Activity, understand the shape of it on the Canvas, verify what the tests prove, and decide where work goes in Runners & rules.',
       chips: report ? [{ label: report.classification, tone: report.classification === 'unknown' ? 'warn' : 'critical' }] : [],
     });
     const runRows = runs.slice(0, 15).map(run => `

@@ -748,7 +748,7 @@ re-reviews what landed on disk rather than trusting the builder's own check. Rev
 read and is deliberately callable before Docker, `gh` or a queued job exists — the policy used to be
 evaluated only at start time, which put the cheapest check at the end of the longest path.
 
-The Pipeline page presents **four views** — Activity, Canvas, Tests, Rules — named for what a person is
+The Pipeline page presents **four views** — Activity, Canvas, Tests, Runners & rules — named for what a person is
 doing rather than for the subsystem behind each. `PIPELINE_SECTIONS` is the allowlist and
 `PIPELINE_SECTION_ALIASES` remaps ids persisted by the previous eight-tab layout, so a stale
 `vscode.getState()` never resolves to a view that no longer exists. Setup is addressable (`setup`) but is

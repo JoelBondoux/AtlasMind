@@ -31624,6 +31624,10 @@ const DASHBOARD_CSS = `
   }
   .ci-studio-tabs button small.warn { color: var(--dash-warn); }
   .ci-studio-tabs button small.bad { color: var(--dash-critical); }
+  /* The static second line: what a person does on the tile, before the metric. */
+  .ci-studio-tabs button small.ci-tab-desc { color: inherit; opacity: 0.92; letter-spacing: 0; font-size: 11px; }
+  .ci-studio-explain { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 11.5px; color: var(--dash-muted); margin: 6px 2px 10px; }
+  .ci-studio-explain .action-link { margin-left: 6px; }
   .ci-studio-status { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
   .ci-status-chip {
     font-size: 11px;

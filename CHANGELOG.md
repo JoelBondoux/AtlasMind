@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.521.0] - 2026-11-24
+
+### Changed
+
+- Pipeline tiles say what you do there: *Runs, failures, live output*; *Workflow files and how
+  they connect*; *What the test reports prove*; and **Runners & rules** (renamed from Rules),
+  *Where checks run · this computer's setup · limits*. The metric stays as a third line.
+- The two status chips get a visible sentence each instead of a tooltip: which three steps the
+  setup count means (or that the reviewed-PR route is ready), and that GitHub's free-minutes
+  allowance has not been read this session, with a **Check now** button. The chips now say
+  "free minutes" rather than "allowance".
+- The runner card's badge reads *inspected yesterday* rather than *not-inspected* when its
+  readings are remembered from an earlier inspection, with the promise that everything is
+  re-checked before anything starts.
+
 ## [0.520.0] - 2026-11-24
 
 ### Added
