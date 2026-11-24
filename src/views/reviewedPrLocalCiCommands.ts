@@ -19,10 +19,14 @@ import {
   buildReviewedPrApprovalCopy,
   buildReviewedPrDispatchArgs,
   buildReviewedPrStatusArgs,
+  describeReviewedPrContractProblem,
+  describeWaitingReviewedPrRun,
   parseReviewedPrCandidates,
   parseReviewedPrLocalCiConfig,
   parseReviewedPrRunReading,
+  parseReviewedPrWaitingRuns,
   type ReviewedPrCandidate,
+  type WaitingReviewedPrWorkflowRun,
 } from '../core/reviewedPrLocalCi.js';
 import {
   DEFAULT_LOCAL_CI_IMAGE,
@@ -380,11 +384,21 @@ export async function patchRepositoryForReviewedPrLocalCi(): Promise<void> {
   }
 }
 
+/**
+ * The committed contract of the folder VS Code has open, or a refusal that
+ * names that folder. The folder is named because the contract is read from
+ * whichever repository happens to be open, which is not always the one the
+ * person is thinking about.
+ */
 async function readCommittedConfig(root: string): Promise<ReviewedPrLocalCiConfig> {
-  const raw = await fs.readFile(path.join(root, REVIEWED_PR_LOCAL_CI_CONFIG_PATH), 'utf8');
+  const folderName = path.basename(root);
+  const raw = await readOptionalText(path.join(root, REVIEWED_PR_LOCAL_CI_CONFIG_PATH));
+  if (raw === undefined) {
+    throw new Error(describeReviewedPrContractProblem({ folderName, root, missing: true }));
+  }
   const parsed = parseReviewedPrLocalCiConfig(raw);
   if (!parsed.ok) {
-    throw new Error(parsed.reason);
+    throw new Error(describeReviewedPrContractProblem({ folderName, root, reason: parsed.reason }));
   }
   return parsed.config;
 }
@@ -424,42 +438,6 @@ async function refetchCandidate(root: string, number: number): Promise<ReviewedP
   return parseReviewedPrCandidates(raw)[0];
 }
 
-interface WaitingReviewedPrWorkflowRun {
-  databaseId: number;
-  headSha: string;
-  status: 'queued' | 'pending' | 'in_progress';
-  event: string;
-  displayTitle: string;
-}
-
-function parseWaitingWorkflowRuns(raw: string): WaitingReviewedPrWorkflowRun[] {
-  try {
-    const rows = JSON.parse(raw) as unknown;
-    if (!Array.isArray(rows)) {
-      return [];
-    }
-    return rows.slice(0, 100).flatMap(row => {
-      if (typeof row !== 'object' || row === null) {
-        return [];
-      }
-      const value = row as Record<string, unknown>;
-      const databaseId = value['databaseId'];
-      const headSha = String(value['headSha'] ?? '').trim().toLowerCase();
-      const status = value['status'];
-      const event = String(value['event'] ?? '').trim();
-      const displayTitle = String(value['displayTitle'] ?? '').trim().slice(0, 300);
-      if (typeof databaseId !== 'number' || !Number.isSafeInteger(databaseId) || databaseId < 1
-        || !/^[a-f0-9]{40}$/.test(headSha)
-        || (status !== 'queued' && status !== 'pending' && status !== 'in_progress')) {
-        return [];
-      }
-      return [{ databaseId, headSha, status, event, displayTitle }];
-    });
-  } catch {
-    return [];
-  }
-}
-
 async function listWaitingWorkflowRuns(
   root: string,
   config: ReviewedPrLocalCiConfig,
@@ -468,9 +446,9 @@ async function listWaitingWorkflowRuns(
   const rawLists = await Promise.all(statuses.map(status => runGhOrThrow(root, [
     'run', 'list', '--workflow', config.workflowFile,
     '--branch', config.trustedBaseBranch, '--status', status, '--limit', '100',
-    '--json', 'databaseId,headSha,status,event,displayTitle',
+    '--json', 'databaseId,headSha,status,event,displayTitle,createdAt',
   ], { timeoutMs: 15_000, maxBufferBytes: 2 * 1024 * 1024 })));
-  const rows = rawLists.flatMap(parseWaitingWorkflowRuns);
+  const rows = rawLists.flatMap(parseReviewedPrWaitingRuns);
   if (rows.length >= 100) {
     throw new Error('The reviewed-PR workflow queue is too large to identify one new dispatch safely.');
   }
@@ -515,6 +493,102 @@ async function cancelReviewedPrRun(root: string, runId: number): Promise<void> {
     timeoutMs: 15_000,
     maxBufferBytes: 256 * 1024,
   });
+}
+
+/**
+ * Waiting runs, shown and offered for cancellation instead of thrown as ids.
+ *
+ * Before dispatch, a run of this workflow that GitHub still lists as waiting
+ * would make the new dispatch impossible to tell apart from it, so the command
+ * cannot proceed with one in the queue. Previously it threw their numbers and
+ * stopped; the usual leftover is AtlasMind's own earlier dispatch whose
+ * container died before registering, and the person had nowhere to see or clear
+ * it. This lists each run in plain words, and cancels only after a modal
+ * confirmation naming every run. The cancel is scoped to what
+ * `listWaitingWorkflowRuns` already filters — `workflow_dispatch` runs of the
+ * reviewed-PR workflow on the trusted branch — and goes through the gh client
+ * the dry-run host grades, so a dry run records it rather than doing it.
+ *
+ * Returns true when the queue is clear and dispatch may continue.
+ */
+async function offerToClearWaitingRuns(
+  root: string,
+  config: ReviewedPrLocalCiConfig,
+  waiting: readonly WaitingReviewedPrWorkflowRun[],
+  output: vscode.OutputChannel,
+): Promise<boolean> {
+  const now = Date.now();
+  const described = waiting.map(run => ({ run, text: describeWaitingReviewedPrRun(run, now) }));
+  const staleCount = described.filter(entry => entry.text.stale).length;
+  const runningCount = waiting.filter(run => run.status === 'in_progress').length;
+  const plural = waiting.length === 1 ? '' : 's';
+  const cancelLabel = `Cancel ${waiting.length === 1 ? 'this run' : `these ${waiting.length} runs`} and continue`;
+  const openLabel = 'Open on GitHub';
+  const stopLabel = 'Stop — leave the queue as it is';
+  for (;;) {
+    const choice = await vscode.window.showQuickPick([
+      ...described.map(entry => ({
+        label: `$(${entry.run.status === 'in_progress' ? 'play' : entry.text.stale ? 'warning' : 'clock'}) ${entry.text.label}`,
+        description: entry.text.description,
+        kind: vscode.QuickPickItemKind.Default,
+        action: 'none' as const,
+      })),
+      { label: '', kind: vscode.QuickPickItemKind.Separator, action: 'none' as const },
+      {
+        label: `$(trash) ${cancelLabel}`,
+        description: runningCount > 0 ? `${runningCount} of them ${runningCount === 1 ? 'is' : 'are'} running now` : staleCount === waiting.length ? 'nothing ever picked them up' : '',
+        action: 'cancel' as const,
+      },
+      { label: `$(link-external) ${openLabel}`, description: 'see the runs on the Actions page', action: 'open' as const },
+      { label: `$(close) ${stopLabel}`, action: 'stop' as const },
+    ], {
+      title: `${waiting.length} reviewed-PR run${plural} already waiting`,
+      placeHolder: 'A new exact-SHA dispatch cannot be told apart from a run still in the queue. Clear them, or stop.',
+      ignoreFocusOut: true,
+    });
+    if (!choice || choice.action === 'stop' || choice.action === 'none') {
+      void vscode.window.showInformationMessage(
+        `AtlasMind did not dispatch: ${waiting.length} reviewed-PR run${plural} ${waiting.length === 1 ? 'is' : 'are'} still waiting on GitHub.`,
+      );
+      return false;
+    }
+    if (choice.action === 'open') {
+      for (const run of waiting.slice(0, 5)) {
+        await vscode.env.openExternal(vscode.Uri.parse(`https://github.com/${config.repository}/actions/runs/${run.databaseId}`));
+      }
+      continue;
+    }
+    const confirmed = await vscode.window.showWarningMessage(
+      `Cancel ${waiting.length} reviewed-PR run${plural} on GitHub?`,
+      {
+        modal: true,
+        detail: [
+          ...described.map(entry => `${entry.text.label} — ${entry.text.description}`),
+          '',
+          `Only runs of ${config.workflowFile} on ${config.trustedBaseBranch} that were dispatched by hand are listed. Cancelling tells GitHub to stop waiting for a runner; it changes nothing on this computer.`,
+        ].join('\n'),
+      },
+      cancelLabel,
+    );
+    if (confirmed !== cancelLabel) {
+      continue;
+    }
+    for (const run of waiting) {
+      await cancelReviewedPrRun(root, run.databaseId);
+      output.appendLine(`[queue] Cancelled waiting run ${run.databaseId}.`);
+    }
+    // GitHub acknowledges a cancel before the run leaves the queue listing.
+    // Dispatching into a listing that still shows the old run would defeat the
+    // check that identifies the new one, so wait for the queue to read empty.
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const remaining = await listWaitingWorkflowRuns(root, config);
+      if (remaining.length === 0) {
+        return true;
+      }
+      await new Promise(resolve => setTimeout(resolve, 1_000));
+    }
+    throw new Error('GitHub still lists a reviewed-PR run as waiting after the cancel. Check the Actions page, then try again.');
+  }
 }
 
 async function waitForManager(manager: LocalCiRunnerManager, completion: Promise<LocalCiRunnerSnapshot>): Promise<LocalCiRunnerSnapshot> {
@@ -713,13 +787,14 @@ export async function runReviewedPullRequestOnLocalCi(): Promise<void> {
     const baseSha = (await git(root, ['rev-parse', 'HEAD'])).toLowerCase();
     const waitingBeforeDispatch = await listWaitingWorkflowRuns(root, activeConfig);
     if (waitingBeforeDispatch.length > 0) {
-      throw new Error(
-        `The reviewed-PR workflow already has waiting or running job${waitingBeforeDispatch.length === 1 ? '' : 's'} `
-        + `(${waitingBeforeDispatch.slice(0, 5).map(run => run.databaseId).join(', ')}). `
-        + 'Clear or finish those runs before dispatching another exact SHA.',
-      );
+      const cleared = await offerToClearWaitingRuns(root, activeConfig, waitingBeforeDispatch, output);
+      if (!cleared) {
+        return;
+      }
     }
-    const previouslySeen = new Set(waitingBeforeDispatch.map(run => run.databaseId));
+    // The queue read empty either way, so every run that appears from here on
+    // is new. Nothing is carried over from before the cancel.
+    const previouslySeen = new Set<number>();
     await publishStatus(root, activeConfig, candidate, 'pending', 'Approved exact SHA is waiting for the one-job local runner.').catch(error => {
       output.appendLine(`[status warning] ${safeFailure(error)}`);
     });
@@ -776,9 +851,39 @@ export async function runReviewedPullRequestOnLocalCi(): Promise<void> {
       return;
     }
     const completedRunner = await waitForManager(manager, completion);
-    const runId = completedRunner.queuedRun?.databaseId;
+    const runId = completedRunner.queuedRun?.databaseId ?? queuedRunId;
     if (!runId) {
       throw new Error(completedRunner.message || 'The local runner ended without a GitHub run identity.');
+    }
+    // A container that died before it claimed the job leaves AtlasMind's own
+    // dispatch waiting in GitHub's queue, where it blocks the next attempt
+    // until somebody finds it. Cancelling here is bounded to the one run this
+    // command dispatched and bound above; a run another runner already took
+    // is reported from its own conclusion like any other.
+    if (completedRunner.lifecycle !== 'finished') {
+      const reading = parseReviewedPrRunReading(await runGhOrThrow(root, [
+        'run', 'view', String(runId), '--json', 'status,conclusion,url',
+      ], { timeoutMs: 15_000, maxBufferBytes: 512 * 1024 }));
+      if (reading.status !== 'completed' && reading.status !== 'unknown') {
+        const what = reading.status === 'in_progress'
+          ? 'this computer\'s runner stopped before the job finished'
+          : 'this computer never picked it up';
+        await cancelReviewedPrRun(root, runId).catch(cancelError => output.appendLine(`[cancel warning] ${safeFailure(cancelError)}`));
+        output.appendLine(`[queue] Cancelled run ${runId}: ${what}.`);
+        const why = completedRunner.message || `The runner ended as ${completedRunner.lifecycle}.`;
+        await publishStatus(root, activeConfig, candidate, 'error', `Run ${runId} was cancelled: ${what}. ${why}`, reading.url)
+          .catch(statusError => output.appendLine(`[status warning] ${safeFailure(statusError)}`));
+        queuedRunId = undefined;
+        void vscode.window.showErrorMessage(
+          `AtlasMind cancelled run ${runId} for PR #${candidate.number}: ${what}. ${why} The runner output names the cause.`,
+          'Show runner output',
+        ).then(choice => {
+          if (choice === 'Show runner output') {
+            output.show(true);
+          }
+        });
+        return;
+      }
     }
     const run = await readRunConclusion(root, runId);
     const passed = run.status === 'completed' && run.conclusion === 'success';

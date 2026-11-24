@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.516.9</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.517.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,13 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.517.0
+
+Reviewed-PR local CI explains itself when it cannot run: a missing contract names the open folder and
+file, a disabled one says why. A run left waiting on GitHub is listed in plain words and can be
+cancelled after confirmation, and a runner that dies before claiming its job cancels its own dispatch
+instead of leaving it queued.
+
 ## What's new in 0.516.9
 
 Releases now reach the Marketplace only after a release gate passes: full CI, security checks,
@@ -188,12 +195,6 @@ windows a day publish the newest release that passes. See [releasing](docs/relea
 
 The published baseline now names **v0.516.7**, carrying the reviewed database, WebSocket,
 MCP/ACP SDK, developer-tooling and security updates. This source update records that publication.
-
-## What's new in 0.516.7
-
-Full-history secret scans recognize individually reviewed historical test values and public
-identifiers. Exceptions identify each original finding; detection stays active for future secrets.
-The follow-up dependency review also includes ESLint 10.14.0.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.516.7**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in

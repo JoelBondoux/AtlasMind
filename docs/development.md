@@ -788,7 +788,15 @@ owner, one account pinned by id (`authorizedAccount` in the contract). A run sta
 checkout with clean managed files whose workflow and controller bytes exactly match the installed
 generator. It snapshots waiting workflow run ids before dispatch, requires exactly one newly created
 input-labelled run, and gives that expected id to `LocalCiRunnerManager.prepare`, so another job sharing
-the same base SHA cannot be claimed. Workflow inputs enter bash through environment variables rather than
+the same base SHA cannot be claimed. When that snapshot is not empty the command does not throw the ids: it
+lists each waiting run through `describeWaitingReviewedPrRun` (PR, age, whether anything picked it up —
+stale past `STALE_REVIEWED_PR_WAIT_MS`) and offers a confirmed cancel of exactly those runs, which
+`listWaitingWorkflowRuns` already filters to hand-dispatched runs of the reviewed-PR workflow on the
+trusted branch. If the runner ends without finishing while its bound run is still queued or running, the
+command cancels that one run, publishes an `error` status naming the cause, and stops, so a dead container
+does not leave a dispatch blocking the next attempt. A missing or unreadable contract is reported through
+`describeReviewedPrContractProblem`, which names the open folder and the file so a wrong repository reads as
+a wrong repository. Workflow inputs enter bash through environment variables rather than
 source interpolation, and the candidate command contract rejects shell executables as well as composed
 command strings.
 

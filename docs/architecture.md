@@ -83,6 +83,10 @@ organisation-owned repository, which has no owner account, the contract pins one
 `reviewedPrLocalCiCommands.ts` re-reads the PR after approval, identifies the newly dispatched workflow
 run by its unique run id and input-derived title, and passes that id into `LocalCiRunnerManager`. The base
 branch supplies the controller at `github.sha`; the proposed SHA supplies only the candidate checkout.
+Runs already waiting on GitHub are listed in plain words and cancelled only after a confirmation that names
+each one; a runner that ends before finishing cancels the single run it dispatched and publishes an error
+status, so AtlasMind's own queue cannot block its next attempt. A missing or unreadable contract is
+reported with the open folder and the file it looked for.
 The producer name is never a trust signal, so Codex, Claude, other agent interfaces and humans follow the
 same route. The job retains outbound network access for GitHub and dependency installation, so the
 container is defence in depth and explicit code review remains the authorisation boundary.

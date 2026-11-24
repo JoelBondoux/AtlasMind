@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.517.0] - 2026-11-24
+
+### Changed
+
+- Reviewed-PR local CI now explains itself when it cannot run. A missing contract names the
+  open folder and the file it looked for, so a different repository open in the editor reads
+  as "this is not that repository" rather than "your contract is broken". A disabled contract
+  says whether the patcher wrote it that way (no supported lockfile, no commands) or a person
+  switched it off, and what to do about each.
+- When the reviewed-PR workflow still has a run waiting on GitHub, the command lists each one
+  in plain words (which PR, how long it has waited, whether anything ever picked it up) and
+  offers to cancel them after a modal confirmation that names every run, instead of stopping
+  with a list of run ids. The cancel is scoped to hand-dispatched runs of AtlasMind's own
+  workflow on the trusted branch and is recorded, not performed, under dry run.
+- If the isolated runner container fails before it claims the job, AtlasMind cancels the one
+  run it dispatched, publishes an `error` status naming the cause, and says so. Previously the
+  run stayed queued and blocked the next attempt until somebody found it on the Actions page.
+
 ## [0.516.9] - 2026-11-23
 
 ### Changed

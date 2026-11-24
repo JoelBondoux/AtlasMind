@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.517.0 -- Reviewed-PR local CI says what is wrong and clears its own queue
+
+A missing contract names the open folder and the file it looked for; a disabled one says whether
+the patcher wrote it that way or somebody switched it off. Runs left waiting on GitHub are listed
+in plain words and can be cancelled after a confirmation that names each one. A runner that fails
+before claiming its job cancels the run it dispatched and publishes an error status.
+
+---
+
 ## v0.516.9 -- Gated, scheduled Marketplace publishing
 
 A release is published only after the release gate passes: full local CI, the security suite,
