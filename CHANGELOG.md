@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.520.0] - 2026-11-24
+
+### Added
+
+- When the local CI runner container dies, the runner card names the cause in plain words.
+  A declared rule table (`src/core/localCiFailureHints.ts`) reads the redacted tail of the
+  container's output: TLS interception by antivirus or a proxy (`PartialChain`, `unable to
+  get local issuer certificate`), a full Docker disk, a missing image, a rejected registration
+  token, a duplicate runner name, or unknown with the exit code. The card offers the
+  step-by-step guide, the image setting and the runner output; it never suggests turning
+  certificate checking off. The image in use is shown on the card's header line.
+- `docs/local-ci-and-safe-runners.md` gains a troubleshooting section with a stable anchor for
+  the TLS case, which the card links to.
+
 ## [0.519.0] - 2026-11-24
 
 ### Added

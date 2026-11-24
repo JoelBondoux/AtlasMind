@@ -13572,6 +13572,26 @@
         : queueIssue.kind === 'duplicates' ? 'Cancel every duplicate, queue exactly once, then check again.'
           : 'Queue the trusted workflow, wait for GitHub to accept it, then check again.';
     }
+    // Why the last container died, in words — from the runner's declared rule
+    // table, never guessed here. Shown only while the lifecycle is `failed`,
+    // because the hint describes that container and no other. The buttons are
+    // the existing host-owned paths: the help id resolves to a URL on the host,
+    // and the setting opens through `openSettingKey`.
+    const failureHint = runner.lifecycle === 'failed' ? runner.failureHint : undefined;
+    const failureHintCard = failureHint
+      ? `<div class="inline-notice critical ci-runner-failure-hint">
+          <strong>${escapeHtml(failureHint.title || 'The runner container stopped')}</strong>
+          <p class="stat-detail">${escapeHtml(failureHint.body || '')}</p>
+          ${failureHint.avoid ? `<p class="stat-detail"><strong>${escapeHtml(failureHint.avoid)}</strong></p>` : ''}
+          ${failureHint.matchedLine ? `<code class="ci-runner-failure-line" title="The output line that decided this">${escapeHtml(failureHint.matchedLine)}</code>` : ''}
+          <div class="tag-row">
+            ${failureHint.helpId ? `<button type="button" class="action-link primary" data-action="pipeline-setup-help" data-payload="${escapeAttr(failureHint.helpId)}">${failureHint.kind === 'tls-inspection' ? 'Open the step-by-step guide ↗' : 'Open the troubleshooting guide ↗'}</button>` : ''}
+            ${failureHint.settingKey ? `<button type="button" class="action-link" data-action="setting" data-payload="${escapeAttr(failureHint.settingKey)}">Open the image setting</button>` : ''}
+            <button type="button" class="action-link" data-action="pipeline-runner-output">Open runner output</button>
+          </div>
+          ${failureHint.kind === 'tls-inspection' ? `<p class="list-meta">Image in use: <code title="${escapeAttr(runner.image || '')}">${escapeHtml(shortenMiddle(runner.image || '—', 54))}</code>. After building the derived image, this line should name its tag.</p>` : ''}
+        </div>`
+      : '';
     const runnerWarningsPanel = runnerWarnings.length ? `<details class="ci-progressive-details ci-runner-notes"><summary>Show ${runnerWarnings.length} operator note${runnerWarnings.length === 1 ? '' : 's'}</summary><div class="ci-progressive-details-body"><ul class="ci-caution-list">${runnerWarnings.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div></details>` : '';
     const runnerCard = `
       <article class="panel-card ci-runner-card">
@@ -13579,10 +13599,11 @@
           <div>
             <p class="card-kicker">Trusted local CI · temporary runner</p>
             <strong>${escapeHtml(runner.message || 'Local runner has not been inspected.')}</strong>
-            <div class="list-meta">GitHub Actions → Docker · ${escapeHtml(runner.evidenceLabel || 'Linux container evidence')}</div>
+            <div class="list-meta">GitHub Actions → Docker · ${escapeHtml(runner.evidenceLabel || 'Linux container evidence')} · image <code title="${escapeAttr(runner.image || '')}">${escapeHtml(shortenMiddle(runner.image || '—', 40))}</code></div>
           </div>
           <span class="tag ${runnerTone}">${escapeHtml(runner.lifecycle || 'not inspected')}</span>
         </div>
+        ${failureHintCard}
         <section class="ci-runner-focus" aria-label="Next local runner action">
           <div><p class="card-kicker">Next action</p><h3>${escapeHtml(runnerFocusTitle)}</h3><p class="section-copy">${escapeHtml(runnerFocusDetail)}</p></div>
           <div class="ci-runner-progress" role="list" aria-label="Local runner setup progress">${runnerProgressSteps.map((step, index) => `<div role="listitem" class="${step.done ? 'done' : index === runnerProgressCurrent ? 'current' : ''}"><span aria-hidden="true">${step.done ? '✓' : index + 1}</span><small>${escapeHtml(step.label)}</small></div>`).join('')}</div>

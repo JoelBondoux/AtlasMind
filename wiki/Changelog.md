@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.520.0 -- The runner card names why the container died
+
+A declared rule table reads the last lines the runner printed: TLS interception by antivirus
+or a proxy, a full Docker disk, a missing image, a rejected registration token, a duplicate
+runner name, or unknown with the exit code. The card opens the guide, the image setting or the
+output, and never suggests turning certificate checking off.
+
+---
+
 ## v0.519.0 -- Pull requests judged against the checks their base requires
 
 A required check nobody has posted is not in GitHub's rollup, so a pull request blocked on

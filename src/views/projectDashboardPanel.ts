@@ -1190,6 +1190,8 @@ interface TestingFixResult {
 }
 
 type LocalCiSetupHelpId =
+  | 'tls-derived-image'
+  | 'runner-troubleshooting'
   | 'docker-windows'
   | 'docker-macos'
   | 'docker-linux'
@@ -1209,6 +1211,9 @@ type LocalCiSetupHelpId =
  * stale one.
  */
 const LOCAL_CI_SETUP_HELP_URLS: Readonly<Record<LocalCiSetupHelpId, string>> = {
+  // The runner failure hints name these ids; the hint module holds no URL.
+  'tls-derived-image': 'https://github.com/JoelBondoux/AtlasMind/blob/main/docs/local-ci-and-safe-runners.md#troubleshooting-the-runner-container-cannot-reach-github-tls-inspection',
+  'runner-troubleshooting': 'https://github.com/JoelBondoux/AtlasMind/blob/main/docs/local-ci-and-safe-runners.md#troubleshooting-the-runner-container',
   'docker-windows': 'https://docs.docker.com/desktop/setup/install/windows-install/',
   'docker-macos': 'https://docs.docker.com/desktop/setup/install/mac-install/',
   'docker-linux': 'https://docs.docker.com/engine/install/',

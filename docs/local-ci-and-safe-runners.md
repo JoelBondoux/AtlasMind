@@ -507,6 +507,24 @@ docker buildx imagetools inspect ghcr.io/actions/actions-runner:2.336.0
 docker pull $RunnerImage
 ```
 
+### Troubleshooting the runner container
+
+AtlasMind reads the last lines the container printed against a declared rule table
+(`src/core/localCiFailureHints.ts`) when it exits non-zero, and the runner card names the cause with the
+step that fixes it. The rules, in order:
+
+| What the output says | What it means | What to do |
+| --- | --- | --- |
+| `PartialChain`, `unable to get local issuer certificate`, `The SSL connection could not be established` | Something on this computer re-signs HTTPS traffic from the Docker VM and the Linux container does not trust it | The section below. Never disable verification |
+| `no space left on device` | The Docker disk is full | Free space in Docker Desktop (unused images, build cache), start again |
+| `pull access denied`, `manifest unknown`, `No such image` | The image named in `atlasmind.ci.localRunner.image` is not present and could not be pulled | Check the tag or digest; a locally built derived image must exist on this machine first |
+| `NotFound from 'POST …/actions/runner-registration'` | GitHub rejected the one-hour registration token | Sign in again with the GitHub CLI and start again |
+| `A runner exists with the same name` | A stale registration from an earlier container | Remove it on the repository's Actions → Runners page |
+
+Anything else is reported as an unknown cause with the exit code, and the runner output has the detail.
+
+#### Troubleshooting: the runner container cannot reach GitHub (TLS inspection)
+
 If registration reports `PartialChain` or `unable to get local issuer certificate`, first inspect the
 certificate presented inside the container. Antivirus or enterprise TLS inspection may issue it from a
 local root that Windows trusts but the Linux VM does not. Never set `NODE_TLS_REJECT_UNAUTHORIZED=0`, use
