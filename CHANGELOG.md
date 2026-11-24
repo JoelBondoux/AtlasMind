@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.522.0] - 2026-11-24
+
+### Changed
+
+- Runners & rules is four numbered sections, each with a one-line definition: **What can run a
+  check** (the executors), **Where each kind of check goes** (the committed routing file),
+  **Where opted-in workflows run this month** (the runner switch and GitHub's free minutes), and
+  **How much of this computer CI may use** (the share slider). The simple view shows section 1
+  whole and one summary line for each of the others; **Show advanced** expands the routing grid,
+  the dry run, the switch detail and the fine-tuned CPU and memory caps. The choice is remembered
+  per editor. Previously the four ideas sat in one undifferentiated column with "Create the
+  routing file…" at the bottom reading as the page's conclusion.
+
 ## [0.521.0] - 2026-11-24
 
 ### Changed

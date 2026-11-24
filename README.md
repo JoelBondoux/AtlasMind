@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.521.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.522.0</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,12 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.522.0
+
+Runners & rules is now four numbered sections with a one-line definition each — what can run a
+check, where each kind goes, where opted-in workflows run this month, and how much of this computer
+CI may use — with the routing grid, dry run and fine-tuned limits behind **Show advanced**.
+
 ## What's new in 0.521.0
 
 Pipeline tiles now say what you do on each (the Rules tile is **Runners & rules**: where checks
@@ -189,13 +195,6 @@ runner whose readings are remembered reads "inspected yesterday" rather than "no
 When the local CI runner container dies, the runner card now says why — antivirus re-signing
 HTTPS, a full Docker disk, a missing image, a rejected token — and opens the guide, the image
 setting or the output. It never suggests turning certificate checking off.
-
-## What's new in 0.519.0
-
-Pull requests are now judged against the checks their base branch requires. A required check
-nobody posted — the way a pull request waits on `AtlasMind/local-ci` while its row reads green —
-is named on the row with the run that posts it, and Pipeline opens with a strip of the pull
-requests waiting for a check only this computer can post.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.516.7**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in

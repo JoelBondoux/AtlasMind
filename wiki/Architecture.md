@@ -894,7 +894,7 @@ The page is arranged for the person who finished setting it up, not the person s
 once anything has run and opens with the latest classified failure and a one-click handoff to a chat
 session (log fenced as untrusted content), the setup journey folds to one line when its durable steps are
 done, and routing rules are editable through a guided flow obeying the same rules as the decision engine.
-While setup is genuinely unfinished the borrowed-machine card leads the Runners & rules view with its detail open,
+Runners & rules is four numbered sections — what can run a check, where each kind goes, where opted-in workflows run this month, how much of this computer CI may use — with the routing grid, dry run and fine-tuned limits behind *Show advanced*. While setup is genuinely unfinished the borrowed-machine card leads its first section with its detail open,
 because that is where the guided journey's "prepare this computer" step lands. Tests reads verdicts and
 Rules decides routing, and neither is a dead end: a declared policy row opens that policy's own card on
 the Testing page, expanded, since this page can say a policy is unevidenced while only that card can say

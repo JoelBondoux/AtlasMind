@@ -32129,6 +32129,31 @@ const DASHBOARD_CSS = `
     outline-offset: -2px;
   }
 
+  /* Runners & rules: four numbered sections, each with a one-line definition. */
+  .ci-rules-sections { gap: 14px; }
+  .ci-rules-section { display: grid; gap: 10px; }
+  .ci-rules-section-head { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+  .ci-rules-section-head > div { flex: 1 1 240px; min-width: 0; }
+  .ci-rules-section-head h3 { margin: 0; font-size: 14px; }
+  .ci-rules-section-head p { margin: 2px 0 0; }
+  .ci-rules-section-number {
+    flex: 0 0 auto;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--dash-accent-strong);
+    border: 1px solid var(--dash-accent-strong);
+    margin-top: 1px;
+  }
+  .ci-rules-section-summary { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dash-muted); flex: 0 0 auto; }
+  .ci-rules-section.collapsed { gap: 0; }
+  .ci-rules-advanced-toggle { justify-content: flex-end; }
+  .ci-rules-limits-fine { margin-top: 8px; }
   .ci-rules-credit {
     display: flex;
     align-items: center;

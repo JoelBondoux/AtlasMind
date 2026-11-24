@@ -1590,9 +1590,14 @@ describe('Rules — setup is findable, and optional stays optional', () => {
     expect(executors).toContain("${drawerOpen ? ' open' : ''}");
     expect(executors).toContain('the next step, and what is blocking it');
     expect(executors).toContain('ci-executors-setup');
-    // Leading the view, not sitting under the grid.
-    expect(rules).toContain('runnerNeedsYou ? executors + intro : intro + executors');
-    expect(rules).toContain("runnerNeedsYou ? executorsCard : ''");
+    // Leading the view, not sitting under the grid: the executors are section 1
+    // of four, each with a one-line definition, and the grid is advanced detail.
+    expect(rules).toContain("section(1, 'What can run a check'");
+    expect(rules.indexOf("section(1, 'What can run a check'")).toBeLessThan(rules.indexOf("section(2, 'Where each kind of check goes'"));
+    expect(rules).toContain("section(3, 'Where opted-in workflows run this month'");
+    expect(rules).toContain("section(4, 'How much of this computer CI may use'");
+    expect(rules).toContain("'Show advanced: routing grid, dry run, switch detail, fine-tuned limits'");
+    expect(WEBVIEW_SCRIPT).toContain("action === 'pipeline-rules-advanced'");
   });
 
   /**

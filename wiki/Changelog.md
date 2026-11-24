@@ -19,6 +19,14 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.522.0 -- Runners & rules in four sections
+
+What can run a check, where each kind goes, where opted-in workflows run this month, and how much
+of this computer CI may use — numbered, each with a one-line definition, the detail behind
+**Show advanced**.
+
+---
+
 ## v0.521.0 -- Pipeline tiles and chips explain themselves
 
 Each tile carries a line saying what you do there; Rules becomes **Runners & rules**. The setup

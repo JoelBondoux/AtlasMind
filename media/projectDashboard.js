@@ -627,6 +627,8 @@
     },
     /** Whether the two-route explainer on Rules was dismissed on this machine. */
     pipelineRoutesExplainerDismissed: Boolean(persistedWebviewState.pipelineRoutesExplainerDismissed),
+    /** Whether Runners & rules shows its advanced half (grid, dry run, switch detail, fine-tuned limits). */
+    pipelineRulesAdvanced: Boolean(persistedWebviewState.pipelineRulesAdvanced),
     /** The workflow node whose panel is open, if any. Never persisted. */
     pipelineNode: null,
     /** Visual layout only. Moving a node never edits a workflow file. */
@@ -2383,6 +2385,13 @@
         pipelineSection: state.pipelineSection,
         pipelineNodePositions: {},
       });
+      render();
+      return;
+    }
+    if (action === 'pipeline-rules-advanced') {
+      state.pipelineRulesAdvanced = !state.pipelineRulesAdvanced;
+      vscode.setState({ ...(vscode.getState() || {}), pipelineRulesAdvanced: state.pipelineRulesAdvanced });
+      refocusAfterRender = 'button[data-action="pipeline-rules-advanced"]';
       render();
       return;
     }
@@ -11446,7 +11455,8 @@
    * The runner switch and this computer's local CI limits, under the allowance
    * row. Everything here is a request: the host validates, clamps and writes.
    */
-  function renderCiRunnerSwitch(runnerSwitch) {
+  function renderCiRunnerSwitch(runnerSwitch, options) {
+    const advanced = Boolean(options && options.advanced);
     if (!runnerSwitch) {
       return '';
     }
@@ -11482,32 +11492,46 @@
       todo.push('<li>No local runner chosen yet. Pick Automatic or Always this computer again to name it.</li>');
     }
 
-    const limits = runnerSwitch.resources || {};
-    const share = Number(limits.resourceShare) || 50;
-    return `<div class="ci-rules-switch" style="margin-top:12px">
+    // The mode buttons are the simple view: one choice, visible. The to-do list
+    // and the switched-workflow roster are detail, shown when asked for or when
+    // something is actually missing.
+    return `<div class="ci-rules-switch">
       <p class="card-kicker">Where CI runs</p>
       <h3 style="margin:2px 0 4px">${escapeHtml(where)}</h3>
       <p class="list-meta">${escapeHtml(why)}</p>
       <div class="tag-row">${buttons}</div>
       ${runnerSwitch.mode !== 'off' ? '<div class="tag-row"><button type="button" class="action-link" data-action="pipeline-switch-mode" data-payload="off">Stop managing this</button></div>' : ''}
       ${todo.length ? `<ul class="list-meta" style="margin:8px 0 0 16px">${todo.join('')}</ul>` : ''}
-      ${following.length ? `<p class="list-meta">Switched workflows: ${escapeHtml(following.join(', '))}.</p>` : ''}
-      <label style="display:block;margin-top:14px">
-        <span class="card-kicker">How much of this computer local CI may use</span>
+      ${advanced && following.length ? `<p class="list-meta">Switched workflows: ${escapeHtml(following.join(', '))}.</p>` : ''}
+    </div>`;
+  }
+
+  /**
+   * Section 4: how much of this computer CI may use. The slider is the whole
+   * simple view; the exact CPU and memory caps are the advanced one.
+   */
+  function renderCiResourceLimits(runnerSwitch, options) {
+    if (!runnerSwitch) {
+      return '<p class="section-copy">Limits are read once the runner switch has been read.</p>';
+    }
+    const advanced = Boolean(options && options.advanced);
+    const limits = runnerSwitch.resources || {};
+    const share = Number(limits.resourceShare) || 50;
+    return `<div class="ci-rules-limits">
+      <label style="display:block">
         <span style="display:flex;gap:10px;align-items:center">
           <input type="range" min="10" max="90" step="5" value="${escapeAttr(String(share))}"
             data-ci-limit="resourceShare" aria-label="Share of this computer for local CI" style="flex:1">
           <strong data-ci-share-label>${escapeHtml(String(share))}%</strong>
         </span>
       </label>
-      <p class="list-meta">Saved as you move it. A quarter of the computer always stays free for you.</p>
-      <details class="ci-progressive-details">
-        <summary><span>Fine-tune limits</span></summary>
+      <p class="list-meta">Saved as you move it.</p>
+      ${advanced ? `<div class="ci-rules-limits-fine">
         <label style="display:inline-flex;gap:6px;align-items:center;margin-right:14px">Max CPUs
           <input type="number" min="2" max="128" step="1" value="${escapeAttr(String(limits.maxCpus))}" data-ci-limit="maxCpus" style="width:5em"> cores</label>
         <label style="display:inline-flex;gap:6px;align-items:center">Max memory
           <input type="number" min="4" max="512" step="1" value="${escapeAttr(String(limits.maxMemoryGb))}" data-ci-limit="maxMemoryGb" style="width:5em"> GB</label>
-      </details>
+      </div>` : ''}
     </div>`;
   }
 
@@ -11719,28 +11743,30 @@
 
     const creditTone = routing.creditState === 'exhausted' ? 'tag-warn' : routing.creditState === 'remaining' ? 'tag-good' : '';
     const creditRow = `<div class="ci-rules-credit">
-      <span class="tag ${creditTone}">${escapeHtml(routing.creditState || 'unknown')}</span>
-      <span>${escapeHtml(routing.creditSentence || 'The hosted allowance has not been checked.')}</span>
-      <button type="button" class="action-link" data-action="pipeline-refresh-credit">Check the allowance</button>
-    </div>${renderCiRunnerSwitch(routing.runnerSwitch)}`;
+      <span class="tag ${creditTone}">${escapeHtml(routing.creditState === 'remaining' ? 'free minutes left' : routing.creditState === 'exhausted' ? 'free minutes spent' : 'not read')}</span>
+      <span>${escapeHtml(routing.creditSentence || "GitHub's free-minutes allowance has not been checked.")}</span>
+      <button type="button" class="action-link" data-action="pipeline-refresh-credit">Check the free minutes</button>
+    </div>`;
+    const advanced = Boolean(state.pipelineRulesAdvanced);
+    const executorsCard = renderRulesExecutors(routes, runnerCard, { needsSetup, needsFirstRun, matrix: routing.matrix, reviewedPr, undecidedCountsAsUsed });
 
+    // Section 2 in its two states. With no file, the card says so and offers to
+    // create one; nothing is seeded on render.
+    let routingCard = '';
+    let dryRunCard = '';
     if (!routing.configPresent) {
-      const intro = `<article class="panel-card">
+      routingCard = `<article class="panel-card">
           <div class="ci-section-heading">
             <div>
-              <p class="card-kicker">Rules</p>
+              <p class="card-kicker">Where each kind of check goes</p>
               <h3>No routing file yet</h3>
               <p class="section-copy">${escapeHtml(routing.notice || 'Nothing records where each kind of check should run. AtlasMind can write a starting set for you to review and commit — creating it runs nothing.')}</p>
             </div>${help.button}
           </div>
           ${help.panel}
-          ${creditRow}
           <div class="tag-row"><button type="button" class="action-link primary" data-action="pipeline-create-routing">Create the routing file…</button></div>
         </article>`;
-      const executors = renderRulesExecutors(routes, runnerCard, { needsSetup, needsFirstRun, matrix: routing.matrix, reviewedPr, undecidedCountsAsUsed });
-      return `<div class="ci-studio-stack">${runnerNeedsYou ? executors + intro : intro + executors}</div>`;
-    }
-
+    } else {
     const matrix = routing.matrix || [];
     const columns = matrix.length ? matrix[0].cells : [];
     const headers = columns.map(cell => `<th scope="col" title="${escapeAttr(cell.routeLabel)}">${escapeHtml(cell.routeLabel)}</th>`).join('');
@@ -11791,43 +11817,67 @@
       </div>
     </div>`).join('');
 
-    // With a routing file present the executors card also leads while the
-    // borrowed machine needs somebody — arriving from the journey to finish
-    // setup or to queue the first job should not start under a policy grid.
-    const executorsCard = renderRulesExecutors(routes, runnerCard, { needsSetup, needsFirstRun, matrix: routing.matrix, reviewedPr, undecidedCountsAsUsed });
-    return `<div class="ci-studio-stack">
-      ${runnerNeedsYou ? executorsCard : ''}
-      <article class="panel-card">
-        <div class="ci-section-heading">
-          <div>
-            <p class="card-kicker">Rules · <code>${escapeHtml(routing.configPath || '')}</code></p>
-            <h3>Where each kind of check goes</h3>
-            <p class="section-copy">Your policy, whole. One preferred route per row, fallbacks numbered in the order they are tried, and locked squares the policy refuses. Click a square to change it; nothing runs as a result.</p>
-          </div>${help.button}
-        </div>
-        ${help.panel}
-        ${errors.length ? `<div class="inline-notice critical"><strong>${errors.length} rule${errors.length === 1 ? '' : 's'} cannot be acted on</strong><ul class="ci-caution-list">${errors.map(problem => `<li>${escapeHtml(problem.message)}</li>`).join('')}</ul></div>` : ''}
-        <div class="ci-matrix-wrap">
-          <table class="ci-matrix">
-            <thead><tr><th scope="col">Kind of check</th>${headers}<th scope="col" title="What this rule does when the hosted allowance runs out">allowance gone</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-        <div class="ci-matrix-key">
-          <span><b>●</b> preferred</span><span><b>○</b> fallback, in order</span><span><b>+</b> allowed, unused</span>
-          <span><b>✕</b> locked by policy</span><span><b>·</b> no adapter</span><span class="ci-cell-unusable-key">outlined — allowed, but not usable on this machine right now</span>
-        </div>
-        ${warnings.length ? `<details class="ci-progressive-details"><summary>${warnings.length} note${warnings.length === 1 ? '' : 's'} about the routing file</summary><ul class="ci-caution-list">${warnings.map(problem => `<li>${escapeHtml(problem.message)}</li>`).join('')}</ul></details>` : ''}
-        <div class="tag-row"><button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(routing.configPath || '')}">Open the file</button></div>
-      </article>
+      // Indented one level: the grid and the dry run are the advanced half of
+      // section 2, built here and shown below the summary when asked for.
+      routingCard = `      <article class="panel-card">
+          <div class="ci-section-heading">
+            <div>
+              <p class="card-kicker">Where each kind of check goes · <code>${escapeHtml(routing.configPath || '')}</code></p>
+              <h3>Where each kind of check goes</h3>
+              <p class="section-copy">Your policy, whole. One preferred route per row, fallbacks numbered in the order they are tried, and locked squares the policy refuses. Click a square to change it; nothing runs as a result.</p>
+            </div>${help.button}
+          </div>
+          ${help.panel}
+          ${errors.length ? `<div class="inline-notice critical"><strong>${errors.length} rule${errors.length === 1 ? '' : 's'} cannot be acted on</strong><ul class="ci-caution-list">${errors.map(problem => `<li>${escapeHtml(problem.message)}</li>`).join('')}</ul></div>` : ''}
+          <div class="ci-matrix-wrap">
+            <table class="ci-matrix">
+              <thead><tr><th scope="col">Kind of check</th>${headers}<th scope="col" title="What this rule does when the hosted allowance runs out">allowance gone</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+          <div class="ci-matrix-key">
+            <span><b>●</b> preferred</span><span><b>○</b> fallback, in order</span><span><b>+</b> allowed, unused</span>
+            <span><b>✕</b> locked by policy</span><span><b>·</b> no adapter</span><span class="ci-cell-unusable-key">outlined — allowed, but not usable on this machine right now</span>
+          </div>
+          ${warnings.length ? `<details class="ci-progressive-details"><summary>${warnings.length} note${warnings.length === 1 ? '' : 's'} about the routing file</summary><ul class="ci-caution-list">${warnings.map(problem => `<li>${escapeHtml(problem.message)}</li>`).join('')}</ul></details>` : ''}
+          <div class="tag-row"><button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(routing.configPath || '')}">Open the file</button></div>
+        </article>`;
+      dryRunCard = `      <article class="panel-card">
+          <div class="ci-section-heading"><div><p class="card-kicker">Dry run</p><h3>If checks ran right now</h3></div></div>
+          <div class="ci-rules-decisions">${decisions || '<p class="section-copy">The routing file declares no rules yet.</p>'}</div>
+        </article>`;
+    }
 
-      <article class="panel-card">
-        <div class="ci-section-heading"><div><p class="card-kicker">Dry run</p><h3>If checks ran right now</h3></div></div>
-        ${creditRow}
-        <div class="ci-rules-decisions">${decisions || '<p class="section-copy">The routing file declares no rules yet.</p>'}</div>
-      </article>
+    // Four numbered sections, each with a one-line definition, in the order a
+    // person meets them: what can run a check, where each kind goes, where the
+    // opted-in workflows run this month, how much of this computer CI may use.
+    // The page used to stack executors, a routing file, a repository variable
+    // and a laptop slider as one undifferentiated column, with "Create the
+    // routing file…" at the bottom reading as the page's conclusion. The simple
+    // view shows section 1 whole and one summary line for each of 2–4; Show
+    // advanced expands them. Which is which is a per-editor convenience, so it
+    // lives in webview state.
+    const section = (number, title, definition, body, options) => `<section class="ci-rules-section${options && options.collapsed ? ' collapsed' : ''}" aria-label="${escapeAttr(title)}">
+      <div class="ci-rules-section-head">
+        <span class="ci-rules-section-number" aria-hidden="true">${escapeHtml(String(number))}</span>
+        <div><h3>${escapeHtml(title)}</h3><p class="stat-detail">${escapeHtml(definition)}</p></div>
+        ${options && options.summary ? `<span class="ci-rules-section-summary">${options.summary}</span>` : ''}
+      </div>
+      ${body}
+    </section>`;
+    const routingSummary = routing.configPresent
+      ? `${escapeHtml(`${(routing.decisions || []).length} kind${(routing.decisions || []).length === 1 ? '' : 's'} of check decided`)} <button type="button" class="action-link" data-action="file" data-payload="${escapeAttr(routing.configPath || '')}">Open the file</button>`
+      : 'No routing file yet <button type="button" class="action-link primary" data-action="pipeline-create-routing">Create…</button>';
+    const switchBody = renderCiRunnerSwitch(routing.runnerSwitch, { advanced });
+    const limitsBody = renderCiResourceLimits(routing.runnerSwitch, { advanced });
+    const toggle = `<div class="tag-row ci-rules-advanced-toggle"><button type="button" class="action-link" data-action="pipeline-rules-advanced" aria-expanded="${advanced ? 'true' : 'false'}">${advanced ? 'Hide advanced' : 'Show advanced: routing grid, dry run, switch detail, fine-tuned limits'}</button></div>`;
 
-      ${runnerNeedsYou ? '' : executorsCard}
+    return `<div class="ci-studio-stack ci-rules-sections">
+      ${section(1, 'What can run a check', 'Each row is a place a check could run, and whether it is ready.', executorsCard)}
+      ${section(2, 'Where each kind of check goes', 'A committed file your team reviews. Creating it runs nothing.', advanced || !routing.configPresent ? routingCard + (advanced ? dryRunCard : '') : '', { summary: routingSummary, collapsed: !advanced && routing.configPresent })}
+      ${section(3, 'Where opted-in workflows run this month', 'One repository variable. Pull requests from other repositories always stay on GitHub.', creditRow + switchBody)}
+      ${section(4, 'How much of this computer CI may use', 'A quarter of the computer always stays free for you.', limitsBody)}
+      ${toggle}
     </div>`;
   }
 
