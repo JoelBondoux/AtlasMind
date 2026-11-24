@@ -86,7 +86,11 @@ branch supplies the controller at `github.sha`; the proposed SHA supplies only t
 Runs already waiting on GitHub are listed in plain words and cancelled only after a confirmation that names
 each one; a runner that ends before finishing cancels the single run it dispatched and publishes an error
 status, so AtlasMind's own queue cannot block its next attempt. A missing or unreadable contract is
-reported with the open folder and the file it looked for.
+reported with the open folder and the file it looked for. `reviewedPrLocalCiState.ts` derives, from the
+contract, the two managed files, their git status and the current branch, where the route stands in the open
+folder (absent, disabled, invalid, enabled; runnable or blocked, with the run command's own refusals) and the
+one next action from a declared table; the dashboard collects it beside `delivery.localRunner` so the card
+and the Rules executor row offer the step that would otherwise fail first.
 The producer name is never a trust signal, so Codex, Claude, other agent interfaces and humans follow the
 same route. The job retains outbound network access for GitHub and dependency installation, so the
 container is defence in depth and explicit code review remains the authorisation boundary.

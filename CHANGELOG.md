@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.518.0] - 2026-11-24
+
+### Added
+
+- The Pipeline and Pull Requests pages now know where the reviewed-PR local-CI route
+  stands in the open folder. A new pure module (`src/core/reviewedPrLocalCiState.ts`) reads
+  the contract, the two managed files, their git status and the current branch, and says
+  whether the folder is unpatched, disabled, patched-but-not-ready or ready, with the
+  blockers in the run command's own words. The card's primary button is now the step that
+  would otherwise fail first: patch, open the contract, commit the managed files, check out
+  the trusted branch, re-patch, or run. The folder and contract path are on the card.
+- Rules lists **Run a reviewed pull request here** as its own executor row, with a two-line
+  explainer telling the two local routes apart (dismissable per machine).
+
+### Changed
+
+- The trusted-branch route is labelled **Lend this computer to trusted-branch pushes**, so it
+  no longer reads as the way to run a pull request.
+- The Pipeline setup chip says which route it is talking about (`reviewed-PR ready`,
+  `trusted route 1/3`) instead of a bare `setup 1/3`, and a repository that is patched and
+  ready for reviewed PRs no longer opens Rules on the trusted route's "Write the trusted
+  workflow…" checklist when nothing routes work to that route.
+
 ## [0.517.0] - 2026-11-24
 
 ### Changed

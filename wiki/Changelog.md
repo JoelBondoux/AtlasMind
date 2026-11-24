@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.518.0 -- The Pipeline page knows where reviewed-PR local CI stands
+
+The reviewed-PR card reads the open folder — unpatched, disabled, patched but not ready, or
+ready — and its primary button is the step that would otherwise fail first. Rules lists the
+reviewed-PR route as its own executor beside the renamed **Lend this computer to
+trusted-branch pushes**, with a short explainer telling the two apart.
+
+---
+
 ## v0.517.0 -- Reviewed-PR local CI says what is wrong and clears its own queue
 
 A missing contract names the open folder and the file it looked for; a disabled one says whether

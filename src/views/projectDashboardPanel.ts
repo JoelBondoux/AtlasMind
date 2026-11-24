@@ -543,6 +543,12 @@ import { resolveWorkflowNodeVersion, type NodeVersionResolution } from '../core/
 import { buildTrustedLocalCiStarter } from '../core/trustedLocalCiStarter.js';
 import { lookUpLocalCiDispatcher } from '../core/localCiActorGuard.js';
 import {
+  REVIEWED_PR_LOCAL_CI_CONFIG_PATH,
+  REVIEWED_PR_LOCAL_CI_RUNNER_PATH,
+  REVIEWED_PR_LOCAL_CI_WORKFLOW_PATH,
+} from '../core/localCiRepositoryPatch.js';
+import { deriveReviewedPrLocalCiState, type ReviewedPrLocalCiState } from '../core/reviewedPrLocalCiState.js';
+import {
   ACT_COMMAND,
   ACT_DOCS_URL,
   assessActFidelity,
@@ -3633,6 +3639,13 @@ interface DashboardSnapshot {
     /** Machine-owned execution fabric. Never populated from webview input. */
     localRunner: DashboardLocalCiRunnerSnapshot;
     /**
+     * Where the reviewed-PR route stands in the open folder: contract present,
+     * enabled, committed, on the trusted branch. Read from files and git on
+     * every collection — never from a webview — so the card can offer the step
+     * that would otherwise fail first instead of a fixed "Patch repository".
+     */
+    reviewedPrLocalCi: ReviewedPrLocalCiState;
+    /**
      * Every route a check could run on, and whether it can here.
      *
      * Carried whole rather than reduced to the available ones: a route that is
@@ -5902,7 +5915,7 @@ export class ProjectDashboardPanel {
       id: `local-runner-${queued.databaseId}`,
       source: 'local',
       routeId: 'local-runner',
-      routeLabel: 'Lend this computer to GitHub',
+      routeLabel: 'Lend this computer to trusted-branch pushes',
       evidence: 'linux-container',
       observation: 'live',
       status,
@@ -20925,6 +20938,13 @@ async function collectDashboardSnapshot(
     workflowConfigManager?.getConfig()?.branches.protected ?? [],
   );
   const versionSnapshot = await collectVersionSnapshot(workspaceRoot, gitSnapshot.currentBranch, packageSnapshot.version);
+  const reviewedPrLocalCi = await collectReviewedPrLocalCiState(
+    workspaceRoot,
+    // The git snapshot spells "no answer" and "detached" as words; the pure
+    // derivation wants undefined and the empty string respectively.
+    gitSnapshot.currentBranch === 'Not a git repository' ? undefined
+      : gitSnapshot.currentBranch === 'Detached' ? '' : gitSnapshot.currentBranch,
+  );
   // The pipeline is declared in project memory, so it is drawn only where
   // project memory has a home.
   const stagePipeline = await collectDeliveryStagePipeline(atlas, ssotRoot, gitSnapshot.currentBranch, workflowSnapshot.map(workflow => workflow.name));
@@ -21652,6 +21672,7 @@ async function collectDashboardSnapshot(
         ...(localRunner ?? initialLocalCiRunnerSnapshot(readLocalCiRunnerConfiguration())),
         enablement: readLocalCiRunnerEnablement(),
       },
+      reviewedPrLocalCi,
       builds: buildsSnapshot,
       routing: routingSnapshot,
       routes: routeAvailability,
@@ -23087,6 +23108,52 @@ function withConfiguredProtectedBranches(
         ? item
         : { ...item, protected: true }),
   };
+}
+
+/**
+ * The reviewed-PR route's standing, from the files and git alone.
+ *
+ * Three reads and one git status, all bounded to the three managed paths; no
+ * `gh`, no network. A read that fails yields `undefined` for that input, which
+ * the pure derivation reports as "not checked" rather than as ready. With no
+ * workspace the state is `absent` for a folder called "No Workspace", so the
+ * card still says what it looked for.
+ */
+async function collectReviewedPrLocalCiState(
+  workspaceRoot: string | undefined,
+  currentBranch: string | undefined,
+): Promise<ReviewedPrLocalCiState> {
+  const folderName = workspaceRoot ? path.basename(workspaceRoot) : 'No Workspace';
+  if (!workspaceRoot) {
+    return deriveReviewedPrLocalCiState({ folderName, contractRaw: undefined, currentBranch: undefined, managedStatus: undefined });
+  }
+  const readManaged = async (relativePath: string): Promise<string | undefined> => {
+    try {
+      return await fs.readFile(path.join(workspaceRoot, ...relativePath.split('/')), 'utf8');
+    } catch {
+      return undefined;
+    }
+  };
+  const [contractRaw, runnerText, workflowText] = await Promise.all([
+    readManaged(REVIEWED_PR_LOCAL_CI_CONFIG_PATH),
+    readManaged(REVIEWED_PR_LOCAL_CI_RUNNER_PATH),
+    readManaged(REVIEWED_PR_LOCAL_CI_WORKFLOW_PATH),
+  ]);
+  // Only asked when a contract exists: a folder that was never patched has
+  // nothing to be dirty, and the status read is the one git call here.
+  const managedStatus = contractRaw === undefined
+    ? ''
+    : await runGit(workspaceRoot, [
+      'status', '--porcelain', '--', REVIEWED_PR_LOCAL_CI_CONFIG_PATH, REVIEWED_PR_LOCAL_CI_RUNNER_PATH, REVIEWED_PR_LOCAL_CI_WORKFLOW_PATH,
+    ]).catch(() => undefined);
+  return deriveReviewedPrLocalCiState({
+    folderName,
+    contractRaw,
+    ...(runnerText === undefined ? {} : { runnerText }),
+    ...(workflowText === undefined ? {} : { workflowText }),
+    currentBranch,
+    managedStatus,
+  });
 }
 
 async function collectGitSnapshot(workspaceRoot: string | undefined): Promise<GitSnapshot> {
@@ -32022,6 +32089,11 @@ const DASHBOARD_CSS = `
   .ci-rules-decision p { margin: 3px 0 0; }
 
   .ci-executor-list { display: grid; gap: 7px; }
+  .ci-executor-reviewed-pr { border-style: solid; }
+  .ci-routes-explainer { margin-bottom: 10px; }
+  .ci-routes-explainer p { margin: 4px 0 0; }
+  .ci-reviewed-pr-facts { margin: 6px 0 2px; }
+  .ci-reviewed-pr-instruction code { font-size: 12px; }
   .ci-executor-row {
     display: flex;
     align-items: center;

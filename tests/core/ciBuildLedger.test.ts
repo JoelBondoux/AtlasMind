@@ -18,7 +18,7 @@ function local(overrides: Partial<Parameters<typeof recordCiBuild>[0]> = {}): Ci
     id: 'local-1',
     source: 'local',
     routeId: 'local-runner',
-    routeLabel: 'Lend this computer to GitHub',
+    routeLabel: 'Lend this computer to trusted-branch pushes',
     evidence: 'linux-container',
     observation: 'live',
     status: 'running',
