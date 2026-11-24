@@ -1206,14 +1206,16 @@ only.
 ```bash
 npm run package    # Produces a .vsix file
 npm run package:vsix    # Packages with the checked-in @vscode/vsce dependency
-npm run publish:release    # Publishes the current build (does not tag)
+npm run release:gate    # Runs the release gate on a tagged checkout, publishes nothing
+npm run publish:release    # Runs the release gate and publishes only if it passes (does not tag)
+npm run release:window    # One scheduled publish window (see docs/releasing.md)
 npm run tag:release    # Re-run the git tag step on its own if it failed after publish
 npm run sbom           # CycloneDX SBOM of runtime dependencies, to stdout
 ```
 
 `sbom` emits CycloneDX 1.5 for runtime dependencies only (`--omit dev`), resolved from the lockfile. It writes to stdout and **nothing commits its output**: a checked-in SBOM goes stale silently, and a stale one answers a question about a build that no longer exists with the confidence of a generated artifact. Generate it against the tag you are actually asking about. The reasoning, and the rest of the supply-chain position, is in [`dependency-security-review.md`](dependency-security-review.md).
 
-`publish:release` runs `vsce publish` and nothing else, authenticating with whatever credential `vsce login` stored in the OS keychain — it is the emergency path for publishing from a developer machine. **CI uses `publish:release:ci` instead** (`vsce publish --azure-credential`), which authenticates as the managed identity `vscode-marketplace-publisher` through workload identity federation; there is no Marketplace secret in the repository. The two are kept separate because adding `--azure-credential` to the local script would break publishing from a machine that has no Azure sign-in. Tagging is `npm run tag:release`, which creates and pushes a `v<version>` annotated git tag (`.github/scripts/tag-release.mjs`, cross-platform and idempotent — it skips if the tag already exists). The two are deliberately **not** chained: the tag push triggers `publish.yml`, so chaining them made one release attempt two publishes, the second failing on "version already exists". Normal flow is `tag:release` locally, then CI publishes from the tag. Since `@vscode/vsce` 4.0, `vsce` needs Node.js 22 or later (CI runs 24), and the first local `vsce publish` after upgrading may offer to migrate a legacy PAT stored by `vsce login` — expect that prompt on the emergency path, not in CI, which never uses a PAT.
+`publish:release` runs the release gate ([releasing.md](releasing.md)) and publishes only if it passes, authenticating with whatever credential `vsce login` stored in the OS keychain; the scheduled publish windows run it. **The hosted fallback uses `publish:release:ci` instead** (the gate with `--azure-credential`), which authenticates as the managed identity `vscode-marketplace-publisher` through workload identity federation; there is no Marketplace secret in the repository. The two are kept separate because adding `--azure-credential` to the local script would break publishing from a machine that has no Azure sign-in. Tagging is `npm run tag:release`, which creates and pushes a `v<version>` annotated git tag (`.github/scripts/tag-release.mjs`, cross-platform and idempotent — it skips if the tag already exists). The two are deliberately **not** chained: the tag push triggers `publish.yml`, so chaining them made one release attempt two publishes, the second failing on "version already exists". Normal flow is `tag:release` locally, then the next scheduled publish window gates and publishes it; a tag push no longer publishes. Since `@vscode/vsce` 4.0, `vsce` needs Node.js 22 or later (CI runs 24), and the first local `vsce publish` after upgrading may offer to migrate a legacy PAT stored by `vsce login` — expect that prompt on the emergency path, not in CI, which never uses a PAT.
 
 The checked-in `.gitignore` keeps the local `project_memory_old/` backup outside source control, and `.vscodeignore` is the packaging boundary for local and release VSIX files. It intentionally excludes workspace-only content such as all `project_memory*` directories (including local archive or backup variants), local `.kilo` worktrees, a top-level local/generated `website/` tree, `wiki/`, local `.vsix` outputs, Vitest JSON report artifacts, Stryker's `.stryker-tmp/` sandbox, separate test/e2e/performance trees, assistant instruction folders, and extra dependency test or docs folders so the packaged extension stays closer to runtime-only contents. `tests/packageManifest.test.ts` pins the generated directory exclusions. Review the `vsce package` file listing before publishing; workspace memory, an assistant worktree, or a project website in that listing is a release blocker. Never bypass `vsce`'s secret scanner to admit one of those directories.
 
@@ -1225,8 +1227,8 @@ npm install -g @vscode/vsce
 AtlasMind is still branded as Beta until `1.0.0`, but Marketplace publication now
 uses the standard release channel.
 The manifest is marked with `"preview": false`, `npm run publish:release`
-publishes the default stable listing, and `npm run publish:pre-release` remains
-available only if you intentionally need a prerelease build later.
+publishes the default stable listing through the release gate. There is no
+pre-release publish script; a pre-release would need its own gated path.
 
 ## Ideation dashboard implementation
 

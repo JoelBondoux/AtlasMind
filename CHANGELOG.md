@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.516.9] - 2026-11-23
+
+### Changed
+
+- Releases reach the Marketplace only through a fail-closed release gate
+  (`scripts/release-gate/`): full local CI, the security suite, `npm audit` at high or
+  above, a secret scan of the packaged VSIX, an install and an activation smoke test of
+  that VSIX, at most two publications per UK day, then a publish of the exact file that
+  passed. It has no bypass option. A tag push no longer publishes; two scheduled publish
+  windows (10:30 and 22:00 UK, Windows Task Scheduler, hidden) publish the newest release
+  that passes. `publish:pre-release` is removed. See `docs/releasing.md`.
+
+### Fixed
+
+- `docsIntegrity` compared the README's last-publication line with the newest tag, so every
+  release tag failed its own test suite. It now compares with the newest tag older than the
+  source version.
+
 ## [0.516.8] - 2026-11-03
 
 ### Documentation

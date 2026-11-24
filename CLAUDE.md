@@ -80,7 +80,9 @@ The release is **Actions-driven**. When asked to publish or ship a release, foll
    **Verify `main` yourself before tagging.** Read the version out of `main` — `git show
    origin/main:package.json` — rather than trusting a "merged" signal. A merge notification can match
    an older, already-merged release PR, and the tag step is irreversible.
-7. **Tag**: `npm run tag:release` — pushes `v<version>`. The tag push triggers `Release — publish Marketplace from tag`, which publishes via `vsce` and creates the GitHub Release entry.
+7. **Tag**: `npm run tag:release` — pushes `v<version>`. A tag push **no longer publishes** (2026-11-23). The next scheduled publish window (10:30 or 22:00 UK, on the maintainer's machine) runs the release gate on the newest tag the Marketplace lacks and publishes it only if every check passes; see `docs/releasing.md`.
+
+   **The release gate is the only route to the Marketplace** (`scripts/release-gate/release-gate.mjs`, `npm run release:gate` to check without publishing). Joel's rules, 2026-11-23: a release is published only after it is shown to have no new functional bugs and no safety or security problems; at most **two** Marketplace publications per UK day, enforced by the gate from the Marketplace's own record; when several releases are waiting, the newest that passes is published, never one per commit. The gate runs, in order and fail-closed: a clean checkout of the tag, the Marketplace check and daily limit, `vsce verify-pat`, `npm ci`, the full `npm run ci:local` (compile, lint, integration audit, the whole test suite, coverage, package), the `tests/security` suite, `npm audit --omit=dev --audit-level=high`, one `vsce package`, a secret scan of every file in that VSIX, `code --install-extension` into a throwaway profile, an activation smoke test of the packaged code (`vsix-smoke.cjs`: every contributed command registered, core commands run), then `vsce publish --packagePath` of that exact VSIX. **It has no skip, force or bypass option, and none may be added**; `tests/release/releaseGate.test.ts` fails if a publish script or workflow goes around it. Publishing needs Joel's explicit go-ahead: the scheduled windows are that go-ahead once he has approved them.
 8. **Refresh the README's published baseline** to the version just tagged, and commit it.
 
    This step is not optional housekeeping — **the repository's own test suite is red until it is done.**
@@ -96,7 +98,7 @@ The release is **Actions-driven**. When asked to publish or ship a release, foll
    publish fails, the honest state is a failing test rather than a README claiming a version that
    never shipped. Do not pre-empt it.
 
-**`npm run publish:release` publishes only; it no longer pushes a tag.** The two were chained until v0.184.0, and the chain was a hazard: the tag push triggered `publish.yml`, which ran `publish:release` again and failed on "version already exists". One release now has exactly one publish path (CI, from the tag) and one tag path (`npm run tag:release`, run deliberately). For an emergency local publish when Actions is unavailable, run both in that order.
+**`npm run publish:release` runs the release gate with `--publish`; it does not tag.** One release has one tag path (`npm run tag:release`, run deliberately) and one publish path (the gate), normally reached through a scheduled publish window (`npm run release:window`). `publish.yml` is now a manually dispatched hosted fallback that runs the same gate (`publish:release:ci`); it no longer triggers on a tag push.
 
 **CI publishes through Microsoft Entra ID, not a PAT.** There is no Marketplace
 secret in this repository. `publish.yml` signs in with `azure/login` using the
@@ -110,13 +112,13 @@ Three things about that path are worth knowing before touching it:
 - **The publish job must declare `environment: marketplace`.** The federated
   credential's subject is `repo:JoelBondoux/AtlasMind:environment:marketplace`,
   and standard federated credentials reject wildcards — so it cannot be scoped to
-  the `v*` tag the workflow triggers on. Without the environment the OIDC token
+  a `v*` tag. Without the environment the OIDC token
   carries the tag subject, Entra refuses the exchange, and the error reads like a
   wrong client id.
 - **`npm run publish:release` and `npm run publish:release:ci` are different on
-  purpose.** The first uses whatever credential `vsce login` stored in the OS
-  keychain and is the emergency path from a developer machine; the second uses the
-  Entra identity and is what CI runs. Adding `--azure-credential` to the first
+  purpose.** Both run the release gate. The first publishes with whatever credential `vsce login` stored in the OS
+  keychain and is what the scheduled windows run; the second uses the
+  Entra identity and is what the manual `publish.yml` runs. Adding `--azure-credential` to the first
   would break local publishing.
 - **`Marketplace — verify publishing identity` tests the credential without
   publishing.** Run it whenever the identity changes. A published version can
@@ -723,7 +725,7 @@ of this same file. Follow those.
 - Use conventional commit prefixes: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`.
 - Routine implementation targets `develop`; never push directly to protected `main`.
 - Release is Actions-driven: commit, merge to `develop`, run `npm run compile` and `npm run package`, open/execute promote `develop -> main` PR, wait for merge + CI, then run `npm run tag:release`.
-- Normal publishing is tag-triggered after merge; `npm run publish:release` is emergency/local only.
+- Normal publishing is through the release gate at a scheduled publish window (10:30 / 22:00 UK, at most two a day); a tag push does not publish. See `docs/releasing.md`.
 - Release PR to `main` must use merge commit (never squash).
 - CI publishing uses Entra + `marketplace` environment context and requires the existing identity verification path.
 
