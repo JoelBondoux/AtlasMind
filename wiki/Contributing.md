@@ -1,5 +1,11 @@
 # Contributing
 
+The v0.524.1 dependency review moves the ACP SDK to 2.12.0 (still stable protocol v1 through the
+app API; run the ACP agent tests when touching it), ws to 8.23.0, and the ESLint, Vitest coverage,
+vsce, fast-check and jsdom tooling together, with Vitest aligned to its coverage plugin at 5.1.2.
+Reviewed versions are listed in
+[development guidance](https://github.com/JoelBondoux/AtlasMind/blob/develop/docs/development.md#reviewed-dependency-updates).
+
 The v0.516.7 follow-up uses ESLint 10.14.0 after reviewing the new dependency PR #276.
 Historical secret-scan exceptions pin individual reviewed findings; see [Security](Security.md).
 

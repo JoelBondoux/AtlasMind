@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.524.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.524.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,13 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.524.1
+
+Three Dependabot updates reviewed and applied together: the ACP SDK (still stable protocol v1,
+checked by the real-transport agent tests), `ws`, and the ESLint, Vitest coverage, vsce,
+fast-check and jsdom tooling. Production audit at high: zero findings. See
+[the review note](docs/dependency-pr-review-2026-11-25.md).
+
 ## What's new in 0.524.0
 
 Plainer words across the Pipeline page, one shared **AtlasMind Local CI** output channel with a
@@ -189,12 +196,6 @@ an exploratory test charter for getting a pull request mergeable with no help.
 Pipeline's Needs-you card is ranked by a declared table — a blocked pull request first, then a
 folder that cannot run it yet, then a dead runner, then an old CI failure — and "check out the
 trusted branch" is now a confirmed button that refuses on a dirty working tree.
-
-## What's new in 0.522.0
-
-Runners & rules is now four numbered sections with a one-line definition each — what can run a
-check, where each kind goes, where opted-in workflows run this month, and how much of this computer
-CI may use — with the routing grid, dry run and fine-tuned limits behind **Show advanced**.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.516.7**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in

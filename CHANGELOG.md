@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.524.1] - 2026-11-25
+
+### Security
+
+- Three open Dependabot pull requests are reviewed and applied together, as one versioned commit,
+  rather than merged one by one (#296, #291, #286). Runtime: `@agentclientprotocol/sdk` to 2.12.0
+  (range `^2.9.1`; still stable ACP v1 through the app API, exercised by the real-transport ACP
+  agent tests) and `ws` to 8.23.0 with `@types/ws` 8.18.2 unchanged. Tooling: typescript-eslint
+  plugin 8.74.0, ESLint 10.15.0, `@vitest/coverage-v8` 5.1.2 with Vitest aligned at 5.1.2, vsce
+  4.1.1, fast-check 4.11.0 and jsdom 31.0.1. The production `npm audit` at high reports zero
+  findings. The JUnit fixture the output-schema-drift guard reads was re-captured from Vitest 5.1.2
+  and its pin moved to `^5.1`. See `docs/dependency-pr-review-2026-11-25.md`.
+
 ## [0.524.0] - 2026-11-24
 
 ### Changed
