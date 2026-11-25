@@ -2,6 +2,12 @@
 
 ## Dependency review
 
+Source v0.524.1 consolidates dependency PRs #296, #291 and #286: ACP SDK 2.12.0 (still stable ACP
+v1 through the app API, covered by the real-transport agent tests), ws 8.23.0, and the developer
+tooling (typescript-eslint plugin 8.74.0, ESLint 10.15.0, Vitest and coverage 5.1.2, vsce 4.1.1,
+fast-check 4.11.0, jsdom 31.0.1). The 2026-11-25 production npm audit at high reports zero findings.
+Evidence: `package-lock.json`, `docs/dependency-pr-review-2026-11-25.md`.
+
 The follow-up v0.516.7 records exact exceptions for 22 historical secret-scan false positives,
 reviewed against their original source and public form provenance. No additional file or
 credential pattern is excluded; new credentials remain detectable. Evidence: `.gitleaksignore`.

@@ -19,6 +19,14 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.524.1 -- Three Dependabot updates, reviewed together
+
+The ACP SDK, `ws` and the developer tooling (typescript-eslint, ESLint, Vitest coverage with Vitest
+aligned, vsce, fast-check, jsdom) move in one versioned commit. ACP stays on stable protocol v1,
+proven by the real-transport agent tests; the production audit reports nothing at high.
+
+---
+
 ## v0.524.0 -- Plainer words, one local CI output channel
 
 "Where checks can run", "this computer, lent to one job", "GitHub's free minutes", "Proves Linux

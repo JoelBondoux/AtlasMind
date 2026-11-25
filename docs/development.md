@@ -1,5 +1,12 @@
 ## Reviewed dependency updates
 
+Source v0.524.1 consolidates PRs #296, #291 and #286. Runtime locks are ACP SDK 2.12.0 (declared
+`^2.9.1`; still stable protocol v1 through the app API, exercised by the real-transport ACP agent
+tests) and ws 8.23.0 with ws types 8.18.2. Tooling uses typescript-eslint plugin 8.74.0, ESLint
+10.15.0, Vitest and its v8 coverage plugin both at 5.1.2, vsce 4.1.1, fast-check 4.11.0 and jsdom
+31.0.1. The production `npm audit --omit=dev --audit-level=high` reports zero findings. See
+[the review note](dependency-pr-review-2026-11-25.md).
+
 Follow-up v0.516.7 accepts the newly opened PR #276 for ESLint 10.14.0. Its lockfile
 changes only ESLint's package; the installed shared dependencies were already compatible.
 Historical secret-scan finding exceptions are documented in [Security](../wiki/Security.md).
