@@ -37,7 +37,7 @@ import {
   waitForCiGateQueueLock,
   type CiGateQueueRelease,
 } from './ciGateQueue.js';
-import { assessRunnerVersionPin, parseLatestRunnerRelease } from './runnerVersionPin.js';
+import { assessRunnerVersionPin, parseLatestRunnerRelease, runnerImageArchitectureMismatch } from './runnerVersionPin.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -47,22 +47,7 @@ const execFileAsync = promisify(execFile);
  * digest, so its version is known and can be compared with GitHub's latest.
  */
 export const DEFAULT_LOCAL_CI_IMAGE = 'ghcr.io/actions/actions-runner@sha256:6d0b2d80d80f143f77dcb676e50920100bbb547e39e883454d57f45ab8c31300';
-/**
- * The architecture the shipped default digest resolves to.
- *
- * A digest names one immutable thing. This one was reviewed against the Linux
- * **x64** manifest of runner 2.338.2, so on an arm64 engine it is simply the
- * wrong image — and no arm64 digest ships beside it because nobody has reviewed
- * one, and inventing a plausible digest would be exactly the fabricated pin
- * `trustedLocalCiStarter` refuses to emit.
- *
- * Naming the architecture lets the mismatch be *reported* instead of being
- * discovered as a confusing pull failure: an Apple-silicon or arm64-Linux
- * operator gets a blocker that names the setting to change and the command that
- * produces the right digest.
- */
-export const DEFAULT_LOCAL_CI_IMAGE_ARCH = 'x64';
-/** The tag the shipped digest was reviewed against, for the mismatch remedy. */
+/** The tag the shipped digest was reviewed against. */
 export const DEFAULT_LOCAL_CI_IMAGE_TAG = 'ghcr.io/actions/actions-runner:2.338.2';
 export const LOCAL_CI_MIN_CPUS = 2;
 export const LOCAL_CI_MIN_MEMORY_GB = 4;
@@ -1285,19 +1270,14 @@ export class LocalCiRunnerManager {
     }
 
     // An arch mismatch is reported as itself rather than left to surface as a
-    // pull failure. The shipped digest is the x64 manifest, so on an arm64
-    // engine it is the wrong image — and "image could not be pulled" sends
-    // somebody looking at their network instead of at one setting.
-    if (engine.available
-      && configuration.image === DEFAULT_LOCAL_CI_IMAGE
-      && (engine.arch ?? host.arch) !== DEFAULT_LOCAL_CI_IMAGE_ARCH) {
-      blockers.push(
-        `Docker reports ${engine.arch ?? host.arch}, but the runner image AtlasMind ships is the reviewed `
-        + `${DEFAULT_LOCAL_CI_IMAGE_ARCH} digest. Pin the matching manifest digest for your architecture in `
-        + 'atlasmind.ci.localRunner.image — read it from '
-        + `\`docker buildx imagetools inspect ${DEFAULT_LOCAL_CI_IMAGE_TAG}\` and compare it against GitHub's `
-        + 'package page before trusting it. AtlasMind ships no arm64 digest because none has been reviewed here.',
-      );
+    // pull failure ("image could not be pulled" sends somebody looking at their
+    // network instead of at one setting). The shipped default is a reviewed
+    // multi-architecture index, so it covers x64 and arm64.
+    const archMismatch = engine.available
+      ? runnerImageArchitectureMismatch(configuration.image, engine.arch ?? host.arch)
+      : undefined;
+    if (archMismatch) {
+      blockers.push(archMismatch);
     }
 
     if (engine.available && blockers.length === 0) {

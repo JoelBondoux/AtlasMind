@@ -94,6 +94,47 @@ export function reviewedRunnerVersionForImage(image: string): string | undefined
   return entry?.version;
 }
 
+type RunnerImageArch = keyof ReviewedRunnerImage['manifests'];
+
+/**
+ * Whether a reviewed image can run on the engine's architecture, as a blocker
+ * sentence, or `undefined` when it can (or when the image is not one AtlasMind
+ * reviewed, which `assessRunnerVersionPin` already reports as unknown).
+ *
+ * An index digest pins every manifest it lists, so it covers each architecture
+ * whose manifest was reviewed alongside it; a per-platform manifest covers only
+ * its own. An architecture with no reviewed manifest is reported before the pull,
+ * so it is not discovered as a confusing pull failure.
+ */
+export function runnerImageArchitectureMismatch(image: string, arch: string): string | undefined {
+  const match = /^([^@\s]+)@(sha256:[a-f0-9]{64})$/i.exec(image.trim());
+  if (!match || match[1]!.toLowerCase() !== OFFICIAL_RUNNER_REPOSITORY) {
+    return undefined;
+  }
+  const digest = match[2]!.toLowerCase();
+  const archs = Object.keys(REVIEWED_RUNNER_IMAGES[0]!.manifests) as RunnerImageArch[];
+  for (const entry of REVIEWED_RUNNER_IMAGES) {
+    let covered: RunnerImageArch[] | undefined;
+    if (entry.indexDigest === digest) {
+      covered = archs.filter(candidate => entry.manifests[candidate] !== '');
+    } else {
+      const own = archs.find(candidate => entry.manifests[candidate] !== '' && entry.manifests[candidate] === digest);
+      covered = own ? [own] : undefined;
+    }
+    if (!covered) {
+      continue;
+    }
+    if ((covered as string[]).includes(arch)) {
+      return undefined;
+    }
+    return `Docker reports ${arch}, but the configured runner image (runner ${entry.version}) has reviewed manifests for `
+      + `${covered.join(', ')} only. Pin a digest that covers ${arch} in atlasmind.ci.localRunner.image — read it from `
+      + `\`docker buildx imagetools inspect ${OFFICIAL_RUNNER_REPOSITORY}:${entry.version}\` and compare it against GitHub's `
+      + 'package page before trusting it.';
+  }
+  return undefined;
+}
+
 export function compareRunnerVersions(left: string, right: string): number {
   const a = left.split('.').map(Number);
   const b = right.split('.').map(Number);

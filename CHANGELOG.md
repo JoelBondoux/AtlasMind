@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.525.1] - 2026-11-27
+
+### Fixed
+
+- An arm64 engine is no longer refused the shipped runner image. The default is runner 2.338.2's
+  multi-architecture index digest, which pins the reviewed arm64 manifest as well as the x64 one, but the
+  architecture check still treated it as x64-only and blocked Apple-silicon and arm64-Linux machines with a
+  "pin the arm64 digest" message. The check now reads which architectures each reviewed image covers from
+  `REVIEWED_RUNNER_IMAGES` (`runnerImageArchitectureMismatch`): an index covers every architecture whose
+  manifest was reviewed, a per-platform digest covers only its own, and an architecture with no reviewed
+  manifest (for example arm64 on the older 2.336.0 pin) is still reported before any pull, naming the
+  setting and the `imagetools inspect` command.
+
 ## [0.525.0] - 2026-11-27
 
 ### Added

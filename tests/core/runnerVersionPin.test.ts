@@ -7,6 +7,7 @@ import {
   compareRunnerVersions,
   parseLatestRunnerRelease,
   reviewedRunnerVersionForImage,
+  runnerImageArchitectureMismatch,
 } from '../../src/core/runnerVersionPin.ts';
 
 const NOW = Date.parse('2026-11-27T12:00:00Z');
@@ -104,5 +105,31 @@ describe('assessing the pinned runner version', () => {
 
   it('treats a pin newer than GitHub\'s latest as current, not as behind', () => {
     expect(assessRunnerVersionPin({ image: DEFAULT_LOCAL_CI_IMAGE, latest: { version: '2.338.1' }, now: NOW }).state).toBe('current');
+  });
+});
+
+describe('which architectures a reviewed index digest covers', () => {
+  it('lets the shipped default run on arm64 as well as x64, because the reviewed index carries both manifests', () => {
+    expect(runnerImageArchitectureMismatch(DEFAULT_LOCAL_CI_IMAGE, 'x64')).toBeUndefined();
+    expect(runnerImageArchitectureMismatch(DEFAULT_LOCAL_CI_IMAGE, 'arm64')).toBeUndefined();
+  });
+
+  it('reports an architecture the reviewed index has no reviewed manifest for, naming the setting and the inspect command', () => {
+    const mismatch = runnerImageArchitectureMismatch(DEFAULT_LOCAL_CI_IMAGE, 'riscv64');
+    expect(mismatch).toMatch(/riscv64/);
+    expect(mismatch).toMatch(/x64, arm64/);
+    expect(mismatch).toMatch(/atlasmind\.ci\.localRunner\.image/);
+    expect(mismatch).toMatch(/imagetools inspect ghcr\.io\/actions\/actions-runner:2\.338\.2/);
+  });
+
+  it('still reports arm64 against an older pin whose arm64 manifest was never reviewed', () => {
+    const older = `ghcr.io/actions/actions-runner@${REVIEWED_RUNNER_IMAGES[1]!.indexDigest}`;
+    expect(runnerImageArchitectureMismatch(older, 'x64')).toBeUndefined();
+    expect(runnerImageArchitectureMismatch(older, 'arm64')).toMatch(/2\.336\.0/);
+  });
+
+  it('says nothing about an image it does not know, which the version check already reports as unknown', () => {
+    expect(runnerImageArchitectureMismatch('ghcr.io/actions/actions-runner:2.338.2', 'arm64')).toBeUndefined();
+    expect(runnerImageArchitectureMismatch('registry.example/runner@sha256:' + 'a'.repeat(64), 'arm64')).toBeUndefined();
   });
 });

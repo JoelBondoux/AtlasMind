@@ -4,7 +4,7 @@
 
 <h1 align="center">AtlasMind</h1>
 
-<p align="center"><sub> · <strong>Current source version: 0.525.0</strong> · </sub></p>
+<p align="center"><sub> · <strong>Current source version: 0.525.1</strong> · </sub></p>
 
 
 <p align="center">
@@ -178,6 +178,12 @@ important limits on overrides and compliance claims.
 
 ---
 
+## What's new in 0.525.1
+
+The shipped runner image now starts on arm64 engines (Apple silicon, arm64 Linux) as well as x64: it is a
+multi-architecture digest that pins both reviewed manifests, and the architecture check had been treating it
+as x64-only.
+
 ## What's new in 0.525.0
 
 Heavy CI work on a shared computer can take turns: set `atlasmind.ci.gateQueue.lockPath` and the local
@@ -191,12 +197,6 @@ hand-built image.
 Plainer words across the Pipeline page, one shared **AtlasMind Local CI** output channel with a
 Show output button on the reviewed-PR card, a two-routes table at the top of the local CI guide, and
 an exploratory test charter for getting a pull request mergeable with no help.
-
-## What's new in 0.523.0
-
-Pipeline's Needs-you card is ranked by a declared table — a blocked pull request first, then a
-folder that cannot run it yet, then a dead runner, then an old CI failure — and "check out the
-trusted branch" is now a confirmed button that refuses on a dirty working tree.
 
 Only the three newest releases are summarised here. The last Marketplace publication, **v0.516.7**, is
 the build the Marketplace serves; every release, older ones included, is written up in full in

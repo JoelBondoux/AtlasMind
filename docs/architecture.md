@@ -1273,7 +1273,10 @@ to a new binary inside the container as it takes a job, so the digest pin would 
 versions (a tag or local derivative is `unknown-image`, never current); `assessRunnerVersionPin` compares
 with the latest release the caller read through `gh api repos/actions/runner/releases/latest`, warns when
 behind and says GitHub may stop assigning jobs once the newer release is past `RUNNER_UPDATE_GRACE_DAYS`
-(63, GitHub's documented window for runners with updates disabled). It never bumps a digest. Pure.
+(63, GitHub's documented window for runners with updates disabled). `runnerImageArchitectureMismatch`
+answers whether a reviewed image can run on the engine's architecture: an index digest covers every
+architecture whose manifest was reviewed with it, a per-platform digest only its own, and a missing one is a
+blocker before any pull. It never bumps a digest. Pure.
 
 ### LocalCiTrustAnchor (`src/core/localCiTrustAnchor.ts`)
 

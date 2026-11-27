@@ -19,6 +19,15 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.525.1 -- The shipped runner image starts on arm64 too
+
+The default runner image is a multi-architecture digest that pins the reviewed arm64 manifest beside the
+x64 one, but the architecture check still blocked arm64 engines. It now reads which architectures each
+reviewed image covers, so Apple-silicon and arm64-Linux machines can use the default, and an architecture
+with no reviewed manifest is still reported before any pull.
+
+---
+
 ## v0.525.0 -- A CI gate queue, a runner that never updates itself, a trusted proxy root
 
 Set `atlasmind.ci.gateQueue.lockPath` and the local runner waits for a machine-wide lock before it starts,

@@ -389,10 +389,10 @@ section and never register the machine.
 ### Connect the AtlasMind runner in Docker Desktop
 
 AtlasMind's current local route uses GitHub's official Linux runner image inside Docker Desktop/Engine.
-The repository's tested image is pinned to runner `2.338.2` by digest on Linux x64; arm64 operators must
-select and pin the matching reviewed manifest digest in the machine-scoped image setting. Before updating
-either, compare the digest with GitHub's package page and inspect the selected platform manifest (the
-manual fallback below shows the commands).
+The repository's tested image is pinned to runner `2.338.2` by its multi-architecture index digest, which
+covers the reviewed Linux x64 and arm64 manifests, so the default runs on either. An engine of any other
+architecture is refused before the pull and must pin a digest that covers it. Before changing the pin, compare the digest with GitHub's package page and
+inspect the selected platform manifest (the manual fallback below shows the commands).
 
 #### The runner never updates itself
 
