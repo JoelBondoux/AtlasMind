@@ -47,7 +47,7 @@ extensions because VS Code 1.137.0 with Copilot Chat 0.65.0 has an open exit-cod
 
 ```bash
 npm run watch        # Watch mode — what you want during development
-npm run compile      # Full build: desktop, web type-check, and web bundle
+npm run compile      # Full build: desktop, web type-check, web bundle, and the committed media/ bundles (highlighter, CI gate queue step)
 npm test             # All tests
 npm run lint         # ESLint
 npm run typecheck:tests # Type-check the tests (the build config only covers src/)

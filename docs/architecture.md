@@ -1245,6 +1245,50 @@ and a matching `NODE_OPTIONS` heap cap), because the cgroup bounds what a suite 
 what to *ask for* — without them a job sees the host's CPU count and starts one worker per thread behind a
 much smaller quota.
 
+### CiGateQueue (`src/core/ciGateQueue.ts`, `src/cli/ciGateQueue.ts`)
+
+The machine-wide queue heavy CI work takes in turn. The resource plan admits a gate when capacity is free
+*now*, which two gates started a minute apart both see; this makes them take turns. The format is a shared
+convention and must not drift: the lock is a directory created with `mkdir` (atomic), `owner.txt` reads
+`<owner> - pid <pid> - started <ISO time>` stamped when the lock is **taken**, a lock older than the stale
+age (three hours) is taken over judged by **age only** (a pid seen across a container boundary is
+meaningless, so it is recorded and never consulted), a takeover runs only while holding `<lock>.takeover`
+and after re-checking that the lock is still stale and `owner.txt` unchanged, and release removes the lock
+only while `owner.txt` still holds the releasing holder's exact stamp. `node:fs`/`node:path` only.
+`LocalCiRunnerManager.start` waits for it after confirmation when `atlasmind.ci.gateQueue.lockPath` is set
+and holds it from before Docker is touched until the container exits; Stop while queued ends only the wait.
+`src/cli/ciGateQueue.ts` is the same lock as a command (`acquire`/`release` for GitHub Actions steps on a
+self-hosted runner, keeping the stamp in `$RUNNER_TEMP`; `run -- <cmd>` for a local gate, never through a
+shell): no-ops on a GitHub-hosted runner, fails closed on a self-hosted one with no
+`ATLASMIND_CI_GATE_LOCK`. `esbuild.config.mjs` bundles it into the committed, dependency-free
+`media/bin/atlasmind-ci-gate.mjs` other repositories copy; a test rebuilds it and fails when the committed
+file is stale or imports anything but Node built-ins.
+
+### RunnerVersionPin (`src/core/runnerVersionPin.ts`)
+
+Which runner version the pinned image holds and whether a person must review a newer one. The runner
+registers with `--disableupdate` (without it GitHub has an out-of-date ephemeral runner download and switch
+to a new binary inside the container as it takes a job, so the digest pin would not describe what ran).
+`REVIEWED_RUNNER_IMAGES` maps reviewed index and platform digests of `ghcr.io/actions/actions-runner` to
+versions (a tag or local derivative is `unknown-image`, never current); `assessRunnerVersionPin` compares
+with the latest release the caller read through `gh api repos/actions/runner/releases/latest`, warns when
+behind and says GitHub may stop assigning jobs once the newer release is past `RUNNER_UPDATE_GRACE_DAYS`
+(63, GitHub's documented window for runners with updates disabled). `runnerImageArchitectureMismatch`
+answers whether a reviewed image can run on the engine's architecture: an index digest covers every
+architecture whose manifest was reviewed with it, a per-platform digest only its own, and a missing one is a
+blocker before any pull. It never bumps a digest. Pure.
+
+### LocalCiTrustAnchor (`src/core/localCiTrustAnchor.ts`)
+
+An operator-chosen TLS-inspection root, verified before the runner trusts it: exactly one PEM certificate
+(a private key or bundle is refused), the SHA-256 fingerprint matches the separately set pin, CA, self-signed
+(an intermediate is refused) and in date. `buildLocalCiRunnerContainerArgs` then starts the container as
+root for one step only: the certificate arrives as one base64 line on stdin ahead of the token (never a host
+mount), is re-checked inside, installed with `update-ca-certificates`, and `setpriv` drops to `runner` before
+`config.sh`; only `SETUID`/`SETGID` are added back and `no-new-privileges` stays. Without an anchor the
+container shape is unchanged. `localCiCaBuildSecretArgs` hands the root to an image build as a BuildKit
+secret, never a build argument or context file. TLS verification is never disabled.
+
 ### TestResourceBudget (`src/core/testResourceBudget.ts`)
 
 The sliding scale for local test execution, and the OS reserve under it. The container runner above was the

@@ -52,6 +52,8 @@ node_modules/**/.vscode/**
 vitest.config.ts
 tsconfig*.json
 stryker.config.json
+esbuild.config.mjs
+esbuild.config.d.mts
 
 # Keep required extension assets
 !.gitignore

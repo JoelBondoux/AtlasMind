@@ -6,6 +6,61 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.525.1] - 2026-11-27
+
+### Fixed
+
+- An arm64 engine is no longer refused the shipped runner image. The default is runner 2.338.2's
+  multi-architecture index digest, which pins the reviewed arm64 manifest as well as the x64 one, but the
+  architecture check still treated it as x64-only and blocked Apple-silicon and arm64-Linux machines with a
+  "pin the arm64 digest" message. The check now reads which architectures each reviewed image covers from
+  `REVIEWED_RUNNER_IMAGES` (`runnerImageArchitectureMismatch`): an index covers every architecture whose
+  manifest was reviewed, a per-platform digest covers only its own, and an architecture with no reviewed
+  manifest (for example arm64 on the older 2.336.0 pin) is still reported before any pull, naming the
+  setting and the `imagetools inspect` command.
+
+## [0.525.0] - 2026-11-27
+
+### Added
+
+- A machine-wide CI gate queue. The local runner was admitted by free resources alone, so two gates (or a
+  gate and a runner job) started a minute apart could both run on one computer. With
+  `atlasmind.ci.gateQueue.lockPath` set, the runner (both the Pipeline route and the reviewed-PR route)
+  waits its turn after you confirm, shows who holds the queue, and holds it from before Docker is touched
+  until its container exits. The lock follows a shared convention so it interoperates with other projects'
+  gates and with people working by hand: an atomic `mkdir` directory with an `owner.txt` of
+  `<owner> - pid <pid> - started <ISO time>` stamped when it is taken, takeover of a lock older than
+  `atlasmind.ci.gateQueue.staleHours` (3) judged by age only and only under `<lock>.takeover` after a
+  re-check, and release only of the holder's own stamp (`src/core/ciGateQueue.ts`).
+- `media/bin/atlasmind-ci-gate.mjs`: the same queue as a dependency-free step for any repository.
+  `acquire` / `release` (with `if: always()`) bracket a heavy job on a persistent self-hosted runner, do
+  nothing on a GitHub-hosted runner and fail closed on a self-hosted runner with no
+  `ATLASMIND_CI_GATE_LOCK`; `run -- <command>` holds the queue around a local gate. Built from
+  `src/cli/ciGateQueue.ts` by `esbuild.mjs` and committed; a test fails when the committed file is stale.
+- A trusted TLS-inspection root without a derived image. `atlasmind.ci.localRunner.additionalCaFile` and
+  `additionalCaSha256` name a public root certificate and the fingerprint it must match. AtlasMind checks it
+  is exactly one certificate (a private key is refused), matches the pin, is a self-signed CA and is in
+  date, sends it over the container's stdin (never a host mount), re-checks it inside, adds it to the
+  container's trust store and drops to the runner user before registering. Only `SETUID`/`SETGID` are added
+  back and `no-new-privileges` stays on; TLS verification is never turned off. Builds get the root only as a
+  BuildKit secret (`src/core/localCiTrustAnchor.ts`).
+- A runner version check. Inspecting the runner reads GitHub's latest runner release and warns when the
+  pinned digest is behind it, naming the command to verify the newer digest, and says GitHub may stop
+  assigning jobs once the newer release is more than 63 days old (`src/core/runnerVersionPin.ts`).
+- `docs/design-docker-capable-runner-profile.md`: a design note (no code) for an opt-in runner whose jobs
+  may start their own database containers, with the trade-off and the lessons from building one by hand.
+
+### Changed
+
+- The runner registers with `--disableupdate`. Without it GitHub has an out-of-date ephemeral runner
+  download a new release into its container and switch to it as it takes a job, so the job ran on a binary
+  nobody reviewed rather than the pinned digest, and a failed update left the job unclaimed.
+- The default runner image is GitHub's runner **2.338.2**
+  (`ghcr.io/actions/actions-runner@sha256:6d0b2d80…c31300`, verified against the registry on 2026-11-27),
+  replacing 2.336.0, which GitHub would stop assigning jobs to once updates were disabled.
+- `docs/local-ci-and-safe-runners.md` replaces the hand-built CA image with the two settings, explains the
+  self-update decision and documents the queue and its GitHub Actions step.
+
 ## [0.524.0] - 2026-11-24
 
 ### Changed
