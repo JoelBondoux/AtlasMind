@@ -3028,6 +3028,10 @@ async function collectLocalCiSetupSteps(
     maxCpus: configuration.get<number>('ci.localRunner.maxCpus', 8),
     maxMemoryGb: configuration.get<number>('ci.localRunner.maxMemoryGb', 16),
     resourceSharePercent: configuration.get<number>('testing.resourceShare', 50),
+    gateQueueLockPath: configuration.get<string>('ci.gateQueue.lockPath', ''),
+    gateQueueStaleHours: configuration.get<number>('ci.gateQueue.staleHours', 3),
+    additionalCaFile: configuration.get<string>('ci.localRunner.additionalCaFile', ''),
+    additionalCaSha256: configuration.get<string>('ci.localRunner.additionalCaSha256', ''),
   };
 
   const inspection = configuration.inspect<boolean>('ci.localRunner.enabled');

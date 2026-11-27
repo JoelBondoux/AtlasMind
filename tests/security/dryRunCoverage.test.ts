@@ -253,6 +253,8 @@ const PUBLIC_METADATA = `Reads public model or pricing metadata; sends nothing o
 const SCRIPT_TEXT = 'The match is inside script text this module generates for another runtime (a preview page, a CI runner); the extension host never runs it.';
 
 const DRY_RUN_EXEMPT: Readonly<Record<string, string>> = {
+  'core/ciGateQueue.ts': `Creates and removes the CI gate queue lock directory and its owner.txt, a coordination record and not project state (${BOOKKEEPING}). The extension takes it only inside LocalCiRunnerManager.start, after the guardDryRun that holds the container start, so a dry run never queues.`,
+  'cli/ciGateQueue.ts': 'The standalone CI gate queue step (media/bin/atlasmind-ci-gate.mjs), run by GitHub Actions jobs and local npm scripts in its own process, where no dry-run host exists; the extension host never runs it. Its command is the script line the operator wrote, spawned without a shell.',
   'views/buzzPersonaCommands.ts': `Accepting a suggested Buzz persona writes .atlasmind/buzz-agents.json after a modal showing the team (${OPERATOR_SAVE}); preparing a deployment writes the persona manifest to AtlasMind's own storage and copies a recipe, and starts nothing (${BOOKKEEPING}).`,
   'core/buzzPersonaProfiles.ts': `${REGISTER} Nothing writes it automatically: the only caller is the Recommend Buzz Personas command, after its modal.`,
   'views/routineScheduleCommands.ts': `Writes the built-in dependency-check routine, create-only, when an operator runs the command for it (${OPERATOR_SAVE}). Approving a routine to run on its own writes only to workspace state; the run itself is held by RoutineScheduler.`,

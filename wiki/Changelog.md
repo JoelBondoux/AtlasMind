@@ -19,6 +19,16 @@ Older entries below describe the software as it was at the time and are delibera
 
 ---
 
+## v0.525.0 -- A CI gate queue, a runner that never updates itself, a trusted proxy root
+
+Set `atlasmind.ci.gateQueue.lockPath` and the local runner waits for a machine-wide lock before it starts,
+holding it until its container exits; `media/bin/atlasmind-ci-gate.mjs` gives the same queue to any
+repository's self-hosted runner jobs and local gates. The runner registers with `--disableupdate`, pins
+runner 2.338.2, and warns when GitHub has a newer release. `additionalCaFile` and `additionalCaSha256`
+trust a verified TLS-inspection root inside the container without a derived image.
+
+---
+
 ## v0.524.0 -- Plainer words, one local CI output channel
 
 "Where checks can run", "this computer, lent to one job", "GitHub's free minutes", "Proves Linux

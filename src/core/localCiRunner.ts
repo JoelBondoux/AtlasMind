@@ -29,15 +29,29 @@ import {
   type LocalCiContainerReconciliation,
   type OwnedLocalCiContainer,
 } from './localCiAdoption.js';
+import { readLocalCiTrustAnchor, type LocalCiTrustAnchor } from './localCiTrustAnchor.js';
+import {
+  CI_GATE_QUEUE_DEFAULT_STALE_MS,
+  readCiGateQueueHolder,
+  resolveCiGateQueueLockPath,
+  waitForCiGateQueueLock,
+  type CiGateQueueRelease,
+} from './ciGateQueue.js';
+import { assessRunnerVersionPin, parseLatestRunnerRelease } from './runnerVersionPin.js';
 
 const execFileAsync = promisify(execFile);
 
-export const DEFAULT_LOCAL_CI_IMAGE = 'ghcr.io/actions/actions-runner@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda';
+/**
+ * Runner 2.338.2's multi-architecture index, verified on 2026-11-27 against the
+ * registry. `REVIEWED_RUNNER_IMAGES` in `runnerVersionPin.ts` must name this
+ * digest, so its version is known and can be compared with GitHub's latest.
+ */
+export const DEFAULT_LOCAL_CI_IMAGE = 'ghcr.io/actions/actions-runner@sha256:6d0b2d80d80f143f77dcb676e50920100bbb547e39e883454d57f45ab8c31300';
 /**
  * The architecture the shipped default digest resolves to.
  *
  * A digest names one immutable thing. This one was reviewed against the Linux
- * **x64** manifest of runner 2.336.0, so on an arm64 engine it is simply the
+ * **x64** manifest of runner 2.338.2, so on an arm64 engine it is simply the
  * wrong image — and no arm64 digest ships beside it because nobody has reviewed
  * one, and inventing a plausible digest would be exactly the fabricated pin
  * `trustedLocalCiStarter` refuses to emit.
@@ -49,7 +63,7 @@ export const DEFAULT_LOCAL_CI_IMAGE = 'ghcr.io/actions/actions-runner@sha256:0cf
  */
 export const DEFAULT_LOCAL_CI_IMAGE_ARCH = 'x64';
 /** The tag the shipped digest was reviewed against, for the mismatch remedy. */
-export const DEFAULT_LOCAL_CI_IMAGE_TAG = 'ghcr.io/actions/actions-runner:2.336.0';
+export const DEFAULT_LOCAL_CI_IMAGE_TAG = 'ghcr.io/actions/actions-runner:2.338.2';
 export const LOCAL_CI_MIN_CPUS = 2;
 export const LOCAL_CI_MIN_MEMORY_GB = 4;
 export const LOCAL_CI_PIDS_LIMIT = 1024;
@@ -84,6 +98,18 @@ export interface LocalCiRunnerConfiguration {
    * reserve applies.
    */
   resourceSharePercent?: number;
+  /**
+   * `atlasmind.ci.gateQueue.lockPath` — the machine-wide CI gate queue lock
+   * (`ciGateQueue.ts`). Empty or absent means no queue: the runner is admitted
+   * by free resources alone, as before.
+   */
+  gateQueueLockPath?: string;
+  /** `atlasmind.ci.gateQueue.staleHours`; absent means the shared three hours. */
+  gateQueueStaleHours?: number;
+  /** `atlasmind.ci.localRunner.additionalCaFile` — a public root to trust, verified first. */
+  additionalCaFile?: string;
+  /** `atlasmind.ci.localRunner.additionalCaSha256` — the pin that root must match. */
+  additionalCaSha256?: string;
 }
 
 export interface LocalCiQueueInvocation {
@@ -277,6 +303,31 @@ export interface LocalCiStartPlan {
   engineWillStart: boolean;
   imageMayBePulled: boolean;
   shutdownPolicy: LocalCiShutdownPolicy;
+  /** A verified operator root the container will trust; public certificate data only. */
+  trustAnchor?: LocalCiTrustAnchor;
+  /** The machine-wide CI gate queue the start will wait for, when one is configured. */
+  gateQueue?: { lockPath: string; staleMs: number; heldBy?: string };
+}
+
+/**
+ * The queue settings as the runner uses them, or a blocker. Hours outside a
+ * sane range are refused rather than clamped: a stale age of minutes would hand
+ * a live gate's lock to the next waiter.
+ */
+function resolveLocalCiGateQueue(configuration: Pick<LocalCiRunnerConfiguration, 'gateQueueLockPath' | 'gateQueueStaleHours'>):
+  { ok: true; queue: { lockPath: string; staleMs: number } | undefined } | { ok: false; reason: string } {
+  const resolved = resolveCiGateQueueLockPath(configuration.gateQueueLockPath);
+  if (!resolved.ok) {
+    return { ok: false, reason: `atlasmind.ci.gateQueue.lockPath: ${resolved.reason}` };
+  }
+  if (!resolved.path) {
+    return { ok: true, queue: undefined };
+  }
+  const hours = configuration.gateQueueStaleHours;
+  if (hours !== undefined && (!Number.isFinite(hours) || hours < 0.25 || hours > 48)) {
+    return { ok: false, reason: 'atlasmind.ci.gateQueue.staleHours must be between 0.25 and 48 hours.' };
+  }
+  return { ok: true, queue: { lockPath: resolved.path, staleMs: hours === undefined ? CI_GATE_QUEUE_DEFAULT_STALE_MS : hours * 3_600_000 } };
 }
 
 export interface LocalCiWorkflowAssessment {
@@ -546,6 +597,106 @@ export function localCiRunnerEnvArgs(resources: Pick<LocalCiResourcePlan, 'cpus'
     '--env', `VITEST_MAX_WORKERS=${workers}`,
     '--env', `JEST_MAX_WORKERS=${workers}`,
     '--env', `NODE_OPTIONS=--max-old-space-size=${heapMb}`,
+  ];
+}
+
+export interface LocalCiRunnerContainerInput {
+  containerName: string;
+  runId: number;
+  imageId: string;
+  resources: Pick<LocalCiResourcePlan, 'cpus' | 'memoryGb' | 'pidsLimit'>;
+  repoSlug: string;
+  runnerLabel: string;
+  runnerName: string;
+  /** A root `validateLocalCiTrustAnchor` already accepted. */
+  trustAnchor?: LocalCiTrustAnchor;
+}
+
+/**
+ * Registration and start, as the runner user. `--disableupdate` is the point:
+ * without it GitHub tells an out-of-date runner to update itself as it takes a
+ * job (`run-helper.sh` exit code 4 is the *ephemeral* update path), the listener
+ * downloads the new release into this container, renames its own `bin` folder
+ * and relaunches — so the job would run on a binary nobody reviewed rather than
+ * on the pinned digest, and a failed update leaves the job unclaimed with a
+ * registration behind it. `runnerVersionPin.ts` warns when the pin falls behind
+ * instead.
+ *
+ * Contains no single quote, so it can be embedded in one for the trust-anchor
+ * path below without escaping.
+ */
+const RUNNER_REGISTER_AND_RUN = [
+  'IFS= read -r TOKEN',
+  './config.sh --url "$1" --token "$TOKEN" --ephemeral --unattended --disableupdate --no-default-labels --labels "$2" --name "$3"',
+  'unset TOKEN',
+  'exec ./run.sh',
+].join('; ');
+
+const OPERATOR_ROOT = '/usr/local/share/ca-certificates/atlasmind-operator-root.crt';
+
+/**
+ * What is written to the container's stdin before the registration token: the
+ * trust anchor's PEM as one base64 line when there is one, nothing otherwise.
+ */
+export function buildLocalCiRunnerStdinPrelude(trustAnchor: LocalCiTrustAnchor | undefined): string {
+  return trustAnchor ? `${trustAnchor.pemBase64}\n` : '';
+}
+
+/**
+ * The `docker run` arguments for one ephemeral runner.
+ *
+ * Without a trust anchor the container starts as the image's non-root `runner`
+ * user with every capability dropped — the shape this executor has always had.
+ *
+ * With one, it starts as root for exactly one step, because a trust store is
+ * root's to change: root reads the certificate from stdin (never a host mount),
+ * re-checks its SHA-256 fingerprint inside the container, installs it with
+ * `update-ca-certificates`, and `setpriv` drops to `runner` before `config.sh`
+ * reads the token. The only capabilities added are `SETUID` and `SETGID`, which
+ * leaving root needs; `no-new-privileges` still stands, so no job process can
+ * use them to come back. TLS verification is never disabled: the generated
+ * workflow points `NODE_EXTRA_CA_CERTS` at the system bundle the root has just
+ * been added to.
+ */
+export function buildLocalCiRunnerContainerArgs(input: LocalCiRunnerContainerInput): string[] {
+  const anchor = input.trustAnchor;
+  const script = anchor
+    ? [
+      'set -euo pipefail',
+      'IFS= read -r CA_B64',
+      'umask 022',
+      `printf '%s' "$CA_B64" | base64 -d > ${OPERATOR_ROOT}`,
+      'unset CA_B64',
+      `got=$(openssl x509 -in ${OPERATOR_ROOT} -noout -fingerprint -sha256 | cut -d= -f2 | tr -d : | tr A-F a-f)`,
+      `[ "$got" = "$4" ] || { echo "AtlasMind - the trust anchor fingerprint did not match inside the container; nothing was trusted." >&2; rm -f ${OPERATOR_ROOT}; exit 3; }`,
+      'update-ca-certificates > /dev/null',
+      `exec setpriv --reuid=runner --regid=runner --init-groups env HOME=/home/runner /bin/bash -lc 'set -euo pipefail; ${RUNNER_REGISTER_AND_RUN}' _ "$1" "$2" "$3"`,
+    ].join('; ')
+    : ['set -euo pipefail', RUNNER_REGISTER_AND_RUN].join('; ');
+  return [
+    'run', '--rm', '--init', '--pull', 'never', '--interactive',
+    '--name', input.containerName,
+    '--label', LOCAL_CI_LABEL,
+    '--label', `com.atlasmind.local-ci.run=${String(input.runId)}`,
+    '--cpus', String(input.resources.cpus),
+    '--memory', `${input.resources.memoryGb}g`,
+    '--memory-swap', `${input.resources.memoryGb}g`,
+    '--pids-limit', String(input.resources.pidsLimit),
+    // The cgroup limits above bound what the container *can* take; these
+    // tell the test runners inside what to *ask for*. Without them a suite
+    // sees the host's CPU count, starts one worker per thread and then
+    // fights the quota — bounded, but paying full context-switching and
+    // per-worker memory cost for parallelism it cannot use. Job steps
+    // inherit the runner process's environment, and a workflow that sets
+    // these itself still wins, so this is a default rather than a ceiling.
+    ...localCiRunnerEnvArgs(input.resources),
+    '--cap-drop', 'ALL',
+    ...(anchor ? ['--user', '0:0', '--cap-add', 'SETUID', '--cap-add', 'SETGID'] : []),
+    '--security-opt', 'no-new-privileges:true',
+    '--entrypoint', '/bin/bash',
+    input.imageId,
+    '-lc', script, '_', `https://github.com/${input.repoSlug}`, input.runnerLabel, input.runnerName,
+    ...(anchor ? [anchor.fingerprintSha256] : []),
   ];
 }
 
@@ -925,6 +1076,10 @@ export class LocalCiRunnerManager {
    * dropped freely, because ending it stops the reading and not the job.
    */
   private followProcess: ChildProcess | undefined;
+  /** The CI gate queue this runner holds, released when its container exits. */
+  private gateRelease: CiGateQueueRelease | undefined;
+  /** Aborts a start that is still waiting its turn in the queue. */
+  private gateWait: AbortController | undefined;
 
   constructor(
     private readonly workspaceRoot: string,
@@ -1159,6 +1314,41 @@ export class LocalCiRunnerManager {
         } else {
           warnings.push('The digest-pinned runner image is not installed and will be pulled after confirmation.');
         }
+      }
+    }
+
+    const gateQueue = resolveLocalCiGateQueue(configuration);
+    if (!gateQueue.ok) {
+      blockers.push(gateQueue.reason);
+    } else if (gateQueue.queue) {
+      const holder = readCiGateQueueHolder(gateQueue.queue.lockPath);
+      if (holder) {
+        warnings.push(`The CI gate queue is held by: ${holder}. A start will wait its turn.`);
+      }
+    }
+    const trustAnchor = await readLocalCiTrustAnchor({
+      file: configuration.additionalCaFile ?? '',
+      sha256: configuration.additionalCaSha256 ?? '',
+    });
+    if (!trustAnchor.ok) {
+      blockers.push(trustAnchor.reason);
+    }
+    if (prerequisites.githubAuthenticated) {
+      let latestRaw: string | undefined;
+      try {
+        latestRaw = await execCommand('gh', [
+          'api', 'repos/actions/runner/releases/latest', '--jq', '{tag: .tag_name, published: .published_at}',
+        ], this.workspaceRoot);
+      } catch {
+        latestRaw = undefined;
+      }
+      const pin = assessRunnerVersionPin({
+        image: configuration.image,
+        latest: latestRaw === undefined ? undefined : parseLatestRunnerRelease(latestRaw),
+        now: Date.now(),
+      });
+      if (pin.warning) {
+        warnings.push(pin.warning);
       }
     }
 
@@ -1435,7 +1625,21 @@ export class LocalCiRunnerManager {
       throw new Error(`A runner with label ${runnerLabel} is already registered. Remove the stale or competing runner first.`);
     }
     this.update({ preflightIssue: undefined, queuedRun, warnings: workflowAssessment.warnings, message: 'One trusted queued run passed the preflight checks.' });
+    const trustAnchor = await readLocalCiTrustAnchor({
+      file: configuration.additionalCaFile ?? '',
+      sha256: configuration.additionalCaSha256 ?? '',
+    });
+    if (!trustAnchor.ok) {
+      throw new Error(trustAnchor.reason);
+    }
+    const gateQueue = resolveLocalCiGateQueue(configuration);
+    if (!gateQueue.ok) {
+      throw new Error(gateQueue.reason);
+    }
+    const heldBy = gateQueue.queue ? readCiGateQueueHolder(gateQueue.queue.lockPath) : undefined;
     return {
+      ...(trustAnchor.anchor ? { trustAnchor: trustAnchor.anchor } : {}),
+      ...(gateQueue.queue ? { gateQueue: { ...gateQueue.queue, ...(heldBy ? { heldBy } : {}) } } : {}),
       repoSlug,
       runnerLabel,
       image: configuration.image,
@@ -1479,6 +1683,9 @@ export class LocalCiRunnerManager {
         this.update({ lifecycle: 'ready', message: error instanceof Error ? error.message : String(error) });
         return;
       }
+      if (plan.gateQueue) {
+        await this.takeGateQueue(plan);
+      }
       this.update({ lifecycle: 'starting', message: 'Starting the isolated one-job runner…' });
       await this.ensureDockerEngine();
       const inspected = await this.inspect(configuration);
@@ -1493,36 +1700,16 @@ export class LocalCiRunnerManager {
       const containerName = `atlasmind-ci-${plan.currentSha.slice(0, 12)}-${randomUUID().slice(0, 8)}`.toLowerCase();
       const runnerName = `atlasmind-${os.hostname().replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 30)}-${plan.currentSha.slice(0, 8)}`;
       const resources = inspected.resources;
-      const script = [
-        'set -euo pipefail',
-        'IFS= read -r TOKEN',
-        './config.sh --url "$1" --token "$TOKEN" --ephemeral --unattended --no-default-labels --labels "$2" --name "$3"',
-        'unset TOKEN',
-        'exec ./run.sh',
-      ].join('; ');
-      const dockerArgs = [
-        'run', '--rm', '--init', '--pull', 'never', '--interactive',
-        '--name', containerName,
-        '--label', LOCAL_CI_LABEL,
-        '--label', `com.atlasmind.local-ci.run=${String(plan.queuedRun.databaseId)}`,
-        '--cpus', String(resources.cpus),
-        '--memory', `${resources.memoryGb}g`,
-        '--memory-swap', `${resources.memoryGb}g`,
-        '--pids-limit', String(resources.pidsLimit),
-        // The cgroup limits above bound what the container *can* take; these
-        // tell the test runners inside what to *ask for*. Without them a suite
-        // sees the host's CPU count, starts one worker per thread and then
-        // fights the quota — bounded, but paying full context-switching and
-        // per-worker memory cost for parallelism it cannot use. Job steps
-        // inherit the runner process's environment, and a workflow that sets
-        // these itself still wins, so this is a default rather than a ceiling.
-        ...localCiRunnerEnvArgs(resources),
-        '--cap-drop', 'ALL',
-        '--security-opt', 'no-new-privileges:true',
-        '--entrypoint', '/bin/bash',
+      const dockerArgs = buildLocalCiRunnerContainerArgs({
+        containerName,
+        runId: plan.queuedRun.databaseId,
         imageId,
-        '-lc', script, '_', `https://github.com/${plan.repoSlug}`, actualLabel, runnerName,
-      ];
+        resources: inspected.resources,
+        repoSlug: plan.repoSlug,
+        runnerLabel: actualLabel,
+        runnerName,
+        ...(plan.trustAnchor ? { trustAnchor: plan.trustAnchor } : {}),
+      });
       const child = spawn('docker', dockerArgs, {
         cwd: this.workspaceRoot,
         windowsHide: true,
@@ -1539,6 +1726,12 @@ export class LocalCiRunnerManager {
         message: 'Registering an ephemeral runner without retaining its token…',
       });
       try {
+        // The trust anchor (public certificate data) goes first, for root to
+        // install; the token follows and only the runner user reads it.
+        const prelude = buildLocalCiRunnerStdinPrelude(plan.trustAnchor);
+        if (prelude) {
+          child.stdin.write(prelude);
+        }
         await pipeGhStdoutOrThrow(this.workspaceRoot, [
           'api', '--method', 'POST', `repos/${plan.repoSlug}/actions/runners/registration-token`, '--jq', '.token',
         ], child.stdin, { timeoutMs: 20_000 });
@@ -1548,6 +1741,14 @@ export class LocalCiRunnerManager {
       }
       this.update({ lifecycle: 'waiting', message: 'The ephemeral runner is online and waiting to claim the queued job.' });
     } catch (error) {
+      if (!this.runnerProcess) {
+        this.releaseGateQueue();
+      }
+      if (error instanceof Error && error.message.startsWith('Stopped waiting for the CI gate queue')) {
+        // Stop pressed while queued: a cancellation, not a failure. Docker was not touched yet.
+        this.update({ lifecycle: 'ready', message: 'The start was cancelled while waiting for the CI gate queue; nothing was started.' });
+        return;
+      }
       const detail = safeFailure(error);
       // A workflow that fails the policy is a *configuration* state, not a
       // runtime failure: nothing was started, and the fix is a file edit. It
@@ -1586,6 +1787,48 @@ export class LocalCiRunnerManager {
       throw error;
     } finally {
       this.operationRunning = false;
+    }
+  }
+
+  /**
+   * Wait for the machine-wide CI gate queue, then hold it until the container
+   * exits. The wait shows who holds it, and Stop ends the wait without touching
+   * anybody's lock.
+   */
+  private async takeGateQueue(plan: LocalCiStartPlan): Promise<void> {
+    const queue = plan.gateQueue!;
+    const controller = new AbortController();
+    this.gateWait = controller;
+    try {
+      this.gateRelease = await waitForCiGateQueueLock(queue.lockPath, {
+        owner: `AtlasMind trusted runner ${plan.repoSlug} run ${String(plan.queuedRun.databaseId)} on ${os.hostname()}`,
+        staleMs: queue.staleMs,
+        pollMs: 15_000,
+        signal: controller.signal,
+        log: line => {
+          this.log(`[queue] ${line}`);
+          const held = /held by: (.*)$/.exec(line);
+          if (held) {
+            this.update({ lifecycle: 'starting', message: `Waiting for the CI gate queue, held by ${held[1]}.` });
+          }
+        },
+      });
+    } finally {
+      this.gateWait = undefined;
+    }
+  }
+
+  private releaseGateQueue(): void {
+    const release = this.gateRelease;
+    this.gateRelease = undefined;
+    if (!release) {
+      return;
+    }
+    const outcome = release();
+    if (outcome === 'released') {
+      this.log('[queue] Released the CI gate queue.');
+    } else if (outcome === 'not-ours') {
+      this.log('[queue] The CI gate queue now belongs to another gate (this run outlived the stale age); left it in place.');
     }
   }
 
@@ -1707,6 +1950,12 @@ export class LocalCiRunnerManager {
   async stop(): Promise<void> {
     const containerName = this.snapshot.containerName;
     const child = this.runnerProcess;
+    if (this.gateWait) {
+      // Still waiting for the queue: nothing has started, so only the wait ends.
+      this.gateWait.abort();
+      this.log('[queue] Stop requested while waiting for the CI gate queue.');
+      return;
+    }
     if (!child && !containerName) {
       return;
     }
@@ -1756,6 +2005,7 @@ export class LocalCiRunnerManager {
 
   private async finishRun(containerName: string, configuration: LocalCiRunnerConfiguration, code: number | null): Promise<void> {
     this.log(`[runner] Container ${containerName} exited with code ${String(code)}.`);
+    this.releaseGateQueue();
     const stopped = this.stopRequested;
     this.stopRequested = false;
     const cleanExit = code === 0;

@@ -2,7 +2,7 @@
   "name": "atlasmind",
   "displayName": "AtlasMind",
   "description": "AI project management for VS Code: roadmap, risk, tech debt, compliance, testing and release tracked from your own repository — with a multi-agent AI team, or the AI coding tool you already use.",
-  "version": "0.524.0",
+  "version": "0.525.0",
   "publisher": "JoelBondoux",
   "preview": false,
   "license": "SEE LICENSE IN OSMFEULA.txt",
@@ -2807,9 +2807,39 @@
         "atlasmind.ci.localRunner.image": {
           "type": "string",
           "scope": "machine",
-          "default": "ghcr.io/actions/actions-runner@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda",
-          "description": "Runner container image. AtlasMind auto-pulls only digest-pinned references and always runs the resolved immutable image id.",
-          "markdownDescription": "The runner container image for this machine. The shipped value is an immutable GitHub Actions runner digest. AtlasMind auto-pulls only a `@sha256:` reference and then runs Docker's resolved image id.\n\nA locally built tag is accepted only when it is already installed; AtlasMind resolves it to an image id before use, so a tag cannot move between confirmation and start. This supports locally trusted CA images without teaching AtlasMind the certificate or mounting it from the host."
+          "default": "ghcr.io/actions/actions-runner@sha256:6d0b2d80d80f143f77dcb676e50920100bbb547e39e883454d57f45ab8c31300",
+          "description": "Runner container image (default: GitHub's runner 2.338.2 by digest). AtlasMind auto-pulls only digest-pinned references, always runs the resolved immutable image id, and warns when the pinned runner is behind GitHub's latest release.",
+          "markdownDescription": "The runner container image for this machine. The shipped value is an immutable GitHub Actions runner digest. AtlasMind auto-pulls only a `@sha256:` reference and then runs Docker's resolved image id.\n\nA locally built tag is accepted only when it is already installed; AtlasMind resolves it to an image id before use, so a tag cannot move between confirmation and start. The runner registers with `--disableupdate`, so it never replaces its own binaries inside the container; the job runs on this image. Inspecting the runner warns when the pinned version is behind GitHub's latest release, so you can review and pin the newer digest before GitHub stops sending jobs to it. For a TLS-inspection root, prefer `#atlasmind.ci.localRunner.additionalCaFile#` over a derived image."
+        },
+        "atlasmind.ci.localRunner.additionalCaFile": {
+          "type": "string",
+          "scope": "machine",
+          "default": "",
+          "description": "Absolute path to the PUBLIC root certificate (PEM) of a TLS-inspection proxy or antivirus, added to the runner container's trust store after verification. Empty: none.",
+          "markdownDescription": "**Off by default and machine-scoped.** The absolute path to the public root certificate (one PEM `-----BEGIN CERTIFICATE-----` block) of an HTTPS-inspection proxy or antivirus on this computer, for when the runner reports `PartialChain` or `unable to get local issuer certificate`.\n\nSet it together with `#atlasmind.ci.localRunner.additionalCaSha256#`. Before every start AtlasMind checks that the file is exactly one certificate (a private key is refused), that its SHA-256 fingerprint matches the pin, that it is a self-signed CA and that it is in date. It is then sent over the container's standard input (never mounted), re-checked inside the container and added to its own trust store; the container starts as root for that one step and drops to the runner user before registering. TLS verification is never turned off."
+        },
+        "atlasmind.ci.localRunner.additionalCaSha256": {
+          "type": "string",
+          "scope": "machine",
+          "default": "",
+          "description": "SHA-256 fingerprint the additional root certificate must match (64 hex characters; colons allowed).",
+          "markdownDescription": "The SHA-256 fingerprint `#atlasmind.ci.localRunner.additionalCaFile#` must match, as 64 hex characters (the colon-separated form OpenSSL and Windows print is accepted). Read it from the certificate you exported, for example `openssl x509 -in root.pem -noout -fingerprint -sha256`, and compare it with the fingerprint your operating system shows for the root it trusts. A file that does not match is refused, not trusted."
+        },
+        "atlasmind.ci.gateQueue.lockPath": {
+          "type": "string",
+          "scope": "machine",
+          "default": "",
+          "description": "Absolute path of a machine-wide CI gate queue lock directory. When set, the local runner waits for the lock and holds it while its container runs. Empty: no queue.",
+          "markdownDescription": "**Off by default and machine-scoped.** The absolute path of a directory lock that heavy CI work on this computer takes in turn, so two gates (or a gate and a runner job) never run at the same time on a shared machine. The free-resource check alone cannot do that: two gates started a minute apart both see free capacity.\n\nThe lock is the directory itself (created atomically), with an `owner.txt` of `<owner> - pid <pid> - started <ISO time>`; a lock older than `#atlasmind.ci.gateQueue.staleHours#` is taken over. Other projects' gates, GitHub Actions steps (`media/bin/atlasmind-ci-gate.mjs acquire` / `release`, with `ATLASMIND_CI_GATE_LOCK`) and people working by hand can share the same lock. When set, the local runner waits its turn after you confirm a start and releases the lock when its container exits."
+        },
+        "atlasmind.ci.gateQueue.staleHours": {
+          "type": "number",
+          "scope": "machine",
+          "default": 3,
+          "minimum": 0.25,
+          "maximum": 48,
+          "description": "Hours after which a CI gate queue lock is treated as abandoned and may be taken over. Judged by the lock's age only, never by a process id.",
+          "markdownDescription": "How old a CI gate queue lock must be before a waiter treats it as abandoned and takes it over. Staleness is judged by **age only**: a holder inside a container has a process id the host cannot see, so AtlasMind never decides a lock is dead from a pid. Keep this above your longest gate; the shared convention is three hours."
         },
         "atlasmind.ci.localRunner.maxCpus": {
           "type": "number",

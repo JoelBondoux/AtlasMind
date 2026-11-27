@@ -389,9 +389,33 @@ section and never register the machine.
 ### Connect the AtlasMind runner in Docker Desktop
 
 AtlasMind's current local route uses GitHub's official Linux runner image inside Docker Desktop/Engine.
-The repository's tested image is pinned to runner `2.336.0` by digest on Linux x64; arm64 operators must
+The repository's tested image is pinned to runner `2.338.2` by digest on Linux x64; arm64 operators must
 select and pin the matching reviewed manifest digest in the machine-scoped image setting. Before updating
-either, compare the digest with GitHub's package page and inspect the selected platform manifest:
+either, compare the digest with GitHub's package page and inspect the selected platform manifest (the
+manual fallback below shows the commands).
+
+#### The runner never updates itself
+
+AtlasMind registers the runner with `--disableupdate`. Without it, GitHub tells a runner that is behind its
+latest release to update itself as it takes a job. The runner's own `run-helper.sh` has an exit code (4) for
+exactly this *ephemeral* update path: the listener downloads the new release into the container, renames
+its own `bin` folder, links the new one in and relaunches. The job would then run on a binary nobody
+reviewed rather than on the pinned digest, and when the update fails part-way (a TLS-inspecting proxy
+blocking the download, or the in-container update that left one persistent runner without its
+`bin/Runner.Listener` and restart-looping) the job is left unclaimed and the registration behind it.
+
+Refusing self-update has a cost: the pin can fall behind, and GitHub's documentation says a runner with
+automatic updates disabled must move to a newer version within 63 days of its release or GitHub stops
+assigning jobs to it (sooner for a critical security update). So **Inspect prerequisites** reads GitHub's
+latest runner release (`gh api repos/actions/runner/releases/latest`) and compares it with the version the
+configured digest is known to hold (`REVIEWED_RUNNER_IMAGES` in `src/core/runnerVersionPin.ts`). When the pin
+is behind it warns, names the command to verify the newer digest, and says plainly once the newer release is
+more than 63 days old. AtlasMind never bumps the digest itself: a new digest is a supply-chain decision for a
+person. A tag or a local derivative is reported as a version AtlasMind cannot tell, not as current.
+
+To bump the pin: run `docker buildx imagetools inspect ghcr.io/actions/actions-runner:<version>`, compare the
+index digest with the registry (`docker-content-digest` from GHCR's manifest endpoint) and GitHub's package
+page, then set `atlasmind.ci.localRunner.image` to `ghcr.io/actions/actions-runner@sha256:<index digest>`.
 
 #### Use the Pipeline dashboard
 
@@ -520,10 +544,58 @@ isolation shape as the dashboard, but the dashboard additionally performs queue,
 capacity, immutable-image and Docker-ownership checks.
 
 ```powershell
-$RunnerImage = 'ghcr.io/actions/actions-runner@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda'
-docker buildx imagetools inspect ghcr.io/actions/actions-runner:2.336.0
+$RunnerImage = 'ghcr.io/actions/actions-runner@sha256:6d0b2d80d80f143f77dcb676e50920100bbb547e39e883454d57f45ab8c31300'
+docker buildx imagetools inspect ghcr.io/actions/actions-runner:2.338.2
 docker pull $RunnerImage
 ```
+
+### Queue with every other CI gate on this computer
+
+The resource plan admits a runner when enough CPU and memory are free at that moment. That is a check, not a
+queue: two gates started a minute apart both see free capacity, and so does a runner job that arrives while
+a local `ci:local` is halfway through. On a computer several projects share, the second one is what runs
+the machine out of memory. Set `atlasmind.ci.gateQueue.lockPath` to an absolute directory path (for example
+a folder every project's gates use) and heavy work takes turns:
+
+- **The lock is a directory**, created with `mkdir`, which exactly one creator wins. Inside it `owner.txt`
+  reads `<owner> - pid <pid> - started <ISO time>`, stamped when the lock is *taken*, not when waiting
+  began. Keep this exact format: it is how AtlasMind interoperates with other projects' gates and with
+  people taking the lock by hand.
+- **A lock older than `atlasmind.ci.gateQueue.staleHours` (three hours) is taken over**, judged by age only.
+  The pid is for people to read; it is never consulted, because a holder inside a container has a pid the
+  host cannot see. A takeover happens only while holding `<lock>.takeover` (also an atomic `mkdir`), after
+  re-checking that the lock is still stale and `owner.txt` is unchanged, so two waiters cannot both take it.
+- **Release removes the lock only while `owner.txt` still holds the releasing holder's exact stamp.** A gate
+  that outlived the stale age and was taken over never deletes the new holder's lock.
+
+With the setting on, **Start** waits after you confirm, shows who holds the queue, and holds it from before
+Docker is touched until the runner container exits (success, failure or Stop). Stop while waiting ends only
+the wait. The container itself still receives no host mount: the extension host holds the lock.
+
+**From a GitHub Actions job on a persistent self-hosted runner**, copy `media/bin/atlasmind-ci-gate.mjs` from
+this repository into your project (it is one dependency-free file that runs with bare `node`), mount the
+lock's folder into the runner, set `ATLASMIND_CI_GATE_LOCK` to the lock path as the container sees it, and
+bracket each heavy job:
+
+```yaml
+      - name: Join the CI gate queue
+        run: node scripts/atlasmind-ci-gate.mjs acquire
+      # … install, build and test …
+      - name: Leave the CI gate queue
+        if: always()
+        run: node scripts/atlasmind-ci-gate.mjs release
+```
+
+On a GitHub-hosted runner both steps do nothing, so one workflow serves both. On a self-hosted runner with
+no `ATLASMIND_CI_GATE_LOCK`, `acquire` fails the job: a runner that cannot queue must not run a gate's worth
+of work beside one. `acquire` keeps its stamp in `$RUNNER_TEMP`, and `release` removes exactly that lock and
+only when the held record names the configured lock. Run `acquire` after `actions/setup-node` (the runner
+image has no Node of its own). For a local gate, `node atlasmind-ci-gate.mjs run -- npm run ci:local` holds
+the queue for one command and releases it after a failure as well as a success; with no lock configured
+off a runner it simply runs the command. `ATLASMIND_CI_GATE_STALE_HOURS` overrides the three-hour stale age.
+
+A profile for jobs that start their own database containers is a separate, riskier choice; see
+[the Docker-capable runner design note](design-docker-capable-runner-profile.md).
 
 ### Troubleshooting the runner container
 
@@ -547,24 +619,41 @@ If registration reports `PartialChain` or `unable to get local issuer certificat
 certificate presented inside the container. Antivirus or enterprise TLS inspection may issue it from a
 local root that Windows trusts but the Linux VM does not. Never set `NODE_TLS_REJECT_UNAUTHORIZED=0`, use
 the runner's TLS-disable switch, or download through `curl -k`. Verify that the named issuer is an intended,
-self-signed certificate in a Windows trusted-root store, that it has no private key, and that the exported
-certificate hash matches before adding that public root to a locally derived image. A minimal Dockerfile is:
+self-signed certificate in a Windows trusted-root store and that you export only its public certificate.
+
+Then let AtlasMind trust it, with two machine-scoped settings and no derived image:
+
+1. Export the root as PEM (Windows: `certmgr.msc` → Trusted Root Certification Authorities → the issuer →
+   *Export* → Base-64 encoded X.509, or convert a `.cer` with `openssl x509 -inform DER -in root.cer -out
+   root.pem`). Keep it outside any repository.
+2. Read its fingerprint: `openssl x509 -in root.pem -noout -fingerprint -sha256`, and compare it with the
+   thumbprint your operating system shows for the root it already trusts.
+3. Set `atlasmind.ci.localRunner.additionalCaFile` to the absolute path of `root.pem` and
+   `atlasmind.ci.localRunner.additionalCaSha256` to that fingerprint (colons are accepted).
+
+**Inspect** and every **Start** then check that the file is exactly one certificate (a private key or a
+bundle is refused), that its SHA-256 matches the pin, that it is a certificate authority, that it is
+self-signed (an intermediate is refused) and that it is in date. A failing check is a blocker that names the
+reason. At start the certificate is sent over the container's standard input ahead of the registration
+token, never mounted from the host; the container starts as root for that one step, re-checks the
+fingerprint inside, adds the root to `/usr/local/share/ca-certificates` with `update-ca-certificates`, and
+`setpriv` drops to the `runner` user before `config.sh` reads the token. Only `SETUID` and `SETGID` are added
+back (which leaving root needs), every other capability stays dropped and `no-new-privileges` stays on, so
+no job process can return to root. The confirmation dialog names the root and its fingerprint. The workflow
+sets `NODE_EXTRA_CA_CERTS` to Linux's system CA bundle, which now includes the root, so JavaScript actions and
+npm verify against the same store.
+
+If you build your own image (a derived runner, or a project image whose build downloads through the proxy),
+pass the root to the build as a BuildKit secret, never with `COPY` or `--build-arg`, both of which put it in
+a layer or the image history: `docker build --secret id=atlasmind_ca,src=C:\path\root.pem .` with, in
+the Dockerfile, a step such as
 
 ```dockerfile
-FROM ghcr.io/actions/actions-runner@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda
-USER root
-COPY verified-local-root.cer /tmp/verified-local-root.cer
-RUN openssl x509 -inform DER -in /tmp/verified-local-root.cer \
-      -out /usr/local/share/ca-certificates/verified-local-root.crt \
-    && rm /tmp/verified-local-root.cer \
-    && update-ca-certificates
-USER runner
+RUN --mount=type=secret,id=atlasmind_ca,target=/run/secrets/atlasmind_ca.pem \
+    NODE_EXTRA_CA_CERTS=/run/secrets/atlasmind_ca.pem npm ci
 ```
 
-Build it under a local-only tag, smoke-test HTTPS with verification enabled, and use that tag as
-`$RunnerImage`. Do not commit the machine-specific certificate or build context. The workflow sets
-`NODE_EXTRA_CA_CERTS` to Linux's system CA bundle so JavaScript actions and npm use the same verified trust
-store as the runner.
+`localCiCaBuildSecretArgs` in `src/core/localCiTrustAnchor.ts` composes those arguments for AtlasMind code.
 
 The container receives no host filesystem mount, Docker socket, inbound port, repository secret, or OIDC
 permission. It is non-root, drops Linux capabilities, prevents privilege escalation, and is capped so a
@@ -572,13 +661,13 @@ bad job cannot consume the whole workstation. Pipe the one-hour registration tok
 input; do not put it in the Docker command, environment, image, shell history, or a transcript:
 
 ```powershell
-$RunnerImage = 'ghcr.io/actions/actions-runner@sha256:0cfdcc701ce933c6d243c6b0b2da767366dc9f2e99961d4c3754b0b78084cdda' # or the verified local-only derivative
+$RunnerImage = 'ghcr.io/actions/actions-runner@sha256:6d0b2d80d80f143f77dcb676e50920100bbb547e39e883454d57f45ab8c31300' # or the verified local-only derivative
 gh api --method POST repos/JoelBondoux/AtlasMind/actions/runners/registration-token --jq .token | `
   docker run --name atlasmind-trusted-runner --interactive --rm `
   --cpus 8 --memory 16g --pids-limit 1024 `
   --cap-drop ALL --security-opt no-new-privileges:true `
   --entrypoint /bin/bash $RunnerImage -lc `
-  'read -r TOKEN; ./config.sh --url https://github.com/JoelBondoux/AtlasMind --token "$TOKEN" --ephemeral --unattended --no-default-labels --labels atlasmind-trusted-linux-x64; unset TOKEN; exec ./run.sh'
+  'read -r TOKEN; ./config.sh --url https://github.com/JoelBondoux/AtlasMind --token "$TOKEN" --ephemeral --unattended --disableupdate --no-default-labels --labels atlasmind-trusted-linux-x64; unset TOKEN; exec ./run.sh'
 ```
 
 An owner push to `develop` queues the trusted job automatically. Once the workflow also exists on the

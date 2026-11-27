@@ -243,7 +243,11 @@ starts anything.
 | `atlasmind.ci.localRunner.workflowFile` | `trusted-local-ci.yml` | Selects the one committed workflow AtlasMind may serve; the filename itself grants no authority |
 | `atlasmind.ci.localRunner.trustedBranch` | `develop` | Requires this exact branch in the workflow, queue and current checkout |
 | `atlasmind.ci.localRunner.runnerLabel` | `atlasmind-trusted-linux-{arch}` | Uses one dedicated label, expanded from Docker's real x64/arm64 architecture |
-| `atlasmind.ci.localRunner.image` | pinned official digest | Auto-pulls only immutable digests and runs a resolved image id |
+| `atlasmind.ci.localRunner.image` | runner 2.338.2 by digest | Auto-pulls only immutable digests and runs a resolved image id; the runner never updates itself, and inspecting warns when the pin is behind GitHub's latest |
+| `atlasmind.ci.localRunner.additionalCaFile` | empty | Public root certificate of a TLS-inspection proxy, verified and added to the runner container's trust store |
+| `atlasmind.ci.localRunner.additionalCaSha256` | empty | The SHA-256 fingerprint that root must match |
+| `atlasmind.ci.gateQueue.lockPath` | empty | Machine-wide CI gate queue lock: the local runner waits its turn and holds it while running |
+| `atlasmind.ci.gateQueue.staleHours` | `3` | When a queue lock counts as abandoned (age only) |
 | `atlasmind.ci.localRunner.maxCpus` | `8` | Caps CPU after the host reserve (25%, ≥2 CPUs, measured on the real machine, not the Docker/WSL VM) and the testing resource share |
 | `atlasmind.ci.localRunner.maxMemoryGb` | `16` | Caps memory after the host reserve (25%, ≥8 GB, measured on the real machine, not the Docker/WSL VM) and the testing resource share; disables container swap |
 

@@ -6,6 +6,7 @@
 // extension host runs inside a browser Web Worker with no module resolution and
 // no Node built-ins.
 import { build, context } from 'esbuild';
+import { CI_GATE_STEP_BUNDLE_OPTIONS } from './esbuild.config.mjs';
 
 const watch = process.argv.includes('--watch');
 
@@ -65,6 +66,8 @@ async function run() {
   console.log('[esbuild] web bundle written to out/web/extension.js');
   await build(highlightOptions);
   console.log('[esbuild] highlighter bundle written to media/vendor/highlight.min.js');
+  await build(CI_GATE_STEP_BUNDLE_OPTIONS);
+  console.log('[esbuild] CI gate queue step written to media/bin/atlasmind-ci-gate.mjs');
 }
 
 run().catch(err => {

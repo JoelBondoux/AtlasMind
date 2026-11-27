@@ -420,6 +420,10 @@ function readRunnerConfiguration(config: ReviewedPrLocalCiConfig): LocalCiRunner
     maxCpus: settings.get<number>('ci.localRunner.maxCpus', 8),
     maxMemoryGb: settings.get<number>('ci.localRunner.maxMemoryGb', 16),
     resourceSharePercent: settings.get<number>('testing.resourceShare', 50),
+    gateQueueLockPath: settings.get<string>('ci.gateQueue.lockPath', ''),
+    gateQueueStaleHours: settings.get<number>('ci.gateQueue.staleHours', 3),
+    additionalCaFile: settings.get<string>('ci.localRunner.additionalCaFile', ''),
+    additionalCaSha256: settings.get<string>('ci.localRunner.additionalCaSha256', ''),
   };
 }
 
@@ -833,6 +837,14 @@ export async function runReviewedPullRequestOnLocalCi(): Promise<void> {
             `Limit: ${plan.resources.cpus} CPUs, ${plan.resources.memoryGb} GB RAM`,
             plan.engineWillStart ? 'Docker Desktop is stopped and AtlasMind will start it.' : 'Docker is already running.',
             plan.imageMayBePulled ? 'The digest-pinned runner image is absent and will be downloaded.' : 'The digest-pinned runner image is already present.',
+            ...(plan.gateQueue
+              ? [plan.gateQueue.heldBy
+                ? `CI gate queue: held by ${plan.gateQueue.heldBy}; the runner waits its turn.`
+                : `CI gate queue: the runner holds ${plan.gateQueue.lockPath} until it exits.`]
+              : []),
+            ...(plan.trustAnchor
+              ? [`Trusted root: ${plan.trustAnchor.subject}, verified and added to the container's trust store (root for that step only).`]
+              : []),
             '',
             'The worker is one-job and ephemeral. It receives no repository/environment secret, host mount, Docker socket, or native-platform authority.',
             'It still has outbound network access for GitHub and dependency installation. Start it only after reviewing the proposed code; Docker is defence in depth, not a guarantee that malicious code is safe.',

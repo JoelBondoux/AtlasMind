@@ -748,6 +748,29 @@ See [[Delivery]].
 
 ---
 
+## Lending this computer to a CI job
+
+The local runner (Project Dashboard → Pipeline) runs one already-queued, reviewed GitHub job in a throwaway
+container with no host mount, no Docker socket, no secrets and every Linux capability dropped. Three
+settings on that path change what it trusts, so they are worth knowing:
+
+- **The runner never updates itself.** It registers with `--disableupdate`, so the job runs on the image
+  digest you pinned, not on a binary the runner downloaded at job time. Inspecting the runner warns when
+  the pin is behind GitHub's latest release; AtlasMind never bumps the digest for you.
+- **A TLS-inspection root is trusted only after it is verified.** `atlasmind.ci.localRunner.additionalCaFile`
+  and `additionalCaSha256` must name one public certificate whose SHA-256 matches, which is a self-signed,
+  in-date CA; a private key is refused. It reaches the container over stdin, never a mount. To install it
+  the container starts as root for that one step, then drops to the runner user with only `SETUID` and
+  `SETGID` added back and `no-new-privileges` still on. TLS verification is never switched off.
+- **Heavy work can queue.** `atlasmind.ci.gateQueue.lockPath` makes the runner take a machine-wide lock
+  before it starts. The lock is held by the extension, not mounted into the container, and a waiter takes
+  over an abandoned lock by its age only, never by a process id it cannot see.
+
+See `docs/local-ci-and-safe-runners.md` and, for a riskier profile whose jobs could control Docker, the
+design note `docs/design-docker-capable-runner-profile.md` (not implemented).
+
+---
+
 ## Messages from other systems
 
 Project memory is committed to your repository, which makes "what may enter memory" a privacy decision.

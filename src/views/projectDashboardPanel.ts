@@ -2426,6 +2426,10 @@ function readLocalCiRunnerConfiguration(): LocalCiRunnerConfiguration {
     // Clamped inside the planner, so a hand-edited settings file cannot state
     // a share the policy would refuse.
     resourceSharePercent: configuration.get<number>('testing.resourceShare', 50),
+    gateQueueLockPath: configuration.get<string>('ci.gateQueue.lockPath', ''),
+    gateQueueStaleHours: configuration.get<number>('ci.gateQueue.staleHours', 3),
+    additionalCaFile: configuration.get<string>('ci.localRunner.additionalCaFile', ''),
+    additionalCaSha256: configuration.get<string>('ci.localRunner.additionalCaSha256', ''),
   };
 }
 
@@ -8971,6 +8975,14 @@ export class ProjectDashboardPanel {
               `Host reserve: ${plan.resources.reserveCpus} CPUs and ${plan.resources.reserveMemoryGb} GB RAM`,
               ...(plan.engineWillStart ? ['Docker Desktop is stopped and will be started.'] : []),
               ...(plan.imageMayBePulled ? ['The digest-pinned image is absent and will be downloaded.'] : []),
+              ...(plan.gateQueue
+                ? [plan.gateQueue.heldBy
+                  ? `CI gate queue: held by ${plan.gateQueue.heldBy}. The runner waits its turn, then holds ${plan.gateQueue.lockPath} until it exits.`
+                  : `CI gate queue: the runner holds ${plan.gateQueue.lockPath} until it exits, so no other gate on this computer runs beside it.`]
+                : []),
+              ...(plan.trustAnchor
+                ? [`Trusted root: ${plan.trustAnchor.subject} (SHA-256 ${plan.trustAnchor.fingerprintSha256.slice(0, 16)}…), verified and added to the container's own trust store. The container starts as root for that one step, then runs as the runner user.`]
+                : []),
               shutdown,
               '',
               // Narrowed in v0.375.0, when the Pipeline page gained a button
